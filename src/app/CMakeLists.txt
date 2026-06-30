@@ -10,13 +10,6 @@ target_sources(Hearth PRIVATE
 
 target_compile_features(Hearth PRIVATE cxx_std_20)
 
-target_compile_definitions(Hearth PRIVATE
-    JUCE_DISPLAY_SPLASH_SCREEN=0
-    JUCE_WEB_BROWSER=0
-    JUCE_USE_CURL=0
-    JUCE_VST3_CAN_REPLACE_VST2=0
-)
-
 target_link_libraries(Hearth PRIVATE
     HearthIo
     juce::juce_audio_basics
