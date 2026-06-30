@@ -1,4 +1,5 @@
 add_library(HearthEngine STATIC
+    Graph.cpp
     Transport.cpp
 )
 

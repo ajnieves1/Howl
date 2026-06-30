@@ -2,6 +2,8 @@
 // Hearth DAW: application entry point, main window, and test-tone wiring
 
 #include "core/Types.h"
+#include "engine/Graph.h"
+#include "engine/Node.h"
 #include "io/AudioDevice.h"
 
 #include <juce_core/juce_core.h>
@@ -41,6 +43,23 @@ private:
 
     double m_phase = 0.0;
     double m_phaseIncrement = 0.0;
+};
+
+// Wraps SineToneGenerator behind the Node interface so it can run inside a Graph
+class ToneSourceNode : public engine::Node {
+public:
+    // Forwards to the wrapped generator
+    void prepare(double sampleRate) {
+        m_generator.prepare(sampleRate);
+    }
+
+    // [RT] Fills the block with the wrapped generator's sine wave
+    void process(AudioBlock& audio, SampleCount) noexcept override {
+        m_generator.render(audio);
+    }
+
+private:
+    SineToneGenerator m_generator;
 };
 
 // Polls the xrun count once a second for 30 s and logs a pass/fail summary
@@ -131,9 +150,13 @@ public:
             return;
         }
 
-        m_toneGenerator.prepare(m_audioDevice.getSampleRate());
+        auto toneSource = std::make_unique<ToneSourceNode>();
+        toneSource->prepare(m_audioDevice.getSampleRate());
+        m_graph.addNode(std::move(toneSource));
+        m_graph.prepare();
+
         m_audioDevice.start([this](AudioBlock& block) {
-            m_toneGenerator.render(block);
+            m_graph.process(block, 0);
         });
 
         m_xrunWatcher = std::make_unique<XrunWatcher>(m_audioDevice);
@@ -157,7 +180,7 @@ public:
 private:
     std::unique_ptr<MainWindow> m_mainWindow;
     io::AudioDevice m_audioDevice;
-    SineToneGenerator m_toneGenerator;
+    engine::Graph m_graph;
     std::unique_ptr<XrunWatcher> m_xrunWatcher;
 };
 
