@@ -28,6 +28,8 @@ FetchContent_MakeAvailable(JUCE Catch2)
 
 list(APPEND CMAKE_MODULE_PATH ${catch2_SOURCE_DIR}/extras)
 
+enable_testing()
+
 # Applies to every target below so each JUCE module is compiled
 # with the same flags no matter which of our libraries pulls it in
 add_compile_definitions(
@@ -38,4 +40,6 @@ add_compile_definitions(
 )
 
 add_subdirectory(src/io)
+add_subdirectory(src/engine)
 add_subdirectory(src/app)
+add_subdirectory(tests)
