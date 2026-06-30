@@ -37,9 +37,11 @@ add_compile_definitions(
     JUCE_WEB_BROWSER=0
     JUCE_USE_CURL=0
     JUCE_VST3_CAN_REPLACE_VST2=0
+    JUCE_PLUGINHOST_VST3=1
 )
 
 add_subdirectory(src/io)
 add_subdirectory(src/engine)
+add_subdirectory(src/plugins)
 add_subdirectory(src/app)
 add_subdirectory(tests)

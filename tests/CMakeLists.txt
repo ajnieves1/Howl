@@ -2,6 +2,7 @@ add_executable(HearthTests
     AudioTrackTests.cpp
     GraphTests.cpp
     MeterTests.cpp
+    PluginHostTests.cpp
     TransportTests.cpp
 )
 
@@ -9,6 +10,7 @@ target_compile_features(HearthTests PRIVATE cxx_std_20)
 
 target_link_libraries(HearthTests PRIVATE
     HearthEngine
+    HearthPlugins
     Catch2::Catch2WithMain
 )
 
