@@ -1,4 +1,5 @@
 add_library(HearthEngine STATIC
+    AudioTrack.cpp
     Graph.cpp
     Transport.cpp
 )
@@ -9,6 +10,12 @@ target_include_directories(HearthEngine PUBLIC
 
 target_compile_features(HearthEngine PRIVATE cxx_std_20)
 
-target_link_libraries(HearthEngine PRIVATE
-    juce::juce_recommended_warning_flags
+find_package(Threads REQUIRED)
+
+target_link_libraries(HearthEngine
+    PUBLIC
+        HearthIo
+    PRIVATE
+        juce::juce_recommended_warning_flags
+        Threads::Threads
 )
