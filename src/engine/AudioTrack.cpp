@@ -15,7 +15,7 @@ AudioTrack::~AudioTrack() {
 
 // Opens path for writing and starts the writer thread, returns false on failure
 bool AudioTrack::startRecording(const std::string& path, double sampleRate, int numChannels) {
-    if (numChannels > kMaxChannels) {
+    if (numChannels <= 0 || numChannels > kMaxChannels) {
         return false;
     }
 
@@ -24,6 +24,11 @@ bool AudioTrack::startRecording(const std::string& path, double sampleRate, int 
     }
 
     m_numChannels = numChannels;
+    m_ringBuffers.clear();
+    for (int channel = 0; channel < numChannels; ++channel) {
+        m_ringBuffers.push_back(std::make_unique<LockFreeQueue<float, kRingBufferCapacity>>());
+    }
+
     m_recording.store(true, std::memory_order_release);
     m_writerThread = std::thread([this] { writerThreadLoop(); });
     return true;
@@ -47,7 +52,7 @@ void AudioTrack::captureBlock(const AudioBlock& input) noexcept {
     const int channelsToCapture = juce::jmin(m_numChannels, input.numChannels);
     for (int channel = 0; channel < channelsToCapture; ++channel) {
         for (int frame = 0; frame < input.numFrames; ++frame) {
-            m_ringBuffers[static_cast<std::size_t>(channel)].push(input.channels[channel][frame]);
+            m_ringBuffers[static_cast<std::size_t>(channel)]->push(input.channels[channel][frame]);
         }
     }
 }
@@ -71,7 +76,7 @@ void AudioTrack::writerThreadLoop() {
         for (int channel = 0; channel < m_numChannels; ++channel) {
             channelBuffers[static_cast<std::size_t>(channel)].clear();
             float sample = 0.0f;
-            while (m_ringBuffers[static_cast<std::size_t>(channel)].pop(sample)) {
+            while (m_ringBuffers[static_cast<std::size_t>(channel)]->pop(sample)) {
                 channelBuffers[static_cast<std::size_t>(channel)].push_back(sample);
             }
         }

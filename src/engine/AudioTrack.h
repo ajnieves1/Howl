@@ -7,10 +7,11 @@
 #include "core/Types.h"
 #include "io/AudioFile.h"
 
-#include <array>
 #include <atomic>
+#include <memory>
 #include <string>
 #include <thread>
+#include <vector>
 
 namespace hearth::engine {
 
@@ -35,13 +36,16 @@ public:
     void renderBlock(AudioBlock& output, SampleCount readPosition) const noexcept;
 
 private:
-    static constexpr int kMaxChannels = 8;
+    // Sanity bound on requested channel count, not a storage size
+    static constexpr int kMaxChannels = 64;
     static constexpr std::size_t kRingBufferCapacity = 16384;
 
     // Runs on m_writerThread until stopRecording() clears m_recording
     void writerThreadLoop();
 
-    std::array<LockFreeQueue<float, kRingBufferCapacity>, kMaxChannels> m_ringBuffers;
+    // Allocated lazily in startRecording(), one per channel, never touched
+    // by a track that only ever plays back
+    std::vector<std::unique_ptr<LockFreeQueue<float, kRingBufferCapacity>>> m_ringBuffers;
     int m_numChannels = 0;
 
     io::AudioFileWriter m_writer;
