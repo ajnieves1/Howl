@@ -1,5 +1,6 @@
 add_library(HowlEngine STATIC
     AudioTrack.cpp
+    EffectChain.cpp
     Graph.cpp
     Transport.cpp
 )
