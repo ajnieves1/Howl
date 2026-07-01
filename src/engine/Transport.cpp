@@ -69,4 +69,9 @@ SampleCount Transport::position() const noexcept {
     return m_position.load(std::memory_order_relaxed);
 }
 
+// Returns true if the playhead is currently advancing
+bool Transport::isPlaying() const noexcept {
+    return m_playing.load(std::memory_order_relaxed);
+}
+
 } // namespace hearth::engine

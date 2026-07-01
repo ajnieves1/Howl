@@ -37,6 +37,9 @@ public:
     // Deletes the note if mouseDown started a drag that never moved
     void mouseUp(const juce::MouseEvent& event) override;
 
+    // Toggles the transport between play and stop when space is pressed
+    bool keyPressed(const juce::KeyPress& key) override;
+
 private:
     static constexpr int kLowestKey = 36; // C2
     static constexpr int kHighestKey = 96; // C7

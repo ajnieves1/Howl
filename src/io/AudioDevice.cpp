@@ -48,6 +48,14 @@ double AudioDevice::getSampleRate() const {
     return 0.0;
 }
 
+// Reads the current device's buffer size
+int AudioDevice::getBufferSize() const {
+    if (auto* device = m_deviceManager.getCurrentAudioDevice()) {
+        return device->getCurrentBufferSizeSamples();
+    }
+    return 0;
+}
+
 // Reads the current device's reported xrun count
 int AudioDevice::getXRunCount() const {
     if (auto* device = m_deviceManager.getCurrentAudioDevice()) {

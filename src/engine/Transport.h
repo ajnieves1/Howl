@@ -38,6 +38,9 @@ public:
     // Reads the current playhead position
     SampleCount position() const noexcept;
 
+    // Returns true if the playhead is currently advancing
+    bool isPlaying() const noexcept;
+
 private:
     // Immutable once published, so a single atomic load in advance() always
     // sees a self-consistent start/end/enabled triple, never a torn mix

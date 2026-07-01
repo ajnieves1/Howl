@@ -13,6 +13,7 @@ PianoRoll::PianoRoll(model::MidiClip& clip, engine::Transport& transport, double
     , m_transport(transport)
     , m_sampleRate(sampleRate)
 {
+    setWantsKeyboardFocus(true);
     startTimerHz(30);
 }
 
@@ -198,6 +199,19 @@ void PianoRoll::mouseUp(const juce::MouseEvent&) {
 
     m_dragMode = DragMode::None;
     m_dragNoteIndex = -1;
+}
+
+// Toggles the transport between play and stop when space is pressed
+bool PianoRoll::keyPressed(const juce::KeyPress& key) {
+    if (key == juce::KeyPress::spaceKey) {
+        if (m_transport.isPlaying()) {
+            m_transport.stop();
+        } else {
+            m_transport.play();
+        }
+        return true;
+    }
+    return false;
 }
 
 } // namespace hearth::ui

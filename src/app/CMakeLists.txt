@@ -11,8 +11,11 @@ target_sources(Hearth PRIVATE
 target_compile_features(Hearth PRIVATE cxx_std_20)
 
 target_link_libraries(Hearth PRIVATE
+    HearthDsp
     HearthEngine
     HearthIo
+    HearthModel
+    HearthUi
     juce::juce_audio_basics
     juce::juce_audio_devices
     juce::juce_audio_formats

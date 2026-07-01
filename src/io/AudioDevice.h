@@ -37,6 +37,9 @@ public:
     // Valid after open(), 0.0 if the device is not open
     double getSampleRate() const;
 
+    // Valid after open(), 0 if the device is not open
+    int getBufferSize() const;
+
     // Number of buffer under/overruns reported by the OS, -1 if unsupported
     int getXRunCount() const;
 

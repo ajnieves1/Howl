@@ -51,3 +51,14 @@ TEST_CASE("Transport wraps multiple times within a single block", "[transport]")
     REQUIRE(blockStart == 0);
     REQUIRE(transport.position() == 30);
 }
+
+TEST_CASE("Transport.isPlaying reflects play and stop", "[transport]") {
+    Transport transport;
+    REQUIRE_FALSE(transport.isPlaying());
+
+    transport.play();
+    REQUIRE(transport.isPlaying());
+
+    transport.stop();
+    REQUIRE_FALSE(transport.isPlaying());
+}

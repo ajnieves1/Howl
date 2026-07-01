@@ -1,66 +1,21 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Hearth DAW: application entry point, main window, and test-tone wiring
+// Hearth DAW: application entry point, main window, and piano-roll wiring
 
 #include "core/Types.h"
+#include "dsp/SubtractiveSynth.h"
 #include "engine/Graph.h"
 #include "engine/Node.h"
+#include "engine/Transport.h"
 #include "io/AudioDevice.h"
+#include "model/MidiClip.h"
+#include "model/SequencerNode.h"
+#include "ui/PianoRoll.h"
 
 #include <juce_core/juce_core.h>
 #include <juce_events/juce_events.h>
 #include <juce_gui_basics/juce_gui_basics.h>
 
-#include <cmath>
-
 namespace hearth {
-
-// [RT]-safe 440 Hz sine generator, prepare() must run before render() is called
-class SineToneGenerator {
-public:
-    // Resets phase and computes the per-sample phase step
-    void prepare(double sampleRate) {
-        m_phase = 0.0;
-        m_phaseIncrement = juce::MathConstants<double>::twoPi * kFrequencyHz / sampleRate;
-    }
-
-    // [RT] Fills every channel of the block with a sine wave
-    void render(AudioBlock& block) noexcept {
-        for (int frame = 0; frame < block.numFrames; ++frame) {
-            const float sample = static_cast<float>(std::sin(m_phase)) * kAmplitude;
-            for (int channel = 0; channel < block.numChannels; ++channel) {
-                block.channels[channel][frame] = sample;
-            }
-            m_phase += m_phaseIncrement;
-            if (m_phase >= juce::MathConstants<double>::twoPi) {
-                m_phase -= juce::MathConstants<double>::twoPi;
-            }
-        }
-    }
-
-private:
-    static constexpr double kFrequencyHz = 440.0;
-    static constexpr float kAmplitude = 0.2f;
-
-    double m_phase = 0.0;
-    double m_phaseIncrement = 0.0;
-};
-
-// Wraps SineToneGenerator behind the Node interface so it can run inside a Graph
-class ToneSourceNode : public engine::Node {
-public:
-    // Forwards to the wrapped generator
-    void prepare(double sampleRate) {
-        m_generator.prepare(sampleRate);
-    }
-
-    // [RT] Fills the block with the wrapped generator's sine wave
-    void process(AudioBlock& audio, SampleCount) noexcept override {
-        m_generator.render(audio);
-    }
-
-private:
-    SineToneGenerator m_generator;
-};
 
 // Polls the xrun count once a second for 30 s and logs a pass/fail summary
 class XrunWatcher : public juce::Timer {
@@ -101,8 +56,8 @@ private:
 
 class MainWindow : public juce::DocumentWindow {
 public:
-    // Creates and shows a blank, resizable window
-    MainWindow()
+    // Creates and shows a window hosting a piano roll for clip
+    MainWindow(model::MidiClip& clip, engine::Transport& transport, double sampleRate)
         : DocumentWindow(
               "Hearth",
               juce::Desktop::getInstance().getDefaultLookAndFeel()
@@ -110,10 +65,12 @@ public:
               DocumentWindow::allButtons)
     {
         setUsingNativeTitleBar(true);
-        setContentOwned(new juce::Component(), true);
+        auto* pianoRoll = new ui::PianoRoll(clip, transport, sampleRate);
+        setContentOwned(pianoRoll, true);
         setResizable(true, true);
         centreWithSize(900, 600);
         setVisible(true);
+        pianoRoll->grabKeyboardFocus();
     }
 
     // Requests app shutdown when the window's close button is clicked
@@ -140,23 +97,29 @@ public:
         return "0.1.0";
     }
 
-    // Opens the main window, starts the audio device, and starts the xrun watcher
+    // Opens the piano roll, starts the audio device driving the sequencer, and starts the xrun watcher
     void initialise(const juce::String&) override
     {
-        m_mainWindow = std::make_unique<MainWindow>();
-
         if (!m_audioDevice.open()) {
             juce::Logger::writeToLog("Hearth: failed to open audio device");
             return;
         }
 
-        auto toneSource = std::make_unique<ToneSourceNode>();
-        toneSource->prepare(m_audioDevice.getSampleRate());
-        m_graph.addNode(std::move(toneSource));
+        const double sampleRate = m_audioDevice.getSampleRate();
+        const int bufferSize = m_audioDevice.getBufferSize();
+
+        m_synth.prepare(sampleRate, bufferSize);
+
+        auto sequencer = std::make_unique<model::SequencerNode>(m_transport, m_clip, m_synth);
+        sequencer->prepare(sampleRate);
+        m_graph.addNode(std::move(sequencer));
         m_graph.prepare();
 
+        m_mainWindow = std::make_unique<MainWindow>(m_clip, m_transport, sampleRate);
+
         m_audioDevice.start([this](AudioBlock& block) {
-            m_graph.process(block, 0);
+            const SampleCount pos = m_transport.advance(block.numFrames);
+            m_graph.process(block, pos);
         });
 
         m_xrunWatcher = std::make_unique<XrunWatcher>(m_audioDevice);
@@ -178,9 +141,12 @@ public:
     }
 
 private:
-    std::unique_ptr<MainWindow> m_mainWindow;
+    engine::Transport m_transport;
+    model::MidiClip m_clip;
+    dsp::SubtractiveSynth m_synth;
     io::AudioDevice m_audioDevice;
     engine::Graph m_graph;
+    std::unique_ptr<MainWindow> m_mainWindow;
     std::unique_ptr<XrunWatcher> m_xrunWatcher;
 };
 
