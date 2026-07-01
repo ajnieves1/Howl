@@ -43,5 +43,6 @@ add_compile_definitions(
 add_subdirectory(src/io)
 add_subdirectory(src/engine)
 add_subdirectory(src/plugins)
+add_subdirectory(src/ui)
 add_subdirectory(src/app)
 add_subdirectory(tests)
