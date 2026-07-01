@@ -1,11 +1,14 @@
 add_executable(HowlTests
+    ArrangementNodeTests.cpp
     ArrangementTests.cpp
     AudioClipTests.cpp
+    AudioTrackRendererTests.cpp
     AudioTrackTests.cpp
     ClapAdapterTests.cpp
     GraphTests.cpp
     MeterTests.cpp
     MidiClipTests.cpp
+    MidiTrackRendererTests.cpp
     PluginHostTests.cpp
     SequencerNodeTests.cpp
     SubtractiveSynthTests.cpp
