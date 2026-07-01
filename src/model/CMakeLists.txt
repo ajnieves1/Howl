@@ -8,6 +8,7 @@ add_library(HowlModel STATIC
     Commands.cpp
     MidiClip.cpp
     MidiTrackRenderer.cpp
+    OfflineRenderer.cpp
     SequencerNode.cpp
 )
 
@@ -20,6 +21,7 @@ target_compile_features(HowlModel PRIVATE cxx_std_20)
 target_link_libraries(HowlModel
     PUBLIC
         HowlEngine
+        HowlIo
     PRIVATE
         juce::juce_recommended_warning_flags
 )
