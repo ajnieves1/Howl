@@ -28,24 +28,72 @@ std::size_t Arrangement::numTracks() const {
     return m_tracks.size();
 }
 
-// Inserts placement into track(trackIndex).midiClips, kept sorted by startTick
-void Arrangement::addMidiClipPlacement(std::size_t trackIndex, const MidiClipPlacement& placement) {
+// Inserts placement into track(trackIndex).midiClips, kept sorted by startTick, returns its index
+std::size_t Arrangement::addMidiClipPlacement(std::size_t trackIndex, const MidiClipPlacement& placement) {
     auto& placements = m_tracks[trackIndex].midiClips;
     const auto insertPos = std::upper_bound(placements.begin(), placements.end(), placement,
         [](const MidiClipPlacement& a, const MidiClipPlacement& b) {
             return a.startTick < b.startTick;
         });
+    const auto index = static_cast<std::size_t>(insertPos - placements.begin());
     placements.insert(insertPos, placement);
+    return index;
 }
 
-// Inserts placement into track(trackIndex).audioClips, kept sorted by startTick
-void Arrangement::addAudioClipPlacement(std::size_t trackIndex, const AudioClipPlacement& placement) {
+// Inserts placement into track(trackIndex).audioClips, kept sorted by startTick, returns its index
+std::size_t Arrangement::addAudioClipPlacement(std::size_t trackIndex, const AudioClipPlacement& placement) {
     auto& placements = m_tracks[trackIndex].audioClips;
     const auto insertPos = std::upper_bound(placements.begin(), placements.end(), placement,
         [](const AudioClipPlacement& a, const AudioClipPlacement& b) {
             return a.startTick < b.startTick;
         });
+    const auto index = static_cast<std::size_t>(insertPos - placements.begin());
     placements.insert(insertPos, placement);
+    return index;
+}
+
+// Removes the placement at placementIndex from track(trackIndex).midiClips
+void Arrangement::removeMidiClipPlacementAt(std::size_t trackIndex, std::size_t placementIndex) {
+    auto& placements = m_tracks[trackIndex].midiClips;
+    placements.erase(placements.begin() + static_cast<std::ptrdiff_t>(placementIndex));
+}
+
+// Removes the placement at placementIndex from track(trackIndex).audioClips
+void Arrangement::removeAudioClipPlacementAt(std::size_t trackIndex, std::size_t placementIndex) {
+    auto& placements = m_tracks[trackIndex].audioClips;
+    placements.erase(placements.begin() + static_cast<std::ptrdiff_t>(placementIndex));
+}
+
+// Moves the placement at placementIndex to newStartTick, re-sorted, returns its new index
+std::size_t Arrangement::moveMidiClipPlacementAt(std::size_t trackIndex, std::size_t placementIndex, int64_t newStartTick) {
+    auto& placements = m_tracks[trackIndex].midiClips;
+    MidiClipPlacement placement = placements[placementIndex];
+    placement.startTick = newStartTick;
+    placements.erase(placements.begin() + static_cast<std::ptrdiff_t>(placementIndex));
+
+    const auto insertPos = std::upper_bound(placements.begin(), placements.end(), placement,
+        [](const MidiClipPlacement& a, const MidiClipPlacement& b) {
+            return a.startTick < b.startTick;
+        });
+    const auto newIndex = static_cast<std::size_t>(insertPos - placements.begin());
+    placements.insert(insertPos, placement);
+    return newIndex;
+}
+
+// Moves the placement at placementIndex to newStartTick, re-sorted, returns its new index
+std::size_t Arrangement::moveAudioClipPlacementAt(std::size_t trackIndex, std::size_t placementIndex, int64_t newStartTick) {
+    auto& placements = m_tracks[trackIndex].audioClips;
+    AudioClipPlacement placement = placements[placementIndex];
+    placement.startTick = newStartTick;
+    placements.erase(placements.begin() + static_cast<std::ptrdiff_t>(placementIndex));
+
+    const auto insertPos = std::upper_bound(placements.begin(), placements.end(), placement,
+        [](const AudioClipPlacement& a, const AudioClipPlacement& b) {
+            return a.startTick < b.startTick;
+        });
+    const auto newIndex = static_cast<std::size_t>(insertPos - placements.begin());
+    placements.insert(insertPos, placement);
+    return newIndex;
 }
 
 } // namespace howl::model

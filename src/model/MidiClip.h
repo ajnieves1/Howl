@@ -13,8 +13,8 @@ namespace howl::model {
 
 class MidiClip {
 public:
-    // Inserts note keeping notes() sorted by startTick
-    void addNote(const Note& note);
+    // Inserts note keeping notes() sorted by startTick, returns its index
+    std::size_t addNote(const Note& note);
 
     // Removes the note at index, index must be within notes().size()
     void removeNoteAt(std::size_t index);

@@ -4,6 +4,8 @@ add_library(HowlModel STATIC
     AudioClip.cpp
     AudioTrackRenderer.cpp
     AutomationLane.cpp
+    CommandStack.cpp
+    Commands.cpp
     MidiClip.cpp
     MidiTrackRenderer.cpp
     SequencerNode.cpp

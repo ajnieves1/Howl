@@ -52,11 +52,23 @@ public:
     // Returns the number of tracks
     std::size_t numTracks() const;
 
-    // Inserts placement into track(trackIndex).midiClips, kept sorted by startTick
-    void addMidiClipPlacement(std::size_t trackIndex, const MidiClipPlacement& placement);
+    // Inserts placement into track(trackIndex).midiClips, kept sorted by startTick, returns its index
+    std::size_t addMidiClipPlacement(std::size_t trackIndex, const MidiClipPlacement& placement);
 
-    // Inserts placement into track(trackIndex).audioClips, kept sorted by startTick
-    void addAudioClipPlacement(std::size_t trackIndex, const AudioClipPlacement& placement);
+    // Inserts placement into track(trackIndex).audioClips, kept sorted by startTick, returns its index
+    std::size_t addAudioClipPlacement(std::size_t trackIndex, const AudioClipPlacement& placement);
+
+    // Removes the placement at placementIndex from track(trackIndex).midiClips
+    void removeMidiClipPlacementAt(std::size_t trackIndex, std::size_t placementIndex);
+
+    // Removes the placement at placementIndex from track(trackIndex).audioClips
+    void removeAudioClipPlacementAt(std::size_t trackIndex, std::size_t placementIndex);
+
+    // Moves the placement at placementIndex to newStartTick, re-sorted, returns its new index
+    std::size_t moveMidiClipPlacementAt(std::size_t trackIndex, std::size_t placementIndex, int64_t newStartTick);
+
+    // Moves the placement at placementIndex to newStartTick, re-sorted, returns its new index
+    std::size_t moveAudioClipPlacementAt(std::size_t trackIndex, std::size_t placementIndex, int64_t newStartTick);
 
 private:
     std::vector<Track> m_tracks;

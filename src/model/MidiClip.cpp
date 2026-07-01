@@ -7,13 +7,15 @@
 
 namespace howl::model {
 
-// Inserts note keeping notes() sorted by startTick
-void MidiClip::addNote(const Note& note) {
+// Inserts note keeping notes() sorted by startTick, returns its index
+std::size_t MidiClip::addNote(const Note& note) {
     const auto insertPos = std::upper_bound(m_notes.begin(), m_notes.end(), note,
         [](const Note& a, const Note& b) {
             return a.startTick < b.startTick;
         });
+    const auto index = static_cast<std::size_t>(insertPos - m_notes.begin());
     m_notes.insert(insertPos, note);
+    return index;
 }
 
 // Removes the note at index, index must be within notes().size()

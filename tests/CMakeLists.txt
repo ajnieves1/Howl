@@ -6,6 +6,7 @@ add_executable(HowlTests
     AudioTrackTests.cpp
     AutomationLaneTests.cpp
     ClapAdapterTests.cpp
+    CommandStackTests.cpp
     GraphTests.cpp
     MeterTests.cpp
     MidiClipTests.cpp
