@@ -65,6 +65,27 @@ void MoveMidiClipCommand::undo() {
     m_placementIndex = m_arrangement.moveMidiClipPlacementAt(m_trackIndex, m_placementIndex, m_oldStartTick);
 }
 
+// Stores the arrangement, track, placement index, and destination tick
+MoveAudioClipCommand::MoveAudioClipCommand(Arrangement& arrangement, std::size_t trackIndex, std::size_t placementIndex,
+                                            int64_t newStartTick)
+    : m_arrangement(arrangement)
+    , m_trackIndex(trackIndex)
+    , m_placementIndex(placementIndex)
+    , m_newStartTick(newStartTick)
+{
+}
+
+// Remembers the current tick, moves the placement to the new tick
+void MoveAudioClipCommand::execute() {
+    m_oldStartTick = m_arrangement.track(m_trackIndex).audioClips[m_placementIndex].startTick;
+    m_placementIndex = m_arrangement.moveAudioClipPlacementAt(m_trackIndex, m_placementIndex, m_newStartTick);
+}
+
+// Moves the placement back to the tick it had before execute()
+void MoveAudioClipCommand::undo() {
+    m_placementIndex = m_arrangement.moveAudioClipPlacementAt(m_trackIndex, m_placementIndex, m_oldStartTick);
+}
+
 // Stores the arrangement, track, placement, and note to add on execute()
 AddNoteCommand::AddNoteCommand(Arrangement& arrangement, std::size_t trackIndex, std::size_t placementIndex, Note note)
     : m_arrangement(arrangement)

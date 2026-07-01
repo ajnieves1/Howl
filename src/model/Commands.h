@@ -63,6 +63,24 @@ private:
     int64_t m_oldStartTick = 0;
 };
 
+// Moves an audio clip placement to a new start tick, undo restores the old one
+class MoveAudioClipCommand : public Command {
+public:
+    // Stores the arrangement, track, placement index, and destination tick
+    MoveAudioClipCommand(Arrangement& arrangement, std::size_t trackIndex, std::size_t placementIndex,
+                          int64_t newStartTick);
+
+    void execute() override;
+    void undo() override;
+
+private:
+    Arrangement& m_arrangement;
+    std::size_t m_trackIndex;
+    std::size_t m_placementIndex;
+    int64_t m_newStartTick;
+    int64_t m_oldStartTick = 0;
+};
+
 // Adds a note to a placed MIDI clip, undo removes it
 class AddNoteCommand : public Command {
 public:

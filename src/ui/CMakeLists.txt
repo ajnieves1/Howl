@@ -1,4 +1,5 @@
 add_library(HowlUi STATIC
+    ArrangeView.cpp
     PianoRoll.cpp
     PluginWindow.cpp
 )

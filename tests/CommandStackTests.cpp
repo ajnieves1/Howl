@@ -2,19 +2,24 @@
 // Howl DAW: CommandStack undo, redo, and concrete command round-trip tests
 
 #include "model/Arrangement.h"
+#include "model/AudioClip.h"
 #include "model/CommandStack.h"
 #include "model/Commands.h"
 
 #include <catch2/catch_test_macros.hpp>
 
 #include <memory>
+#include <vector>
 
 using howl::model::AddMidiClipCommand;
 using howl::model::AddNoteCommand;
 using howl::model::Arrangement;
+using howl::model::AudioClip;
+using howl::model::AudioClipPlacement;
 using howl::model::CommandStack;
 using howl::model::MidiClip;
 using howl::model::MidiClipPlacement;
+using howl::model::MoveAudioClipCommand;
 using howl::model::MoveMidiClipCommand;
 using howl::model::Note;
 using howl::model::RemoveMidiClipCommand;
@@ -106,6 +111,25 @@ TEST_CASE("MoveMidiClipCommand changes a placement's start tick and undo restore
 
     stack.redo();
     REQUIRE(arrangement.track(trackIndex).midiClips[0].startTick == 1920);
+}
+
+TEST_CASE("MoveAudioClipCommand changes a placement's start tick and undo restores it", "[model]") {
+    Arrangement arrangement;
+    const std::size_t trackIndex = arrangement.addTrack("Vocals", TrackKind::Audio);
+
+    AudioClip clip(std::vector<std::vector<float>> { { 0.1f, 0.2f } }, 44100.0);
+    arrangement.addAudioClipPlacement(trackIndex, AudioClipPlacement { 0, clip });
+
+    CommandStack stack;
+    stack.perform(std::make_unique<MoveAudioClipCommand>(arrangement, trackIndex, 0, 1920));
+
+    REQUIRE(arrangement.track(trackIndex).audioClips[0].startTick == 1920);
+
+    stack.undo();
+    REQUIRE(arrangement.track(trackIndex).audioClips[0].startTick == 0);
+
+    stack.redo();
+    REQUIRE(arrangement.track(trackIndex).audioClips[0].startTick == 1920);
 }
 
 TEST_CASE("AddNoteCommand adds a note to a placed clip and undo removes it", "[model]") {
