@@ -4,10 +4,12 @@ add_library(HowlModel STATIC
     AudioClip.cpp
     AudioTrackRenderer.cpp
     AutomationLane.cpp
+    ChannelStrip.cpp
     CommandStack.cpp
     Commands.cpp
     MidiClip.cpp
     MidiTrackRenderer.cpp
+    Mixer.cpp
     OfflineRenderer.cpp
     SequencerNode.cpp
 )

@@ -5,6 +5,7 @@ add_executable(HowlTests
     AudioTrackRendererTests.cpp
     AudioTrackTests.cpp
     AutomationLaneTests.cpp
+    ChannelStripTests.cpp
     ClapAdapterTests.cpp
     CommandStackTests.cpp
     EffectChainTests.cpp
@@ -13,6 +14,7 @@ add_executable(HowlTests
     MeterTests.cpp
     MidiClipTests.cpp
     MidiTrackRendererTests.cpp
+    MixerTests.cpp
     PluginHostTests.cpp
     SequencerNodeTests.cpp
     SubtractiveSynthTests.cpp

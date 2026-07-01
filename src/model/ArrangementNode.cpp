@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Howl DAW: renders every track of an Arrangement into a scratch buffer and sums it into audio
+// Howl DAW: renders every track of an Arrangement into its own buffer and mixes them into audio
 
 #include "model/ArrangementNode.h"
 
@@ -12,21 +12,30 @@ ArrangementNode::ArrangementNode(engine::Transport& transport, Arrangement& arra
 {
 }
 
-// Sets the sample rate, builds one renderer per track, and allocates the scratch buffer
+// Sets the sample rate, builds one renderer per track, allocates per-track scratch buffers, and prepares the mixer
 void ArrangementNode::prepare(double sampleRate, int maxBlockSize, int numChannels) {
     m_maxFrames = maxBlockSize;
+    m_numChannels = numChannels;
 
-    m_scratchBuffers.assign(static_cast<std::size_t>(numChannels),
-                             std::vector<float>(static_cast<std::size_t>(maxBlockSize), 0.0f));
-    m_scratchPointers.resize(static_cast<std::size_t>(numChannels));
-    for (std::size_t i = 0; i < m_scratchPointers.size(); ++i) {
-        m_scratchPointers[i] = m_scratchBuffers[i].data();
+    const std::size_t numTracks = m_arrangement.numTracks();
+
+    m_trackChannelBuffers.assign(numTracks, std::vector<std::vector<float>>(
+        static_cast<std::size_t>(numChannels), std::vector<float>(static_cast<std::size_t>(maxBlockSize), 0.0f)));
+    m_trackChannelPointers.assign(numTracks, std::vector<float*>(static_cast<std::size_t>(numChannels)));
+    m_trackBlocks.assign(numTracks, AudioBlock { nullptr, numChannels, maxBlockSize });
+
+    for (std::size_t track = 0; track < numTracks; ++track) {
+        for (std::size_t channel = 0; channel < m_trackChannelPointers[track].size(); ++channel) {
+            m_trackChannelPointers[track][channel] = m_trackChannelBuffers[track][channel].data();
+        }
+
+        m_trackBlocks[track].channels = m_trackChannelPointers[track].data();
     }
 
     m_midiRenderers.clear();
     m_audioRenderers.clear();
 
-    for (std::size_t i = 0; i < m_arrangement.numTracks(); ++i) {
+    for (std::size_t i = 0; i < numTracks; ++i) {
         Track& track = m_arrangement.track(i);
 
         if (track.kind == TrackKind::Midi) {
@@ -41,6 +50,8 @@ void ArrangementNode::prepare(double sampleRate, int maxBlockSize, int numChanne
             m_midiRenderers.push_back(nullptr);
         }
     }
+
+    m_mixer.prepare(numTracks, sampleRate, maxBlockSize, numChannels);
 }
 
 // Assigns the instrument a given MIDI track renders through, no-op for non-MIDI tracks
@@ -50,37 +61,37 @@ void ArrangementNode::setInstrumentForTrack(std::size_t trackIndex, engine::Inst
     }
 }
 
-// [RT] Renders every track into scratch and sums into audio
+// Returns the mixer driving every track's gain, pan, mute, solo, and effects
+Mixer& ArrangementNode::mixer() {
+    return m_mixer;
+}
+
+// [RT] Renders every track into its own buffer, then mixes them into audio
 void ArrangementNode::process(AudioBlock& audio, SampleCount pos) noexcept {
-    for (int channel = 0; channel < audio.numChannels; ++channel) {
-        for (int frame = 0; frame < audio.numFrames; ++frame) {
-            audio.channels[channel][frame] = 0.0f;
-        }
-    }
-
     // Guards against a block larger than what prepare() sized the scratch
-    // buffer for, any frames beyond this stay silent rather than overrun it
+    // buffers for, any frames beyond this stay silent rather than overrun them
     const int frames = audio.numFrames > m_maxFrames ? m_maxFrames : audio.numFrames;
-    const int scratchChannels = static_cast<int>(m_scratchPointers.size()) < audio.numChannels
-        ? static_cast<int>(m_scratchPointers.size()) : audio.numChannels;
+    const int channels = m_numChannels < audio.numChannels ? m_numChannels : audio.numChannels;
 
-    AudioBlock scratch { m_scratchPointers.data(), scratchChannels, frames };
+    for (std::size_t i = 0; i < m_trackBlocks.size(); ++i) {
+        AudioBlock& trackBlock = m_trackBlocks[i];
+        trackBlock.numChannels = channels;
+        trackBlock.numFrames = frames;
 
-    for (std::size_t i = 0; i < m_midiRenderers.size(); ++i) {
-        if (m_midiRenderers[i] != nullptr) {
-            m_midiRenderers[i]->process(scratch, pos);
-        } else if (m_audioRenderers[i] != nullptr) {
-            m_audioRenderers[i]->process(scratch, pos);
+        if (i < m_midiRenderers.size() && m_midiRenderers[i] != nullptr) {
+            m_midiRenderers[i]->process(trackBlock, pos);
+        } else if (i < m_audioRenderers.size() && m_audioRenderers[i] != nullptr) {
+            m_audioRenderers[i]->process(trackBlock, pos);
         } else {
-            continue;
-        }
-
-        for (int channel = 0; channel < scratchChannels; ++channel) {
-            for (int frame = 0; frame < frames; ++frame) {
-                audio.channels[channel][frame] += scratch.channels[channel][frame];
+            for (int channel = 0; channel < trackBlock.numChannels; ++channel) {
+                for (int frame = 0; frame < trackBlock.numFrames; ++frame) {
+                    trackBlock.channels[channel][frame] = 0.0f;
+                }
             }
         }
     }
+
+    m_mixer.process(m_trackBlocks, audio, pos);
 }
 
 } // namespace howl::model
