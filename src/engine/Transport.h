@@ -26,6 +26,9 @@ public:
     // Sets the tempo in beats per minute
     void setTempo(double bpm);
 
+    // Reads the current tempo in beats per minute
+    double tempo() const noexcept;
+
     // Sets the loop region in samples, applied the next time advance() reaches loopEnd
     void setLoop(SampleCount start, SampleCount end, bool enabled);
 

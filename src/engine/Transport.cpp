@@ -30,6 +30,11 @@ void Transport::setTempo(double bpm) {
     m_tempo.store(bpm, std::memory_order_relaxed);
 }
 
+// Reads the current tempo in beats per minute
+double Transport::tempo() const noexcept {
+    return m_tempo.load(std::memory_order_relaxed);
+}
+
 // Publishes a new loop region snapshot, the old one is intentionally leaked
 // since advance() may still be reading it on the audio thread
 void Transport::setLoop(SampleCount start, SampleCount end, bool enabled) {

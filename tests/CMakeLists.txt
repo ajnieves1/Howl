@@ -5,6 +5,7 @@ add_executable(HearthTests
     MeterTests.cpp
     MidiClipTests.cpp
     PluginHostTests.cpp
+    SequencerNodeTests.cpp
     SubtractiveSynthTests.cpp
     TransportTests.cpp
     Vst3AdapterTests.cpp

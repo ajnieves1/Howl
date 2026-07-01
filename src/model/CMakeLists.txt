@@ -1,5 +1,6 @@
 add_library(HearthModel STATIC
     MidiClip.cpp
+    SequencerNode.cpp
 )
 
 target_include_directories(HearthModel PUBLIC
@@ -8,6 +9,9 @@ target_include_directories(HearthModel PUBLIC
 
 target_compile_features(HearthModel PRIVATE cxx_std_20)
 
-target_link_libraries(HearthModel PRIVATE
-    juce::juce_recommended_warning_flags
+target_link_libraries(HearthModel
+    PUBLIC
+        HearthEngine
+    PRIVATE
+        juce::juce_recommended_warning_flags
 )
