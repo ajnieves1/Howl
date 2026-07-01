@@ -7,6 +7,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <cmath>
+#include <string>
 #include <vector>
 
 using howl::AudioBlock;
@@ -100,4 +101,46 @@ TEST_CASE("SubtractiveSynth decays to near-silence after noteOff and the release
     const double rms = std::sqrt(sumSquares / blockSize);
 
     REQUIRE(rms < 0.001);
+}
+
+TEST_CASE("SubtractiveSynth reports one parameter named Filter Cutoff", "[dsp]") {
+    SubtractiveSynth synth;
+    REQUIRE(synth.numParameters() == 1);
+    REQUIRE(std::string(synth.parameterName(0)) == "Filter Cutoff");
+}
+
+TEST_CASE("SubtractiveSynth.setParameter changes the filter cutoff and audible RMS", "[dsp]") {
+    const double sampleRate = 44100.0;
+    const int blockSize = 512;
+    const int numBlocks = 20;
+
+    const auto renderRms = [&](float cutoffNormalized) {
+        SubtractiveSynth synth;
+        synth.prepare(sampleRate, blockSize);
+        synth.setParameter(0, cutoffNormalized);
+        synth.noteOn(93, 1.0f); // high note, fundamental sits inside the cutoff sweep range
+
+        float buffer[blockSize] = {};
+        float* channels[1] = { buffer };
+
+        double sumSquares = 0.0;
+        int sampleCount = 0;
+
+        for (int i = 0; i < numBlocks; ++i) {
+            AudioBlock block { channels, 1, blockSize };
+            synth.render(block);
+
+            for (float sample : buffer) {
+                sumSquares += static_cast<double>(sample) * sample;
+                ++sampleCount;
+            }
+        }
+
+        return std::sqrt(sumSquares / sampleCount);
+    };
+
+    const double lowCutoffRms = renderRms(0.0f);
+    const double highCutoffRms = renderRms(1.0f);
+
+    REQUIRE(lowCutoffRms < highCutoffRms);
 }

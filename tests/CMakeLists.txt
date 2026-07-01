@@ -4,6 +4,7 @@ add_executable(HowlTests
     AudioClipTests.cpp
     AudioTrackRendererTests.cpp
     AudioTrackTests.cpp
+    AutomationLaneTests.cpp
     ClapAdapterTests.cpp
     GraphTests.cpp
     MeterTests.cpp

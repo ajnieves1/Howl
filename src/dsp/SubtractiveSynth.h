@@ -24,8 +24,20 @@ public:
     // [RT] Clears the block, then sums every active voice into it
     void render(AudioBlock& audio) noexcept override;
 
+    // Returns 1, this synth exposes only the filter cutoff so far
+    int numParameters() const override;
+
+    // Returns the name of the parameter at index
+    const char* parameterName(int index) const override;
+
+    // [RT] Sets the filter cutoff, value is normalized 0..1 mapped log-scale to Hz
+    void setParameter(int index, float value) noexcept override;
+
 private:
     static constexpr int kNumVoices = 16;
+    static constexpr int kFilterCutoffParam = 0;
+    static constexpr double kMinFilterCutoffHz = 200.0;
+    static constexpr double kMaxFilterCutoffHz = 8000.0;
 
     enum class EnvelopeStage {
         Idle,
@@ -56,10 +68,14 @@ private:
     // [RT] Advances one voice's envelope, oscillator, and filter by one sample
     float renderVoiceSample(Voice& voice) noexcept;
 
+    // [RT] Recomputes the one-pole filter coefficient from m_filterCutoffHz and m_sampleRate
+    void recomputeFilterCoefficient() noexcept;
+
     std::array<Voice, kNumVoices> m_voices;
     double m_sampleRate = 44100.0;
     uint64_t m_sampleCounter = 0;
 
+    double m_filterCutoffHz = 4000.0;
     float m_filterCoefficient = 0.0f;
 
     float m_attackRate = 0.0f;

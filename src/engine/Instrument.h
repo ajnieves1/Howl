@@ -23,6 +23,15 @@ public:
 
     // [RT] Renders active voices into audio, overwriting the block
     virtual void render(AudioBlock& audio) noexcept = 0;
+
+    // Returns the number of automatable parameters
+    virtual int numParameters() const = 0;
+
+    // Returns the display name of the parameter at index
+    virtual const char* parameterName(int index) const = 0;
+
+    // [RT] Sets a parameter by index, value is normalized 0..1
+    virtual void setParameter(int index, float value) noexcept = 0;
 };
 
 } // namespace howl::engine

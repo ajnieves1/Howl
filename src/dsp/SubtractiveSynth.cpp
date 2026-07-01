@@ -13,7 +13,6 @@ constexpr double kAttackSeconds = 0.005;
 constexpr double kDecaySeconds = 0.05;
 constexpr float kSustainLevel = 0.7f;
 constexpr double kReleaseSeconds = 0.2;
-constexpr double kFilterCutoffHz = 4000.0;
 } // namespace
 
 // Converts a MIDI key number to frequency in Hz
@@ -31,11 +30,16 @@ void SubtractiveSynth::prepare(double sampleRate, int /*maxBlockSize*/) {
     m_sustainLevel = kSustainLevel;
     m_releaseRate = static_cast<float>(1.0 / (kReleaseSeconds * sampleRate));
 
-    m_filterCoefficient = static_cast<float>(1.0 - std::exp(-kTwoPi * kFilterCutoffHz / sampleRate));
+    recomputeFilterCoefficient();
 
     for (auto& voice : m_voices) {
         voice = Voice {};
     }
+}
+
+// [RT] Recomputes the one-pole filter coefficient from m_filterCutoffHz and m_sampleRate
+void SubtractiveSynth::recomputeFilterCoefficient() noexcept {
+    m_filterCoefficient = static_cast<float>(1.0 - std::exp(-kTwoPi * m_filterCutoffHz / m_sampleRate));
 }
 
 // Picks an idle voice first, then a releasing voice, then the oldest voice
@@ -152,6 +156,28 @@ void SubtractiveSynth::render(AudioBlock& audio) noexcept {
     }
 
     m_sampleCounter += static_cast<uint64_t>(audio.numFrames);
+}
+
+// Returns 1, this synth exposes only the filter cutoff so far
+int SubtractiveSynth::numParameters() const {
+    return 1;
+}
+
+// Returns the name of the parameter at index
+const char* SubtractiveSynth::parameterName(int /*index*/) const {
+    return "Filter Cutoff";
+}
+
+// [RT] Sets the filter cutoff, value is normalized 0..1 mapped log-scale to Hz
+void SubtractiveSynth::setParameter(int index, float value) noexcept {
+    if (index != kFilterCutoffParam) {
+        return;
+    }
+
+    const float clamped = value < 0.0f ? 0.0f : (value > 1.0f ? 1.0f : value);
+    m_filterCutoffHz = kMinFilterCutoffHz * std::pow(kMaxFilterCutoffHz / kMinFilterCutoffHz,
+                                                      static_cast<double>(clamped));
+    recomputeFilterCoefficient();
 }
 
 } // namespace howl::dsp
