@@ -1,4 +1,6 @@
 add_library(HearthModel STATIC
+    Arrangement.cpp
+    AudioClip.cpp
     MidiClip.cpp
     SequencerNode.cpp
 )
