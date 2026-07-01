@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Hearth DAW: sample-accurate playhead with play, stop, loop, and tempo
+// Howl DAW: sample-accurate playhead with play, stop, loop, and tempo
 
 #include "engine/Transport.h"
 
-namespace hearth::engine {
+namespace howl::engine {
 
 // Allocates the initial, disabled loop region snapshot
 Transport::Transport() {
@@ -74,4 +74,4 @@ bool Transport::isPlaying() const noexcept {
     return m_playing.load(std::memory_order_relaxed);
 }
 
-} // namespace hearth::engine
+} // namespace howl::engine

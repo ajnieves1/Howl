@@ -1,16 +1,16 @@
-add_library(HearthDsp STATIC
+add_library(HowlDsp STATIC
     SubtractiveSynth.cpp
 )
 
-target_include_directories(HearthDsp PUBLIC
+target_include_directories(HowlDsp PUBLIC
     ${CMAKE_SOURCE_DIR}/src
 )
 
-target_compile_features(HearthDsp PRIVATE cxx_std_20)
+target_compile_features(HowlDsp PRIVATE cxx_std_20)
 
-target_link_libraries(HearthDsp
+target_link_libraries(HowlDsp
     PUBLIC
-        HearthEngine
+        HowlEngine
     PRIVATE
         juce::juce_recommended_warning_flags
 )

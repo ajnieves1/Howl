@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Hearth DAW: the format-agnostic plugin interface and its host
+// Howl DAW: the format-agnostic plugin interface and its host
 
 #pragma once
 
@@ -11,7 +11,7 @@
 #include <string>
 #include <vector>
 
-namespace hearth::plugins {
+namespace howl::plugins {
 
 struct ParamInfo {
     uint32_t id;
@@ -61,4 +61,4 @@ public:
     virtual std::unique_ptr<IPluginInstance> instantiate(const PluginDescriptor&) = 0;
 };
 
-} // namespace hearth::plugins
+} // namespace howl::plugins

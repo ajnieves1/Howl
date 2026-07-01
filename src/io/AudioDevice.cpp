@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Hearth DAW: owns the default audio output device and drives an [RT] callback
+// Howl DAW: owns the default audio output device and drives an [RT] callback
 
 #include "io/AudioDevice.h"
 
-namespace hearth::io {
+namespace howl::io {
 
 // Zeroes the channel pointer array
 AudioDevice::AudioDevice() {
@@ -89,7 +89,7 @@ void AudioDevice::audioDeviceIOCallbackWithContext(const float* const* /*inputCh
         return;
     }
 
-    hearth::AudioBlock block { m_channelPointers, channelsToUse, numSamples };
+    howl::AudioBlock block { m_channelPointers, channelsToUse, numSamples };
     m_callback(block);
 }
 
@@ -101,4 +101,4 @@ void AudioDevice::audioDeviceAboutToStart(juce::AudioIODevice* /*device*/) {
 void AudioDevice::audioDeviceStopped() {
 }
 
-} // namespace hearth::io
+} // namespace howl::io

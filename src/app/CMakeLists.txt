@@ -1,21 +1,21 @@
-juce_add_gui_app(Hearth
-    PRODUCT_NAME "Hearth"
-    COMPANY_NAME "Hearth"
-    BUNDLE_ID    "org.hearth.daw"
+juce_add_gui_app(Howl
+    PRODUCT_NAME "Howl"
+    COMPANY_NAME "Howl"
+    BUNDLE_ID    "org.howl.daw"
 )
 
-target_sources(Hearth PRIVATE
+target_sources(Howl PRIVATE
     Main.cpp
 )
 
-target_compile_features(Hearth PRIVATE cxx_std_20)
+target_compile_features(Howl PRIVATE cxx_std_20)
 
-target_link_libraries(Hearth PRIVATE
-    HearthDsp
-    HearthEngine
-    HearthIo
-    HearthModel
-    HearthUi
+target_link_libraries(Howl PRIVATE
+    HowlDsp
+    HowlEngine
+    HowlIo
+    HowlModel
+    HowlUi
     juce::juce_audio_basics
     juce::juce_audio_devices
     juce::juce_audio_formats

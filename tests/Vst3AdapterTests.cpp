@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Hearth DAW: Vst3Adapter MIDI-in/audio-out test against a real VST3 synth
+// Howl DAW: Vst3Adapter MIDI-in/audio-out test against a real VST3 synth
 
 #include "plugins/PluginHost.h"
 
@@ -7,9 +7,9 @@
 
 #include <iostream>
 
-using hearth::AudioBlock;
-using hearth::plugins::PluginDescriptor;
-using hearth::plugins::PluginHost;
+using howl::AudioBlock;
+using howl::plugins::PluginDescriptor;
+using howl::plugins::PluginHost;
 
 TEST_CASE("Vst3Adapter feeds a MIDI note to a VST3 synth and gets non-silent audio back", "[plugins][vst3]") {
     PluginHost host;
@@ -30,7 +30,7 @@ TEST_CASE("Vst3Adapter feeds a MIDI note to a VST3 synth and gets non-silent aud
         // No VST3 instrument installed on this machine, the adapter code is
         // exercised end-to-end the moment a real synth is present, this
         // environment just cannot prove that path itself
-        std::cout << "Hearth: no VST3 instrument found, skipping Vst3Adapter audio check\n";
+        std::cout << "Howl: no VST3 instrument found, skipping Vst3Adapter audio check\n";
         return;
     }
 

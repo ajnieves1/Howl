@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Hearth DAW: plays a MidiClip through an Instrument in sync with the transport
+// Howl DAW: plays a MidiClip through an Instrument in sync with the transport
 
 #include "model/SequencerNode.h"
 
-namespace hearth::model {
+namespace howl::model {
 
 // Stores references to the transport, clip, and instrument to drive
 SequencerNode::SequencerNode(engine::Transport& transport, const MidiClip& clip, engine::Instrument& instrument)
@@ -92,4 +92,4 @@ void SequencerNode::process(AudioBlock& audio, SampleCount pos) noexcept {
     }
 }
 
-} // namespace hearth::model
+} // namespace howl::model

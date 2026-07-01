@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Hearth DAW: a fixed 16-voice subtractive synth, oscillator into a lowpass filter into an ADSR
+// Howl DAW: a fixed 16-voice subtractive synth, oscillator into a lowpass filter into an ADSR
 
 #include "dsp/SubtractiveSynth.h"
 
 #include <cmath>
 
-namespace hearth::dsp {
+namespace howl::dsp {
 
 namespace {
 constexpr double kTwoPi = 6.283185307179586476925286766559;
@@ -154,4 +154,4 @@ void SubtractiveSynth::render(AudioBlock& audio) noexcept {
     m_sampleCounter += static_cast<uint64_t>(audio.numFrames);
 }
 
-} // namespace hearth::dsp
+} // namespace howl::dsp

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Hearth DAW: loads and wraps a CLAP instance behind IPluginInstance
+// Howl DAW: loads and wraps a CLAP instance behind IPluginInstance
 
 #include "plugins/ClapAdapter.h"
 
@@ -15,7 +15,7 @@
 #include <cstdlib>
 #include <cstring>
 
-namespace hearth::plugins {
+namespace howl::plugins {
 
 namespace {
 
@@ -225,8 +225,8 @@ std::unique_ptr<ClapAdapter> ClapAdapter::load(const ClapPluginInfo& info) {
 
     impl->host.clap_version = CLAP_VERSION;
     impl->host.host_data = impl.get();
-    impl->host.name = "Hearth";
-    impl->host.vendor = "Hearth";
+    impl->host.name = "Howl";
+    impl->host.vendor = "Howl";
     impl->host.url = "https://github.com/ajnieves1/FOSSDaw";
     impl->host.version = "0.1.0";
     impl->host.get_extension = hostGetExtension;
@@ -444,4 +444,4 @@ void ClapAdapter::openEditor(void* /*nativeParentHandle*/) {
 void ClapAdapter::closeEditor() {
 }
 
-} // namespace hearth::plugins
+} // namespace howl::plugins

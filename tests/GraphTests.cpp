@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Hearth DAW: Graph and Node processing-order tests
+// Howl DAW: Graph and Node processing-order tests
 
 #include "engine/Graph.h"
 #include "engine/Node.h"
@@ -8,10 +8,10 @@
 
 #include <memory>
 
-using hearth::AudioBlock;
-using hearth::SampleCount;
-using hearth::engine::Graph;
-using hearth::engine::Node;
+using howl::AudioBlock;
+using howl::SampleCount;
+using howl::engine::Graph;
+using howl::engine::Node;
 
 namespace {
 

@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Hearth DAW: hosts a plugin's native editor in its own top-level window
+// Howl DAW: hosts a plugin's native editor in its own top-level window
 
 #include "ui/PluginWindow.h"
 
 #include <functional>
 
-namespace hearth::ui {
+namespace howl::ui {
 
 namespace {
 
@@ -75,4 +75,4 @@ void PluginWindow::close() {
     m_window.reset();
 }
 
-} // namespace hearth::ui
+} // namespace howl::ui

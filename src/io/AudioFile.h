@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Hearth DAW: WAV file writing and reading on top of JUCE's audio formats
+// Howl DAW: WAV file writing and reading on top of JUCE's audio formats
 
 #pragma once
 
@@ -10,7 +10,7 @@
 #include <memory>
 #include <string>
 
-namespace hearth::io {
+namespace howl::io {
 
 // Appends float blocks to a 16-bit WAV file, never call from the audio thread
 class AudioFileWriter {
@@ -47,4 +47,4 @@ private:
     juce::AudioBuffer<float> m_buffer;
 };
 
-} // namespace hearth::io
+} // namespace howl::io

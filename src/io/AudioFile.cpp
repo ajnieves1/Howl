@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Hearth DAW: WAV file writing and reading on top of JUCE's audio formats
+// Howl DAW: WAV file writing and reading on top of JUCE's audio formats
 
 #include "io/AudioFile.h"
 
-namespace hearth::io {
+namespace howl::io {
 
 // Closes the file if still open
 AudioFileWriter::~AudioFileWriter() {
@@ -82,4 +82,4 @@ SampleCount AudioFileReader::lengthInSamples() const noexcept {
     return m_buffer.getNumSamples();
 }
 
-} // namespace hearth::io
+} // namespace howl::io

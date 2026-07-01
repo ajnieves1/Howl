@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Hearth DAW: the interface every audio graph node implements
+// Howl DAW: the interface every audio graph node implements
 
 #pragma once
 
 #include "core/Types.h"
 
-namespace hearth::engine {
+namespace howl::engine {
 
 class Node {
 public:
@@ -16,4 +16,4 @@ public:
     virtual void process(AudioBlock& audio, SampleCount pos) noexcept = 0;
 };
 
-} // namespace hearth::engine
+} // namespace howl::engine

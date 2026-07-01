@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Hearth DAW: already-decoded audio samples for one clip, per channel
+// Howl DAW: already-decoded audio samples for one clip, per channel
 
 #pragma once
 
 #include <cstdint>
 #include <vector>
 
-namespace hearth::model {
+namespace howl::model {
 
 class AudioClip {
 public:
@@ -30,4 +30,4 @@ private:
     double m_sourceSampleRate;
 };
 
-} // namespace hearth::model
+} // namespace howl::model

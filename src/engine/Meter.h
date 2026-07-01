@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Hearth DAW: peak and RMS metering, readings flow to the UI via a lock-free queue
+// Howl DAW: peak and RMS metering, readings flow to the UI via a lock-free queue
 
 #pragma once
 
@@ -10,7 +10,7 @@
 #include <cmath>
 #include <cstddef>
 
-namespace hearth::engine {
+namespace howl::engine {
 
 struct MeterReading {
     float peak;
@@ -52,4 +52,4 @@ private:
     LockFreeQueue<MeterReading, kQueueCapacity> m_readings;
 };
 
-} // namespace hearth::engine
+} // namespace howl::engine

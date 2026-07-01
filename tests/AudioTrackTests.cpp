@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Hearth DAW: AudioTrack record-then-playback round-trip test
+// Howl DAW: AudioTrack record-then-playback round-trip test
 
 #include "engine/AudioTrack.h"
 
@@ -10,8 +10,8 @@
 #include <filesystem>
 #include <vector>
 
-using hearth::AudioBlock;
-using hearth::engine::AudioTrack;
+using howl::AudioBlock;
+using howl::engine::AudioTrack;
 
 namespace {
 
@@ -30,7 +30,7 @@ TEST_CASE("AudioTrack records to disk and plays the recording back, RMS within t
     const double sampleRate = 1000.0;
     const int numFrames = 5000; // 5 seconds at the test sample rate
     const int blockSize = 100;
-    const std::filesystem::path path = std::filesystem::temp_directory_path() / "hearth_audiotrack_test.wav";
+    const std::filesystem::path path = std::filesystem::temp_directory_path() / "howl_audiotrack_test.wav";
 
     std::vector<float> originalSamples(static_cast<std::size_t>(numFrames));
     for (int i = 0; i < numFrames; ++i) {

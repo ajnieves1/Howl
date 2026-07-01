@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Hearth DAW: tracks holding clips placed at tick positions on the timeline
+// Howl DAW: tracks holding clips placed at tick positions on the timeline
 
 #include "model/Arrangement.h"
 
 #include <algorithm>
 
-namespace hearth::model {
+namespace howl::model {
 
 // Adds an empty track of the given kind, returns its index
 std::size_t Arrangement::addTrack(const std::string& name, TrackKind kind) {
@@ -48,4 +48,4 @@ void Arrangement::addAudioClipPlacement(std::size_t trackIndex, const AudioClipP
     placements.insert(insertPos, placement);
 }
 
-} // namespace hearth::model
+} // namespace howl::model

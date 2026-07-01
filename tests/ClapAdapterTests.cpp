@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Hearth DAW: ClapAdapter MIDI-in/audio-out and state round-trip tests
+// Howl DAW: ClapAdapter MIDI-in/audio-out and state round-trip tests
 
 #include "plugins/ClapAdapter.h"
 
@@ -12,9 +12,9 @@
 #include <iostream>
 #include <optional>
 
-using hearth::AudioBlock;
-using hearth::plugins::ClapAdapter;
-using hearth::plugins::ClapPluginInfo;
+using howl::AudioBlock;
+using howl::plugins::ClapAdapter;
+using howl::plugins::ClapPluginInfo;
 
 namespace {
 
@@ -66,7 +66,7 @@ TEST_CASE("ClapAdapter feeds a MIDI note to a CLAP synth and gets non-silent aud
     if (!instrument.has_value()) {
         // No CLAP instrument installed here, the adapter path is exercised
         // whenever a real synth is present, this environment cannot prove it
-        std::cout << "Hearth: no CLAP instrument found, skipping ClapAdapter audio check\n";
+        std::cout << "Howl: no CLAP instrument found, skipping ClapAdapter audio check\n";
         return;
     }
 
@@ -83,7 +83,7 @@ TEST_CASE("ClapAdapter feeds a MIDI note to a CLAP synth and gets non-silent aud
 TEST_CASE("ClapAdapter state round-trips, a fresh instance renders the same after loadState", "[plugins][clap]") {
     const auto instrument = findClapInstrument();
     if (!instrument.has_value()) {
-        std::cout << "Hearth: no CLAP instrument found, skipping ClapAdapter state check\n";
+        std::cout << "Howl: no CLAP instrument found, skipping ClapAdapter state check\n";
         return;
     }
 

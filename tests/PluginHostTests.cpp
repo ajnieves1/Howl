@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Hearth DAW: PluginHost VST3 scan and cache-file tests
+// Howl DAW: PluginHost VST3 scan and cache-file tests
 
 #include "plugins/PluginHost.h"
 
@@ -7,7 +7,7 @@
 
 #include <iostream>
 
-using hearth::plugins::PluginHost;
+using howl::plugins::PluginHost;
 
 TEST_CASE("PluginHost scans for VST3 plugins and writes a cache file", "[plugins]") {
     PluginHost host;
@@ -19,7 +19,7 @@ TEST_CASE("PluginHost scans for VST3 plugins and writes a cache file", "[plugins
 
     // Not asserted >0 here, CI runners and most dev machines have no VST3s
     // installed, the scan and cache-write paths are what this test proves
-    std::cout << "Hearth: discovered " << descriptors.size() << " VST3 plugin(s)\n";
+    std::cout << "Howl: discovered " << descriptors.size() << " VST3 plugin(s)\n";
 
     for (const auto& descriptor : descriptors) {
         REQUIRE_FALSE(descriptor.name.empty());

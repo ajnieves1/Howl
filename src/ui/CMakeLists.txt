@@ -1,18 +1,18 @@
-add_library(HearthUi STATIC
+add_library(HowlUi STATIC
     PianoRoll.cpp
     PluginWindow.cpp
 )
 
-target_include_directories(HearthUi PUBLIC
+target_include_directories(HowlUi PUBLIC
     ${CMAKE_SOURCE_DIR}/src
 )
 
-target_compile_features(HearthUi PRIVATE cxx_std_20)
+target_compile_features(HowlUi PRIVATE cxx_std_20)
 
-target_link_libraries(HearthUi
+target_link_libraries(HowlUi
     PUBLIC
-        HearthModel
-        HearthPlugins
+        HowlModel
+        HowlPlugins
         juce::juce_gui_basics
     PRIVATE
         juce::juce_recommended_warning_flags

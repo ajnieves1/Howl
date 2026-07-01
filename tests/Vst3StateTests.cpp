@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Hearth DAW: Vst3Adapter state save and restore round-trip test
+// Howl DAW: Vst3Adapter state save and restore round-trip test
 
 #include "plugins/PluginHost.h"
 
@@ -10,10 +10,10 @@
 #include <cstddef>
 #include <iostream>
 
-using hearth::AudioBlock;
-using hearth::plugins::IPluginInstance;
-using hearth::plugins::PluginDescriptor;
-using hearth::plugins::PluginHost;
+using howl::AudioBlock;
+using howl::plugins::IPluginInstance;
+using howl::plugins::PluginDescriptor;
+using howl::plugins::PluginHost;
 
 namespace {
 
@@ -68,7 +68,7 @@ TEST_CASE("Vst3Adapter state round-trips, a fresh instance renders the same afte
     if (synth == nullptr) {
         // Same environment limitation as the P2-T2 test, no VST3 instrument
         // is installed here to actually prove the round trip against
-        std::cout << "Hearth: no VST3 instrument found, skipping state round-trip check\n";
+        std::cout << "Howl: no VST3 instrument found, skipping state round-trip check\n";
         return;
     }
 

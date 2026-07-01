@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Hearth DAW: wraps a loaded VST3 instance behind IPluginInstance
+// Howl DAW: wraps a loaded VST3 instance behind IPluginInstance
 
 #include "plugins/Vst3Adapter.h"
 
 #include <cstring>
 
-namespace hearth::plugins {
+namespace howl::plugins {
 
 // Takes ownership of an already-created plugin instance
 Vst3Adapter::Vst3Adapter(std::unique_ptr<juce::AudioPluginInstance> pluginInstance)
@@ -109,4 +109,4 @@ void Vst3Adapter::closeEditor() {
     }
 }
 
-} // namespace hearth::plugins
+} // namespace howl::plugins

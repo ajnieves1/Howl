@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Hearth DAW: Arrangement track and clip placement ordering tests
+// Howl DAW: Arrangement track and clip placement ordering tests
 
 #include "model/Arrangement.h"
 
 #include <catch2/catch_test_macros.hpp>
 
-using hearth::model::Arrangement;
-using hearth::model::AudioClip;
-using hearth::model::AudioClipPlacement;
-using hearth::model::MidiClip;
-using hearth::model::MidiClipPlacement;
-using hearth::model::Note;
-using hearth::model::TrackKind;
+using howl::model::Arrangement;
+using howl::model::AudioClip;
+using howl::model::AudioClipPlacement;
+using howl::model::MidiClip;
+using howl::model::MidiClipPlacement;
+using howl::model::Note;
+using howl::model::TrackKind;
 
 TEST_CASE("Arrangement adds tracks of each kind and returns their index", "[model]") {
     Arrangement arrangement;

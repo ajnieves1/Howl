@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Hearth DAW: SequencerNode timing and audio-through-instrument tests
+// Howl DAW: SequencerNode timing and audio-through-instrument tests
 
 #include "dsp/SubtractiveSynth.h"
 #include "engine/Transport.h"
@@ -10,14 +10,14 @@
 
 #include <cmath>
 
-using hearth::AudioBlock;
-using hearth::SampleCount;
-using hearth::dsp::SubtractiveSynth;
-using hearth::engine::Transport;
-using hearth::model::kTicksPerQuarter;
-using hearth::model::MidiClip;
-using hearth::model::Note;
-using hearth::model::SequencerNode;
+using howl::AudioBlock;
+using howl::SampleCount;
+using howl::dsp::SubtractiveSynth;
+using howl::engine::Transport;
+using howl::model::kTicksPerQuarter;
+using howl::model::MidiClip;
+using howl::model::Note;
+using howl::model::SequencerNode;
 
 namespace {
 

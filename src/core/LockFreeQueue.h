@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Hearth DAW: single-producer single-consumer, fixed-capacity, [RT]-safe queue
+// Howl DAW: single-producer single-consumer, fixed-capacity, [RT]-safe queue
 
 #pragma once
 
@@ -7,7 +7,7 @@
 #include <atomic>
 #include <cstddef>
 
-namespace hearth {
+namespace howl {
 
 template <typename T, std::size_t Capacity>
 class LockFreeQueue {
@@ -51,4 +51,4 @@ private:
     std::atomic<std::size_t> m_readIndex { 0 };
 };
 
-} // namespace hearth
+} // namespace howl

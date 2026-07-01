@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Hearth DAW: owns the default audio output device and drives an [RT] callback
+// Howl DAW: owns the default audio output device and drives an [RT] callback
 
 #pragma once
 
@@ -9,10 +9,10 @@
 
 #include <functional>
 
-namespace hearth::io {
+namespace howl::io {
 
 // [RT] Runs on the audio thread, no allocation, no locks, no GUI calls
-using AudioCallback = std::function<void(hearth::AudioBlock&)>;
+using AudioCallback = std::function<void(howl::AudioBlock&)>;
 
 class AudioDevice : private juce::AudioIODeviceCallback {
 public:
@@ -68,4 +68,4 @@ private:
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(AudioDevice)
 };
 
-} // namespace hearth::io
+} // namespace howl::io

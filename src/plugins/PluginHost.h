@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Hearth DAW: scans system VST3 plugins on a background thread, caches the result
+// Howl DAW: scans system VST3 plugins on a background thread, caches the result
 
 #pragma once
 
@@ -13,7 +13,7 @@
 #include <thread>
 #include <vector>
 
-namespace hearth::plugins {
+namespace howl::plugins {
 
 class PluginHost : public IPluginHost {
 public:
@@ -55,4 +55,4 @@ private:
     std::atomic<bool> m_scanning { false };
 };
 
-} // namespace hearth::plugins
+} // namespace howl::plugins

@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Hearth DAW: records input to disk via a ring buffer, plays a file back
+// Howl DAW: records input to disk via a ring buffer, plays a file back
 
 #include "engine/AudioTrack.h"
 
 #include <chrono>
 #include <vector>
 
-namespace hearth::engine {
+namespace howl::engine {
 
 // Stops any in-progress recording
 AudioTrack::~AudioTrack() {
@@ -101,4 +101,4 @@ void AudioTrack::writerThreadLoop() {
     drainOnce();
 }
 
-} // namespace hearth::engine
+} // namespace howl::engine

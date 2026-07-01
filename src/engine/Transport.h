@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Hearth DAW: sample-accurate playhead with play, stop, loop, and tempo
+// Howl DAW: sample-accurate playhead with play, stop, loop, and tempo
 
 #pragma once
 
@@ -7,7 +7,7 @@
 
 #include <atomic>
 
-namespace hearth::engine {
+namespace howl::engine {
 
 class Transport {
 public:
@@ -56,4 +56,4 @@ private:
     std::atomic<const LoopRegion*> m_loopRegion;
 };
 
-} // namespace hearth::engine
+} // namespace howl::engine

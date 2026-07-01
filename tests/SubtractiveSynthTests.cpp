@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Hearth DAW: SubtractiveSynth pitch, amplitude, and release decay tests
+// Howl DAW: SubtractiveSynth pitch, amplitude, and release decay tests
 
 #include "dsp/SubtractiveSynth.h"
 
@@ -9,8 +9,8 @@
 #include <cmath>
 #include <vector>
 
-using hearth::AudioBlock;
-using hearth::dsp::SubtractiveSynth;
+using howl::AudioBlock;
+using howl::dsp::SubtractiveSynth;
 
 namespace {
 

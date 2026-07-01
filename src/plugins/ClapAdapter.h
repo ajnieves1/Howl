@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Hearth DAW: loads and wraps a CLAP instance behind IPluginInstance
+// Howl DAW: loads and wraps a CLAP instance behind IPluginInstance
 
 #pragma once
 
@@ -9,7 +9,7 @@
 #include <string>
 #include <vector>
 
-namespace hearth::plugins {
+namespace howl::plugins {
 
 // One CLAP plugin found on disk, a single .clap file may contain several
 struct ClapPluginInfo {
@@ -71,4 +71,4 @@ private:
     std::vector<ParamInfo> m_params;
 };
 
-} // namespace hearth::plugins
+} // namespace howl::plugins

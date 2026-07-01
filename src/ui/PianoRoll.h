@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Hearth DAW: shows and edits a MidiClip, draws the transport playhead
+// Howl DAW: shows and edits a MidiClip, draws the transport playhead
 
 #pragma once
 
@@ -10,7 +10,7 @@
 
 #include <cstdint>
 
-namespace hearth::ui {
+namespace howl::ui {
 
 // v1 scope: click empty space to add a note, click an existing note without
 // dragging to delete it, drag its body to move it or its right edge to
@@ -89,4 +89,4 @@ private:
     bool m_hasDraggedBeyondThreshold = false;
 };
 
-} // namespace hearth::ui
+} // namespace howl::ui

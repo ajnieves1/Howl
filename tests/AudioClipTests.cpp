@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Hearth DAW: AudioClip channel and length round-trip tests
+// Howl DAW: AudioClip channel and length round-trip tests
 
 #include "model/AudioClip.h"
 
@@ -7,7 +7,7 @@
 
 #include <vector>
 
-using hearth::model::AudioClip;
+using howl::model::AudioClip;
 
 TEST_CASE("AudioClip reports channel count, length, and sample rate", "[model]") {
     std::vector<std::vector<float>> channels = {

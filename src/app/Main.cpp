@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Hearth DAW: application entry point, main window, and piano-roll wiring
+// Howl DAW: application entry point, main window, and piano-roll wiring
 
 #include "core/Types.h"
 #include "dsp/SubtractiveSynth.h"
@@ -15,7 +15,7 @@
 #include <juce_events/juce_events.h>
 #include <juce_gui_basics/juce_gui_basics.h>
 
-namespace hearth {
+namespace howl {
 
 // Polls the xrun count once a second for 30 s and logs a pass/fail summary
 class XrunWatcher : public juce::Timer {
@@ -36,13 +36,13 @@ public:
     void timerCallback() override {
         ++m_secondsElapsed;
         const int xruns = m_device.getXRunCount();
-        juce::Logger::writeToLog("Hearth: t=" + juce::String(m_secondsElapsed)
+        juce::Logger::writeToLog("Howl: t=" + juce::String(m_secondsElapsed)
                                   + "s xrunCount=" + juce::String(xruns));
 
         if (m_secondsElapsed >= kWatchDurationSeconds) {
             stopTimer();
             const juce::String verdict = xruns == 0 ? "PASS" : "FAIL";
-            juce::Logger::writeToLog("Hearth: " + verdict + " - xrunCount=" + juce::String(xruns)
+            juce::Logger::writeToLog("Howl: " + verdict + " - xrunCount=" + juce::String(xruns)
                                       + " over " + juce::String(kWatchDurationSeconds) + "s");
         }
     }
@@ -59,7 +59,7 @@ public:
     // Creates and shows a window hosting a piano roll for clip
     MainWindow(model::MidiClip& clip, engine::Transport& transport, double sampleRate)
         : DocumentWindow(
-              "Hearth",
+              "Howl",
               juce::Desktop::getInstance().getDefaultLookAndFeel()
                   .findColour(juce::ResizableWindow::backgroundColourId),
               DocumentWindow::allButtons)
@@ -83,12 +83,12 @@ private:
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainWindow)
 };
 
-class HearthApp : public juce::JUCEApplication {
+class HowlApp : public juce::JUCEApplication {
 public:
     // Returns the app's display name
     const juce::String getApplicationName() override
     {
-        return "Hearth";
+        return "Howl";
     }
 
     // Returns the app's version string
@@ -101,7 +101,7 @@ public:
     void initialise(const juce::String&) override
     {
         if (!m_audioDevice.open()) {
-            juce::Logger::writeToLog("Hearth: failed to open audio device");
+            juce::Logger::writeToLog("Howl: failed to open audio device");
             return;
         }
 
@@ -150,6 +150,6 @@ private:
     std::unique_ptr<XrunWatcher> m_xrunWatcher;
 };
 
-} // namespace hearth
+} // namespace howl
 
-START_JUCE_APPLICATION(hearth::HearthApp)
+START_JUCE_APPLICATION(howl::HowlApp)

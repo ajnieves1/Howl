@@ -2,7 +2,7 @@
 # cmake --build build
 # winget install Microsoft.VisualStudio.2022.BuildTools
 cmake_minimum_required(VERSION 3.22)
-project(Hearth VERSION 0.1.0 LANGUAGES C CXX)
+project(Howl VERSION 0.1.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

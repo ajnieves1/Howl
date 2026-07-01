@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Hearth DAW: an ordered collection of notes with a fixed length in ticks
+// Howl DAW: an ordered collection of notes with a fixed length in ticks
 
 #pragma once
 
@@ -9,7 +9,7 @@
 #include <cstdint>
 #include <vector>
 
-namespace hearth::model {
+namespace howl::model {
 
 class MidiClip {
 public:
@@ -36,4 +36,4 @@ private:
     int64_t m_lengthTicks = 0;
 };
 
-} // namespace hearth::model
+} // namespace howl::model

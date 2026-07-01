@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Hearth DAW: Meter peak and RMS reading tests
+// Howl DAW: Meter peak and RMS reading tests
 
 #include "engine/Meter.h"
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
-using hearth::AudioBlock;
-using hearth::engine::Meter;
-using hearth::engine::MeterReading;
+using howl::AudioBlock;
+using howl::engine::Meter;
+using howl::engine::MeterReading;
 
 TEST_CASE("Meter reports the correct peak for a known block", "[meter]") {
     float samples[4] = { 0.2f, -0.8f, 0.5f, -0.1f };

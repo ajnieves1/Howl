@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Hearth DAW: shows and edits a MidiClip, draws the transport playhead
+// Howl DAW: shows and edits a MidiClip, draws the transport playhead
 
 #include "ui/PianoRoll.h"
 
 #include <cmath>
 
-namespace hearth::ui {
+namespace howl::ui {
 
 // Stores references to the clip and transport, starts the playhead timer
 PianoRoll::PianoRoll(model::MidiClip& clip, engine::Transport& transport, double sampleRate)
@@ -214,4 +214,4 @@ bool PianoRoll::keyPressed(const juce::KeyPress& key) {
     return false;
 }
 
-} // namespace hearth::ui
+} // namespace howl::ui

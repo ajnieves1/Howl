@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Hearth DAW: already-decoded audio samples for one clip, per channel
+// Howl DAW: already-decoded audio samples for one clip, per channel
 
 #include "model/AudioClip.h"
 
-namespace hearth::model {
+namespace howl::model {
 
 // channels: one vector per channel, all the same length
 AudioClip::AudioClip(std::vector<std::vector<float>> channels, double sourceSampleRate)
@@ -32,4 +32,4 @@ const float* AudioClip::channelData(int index) const {
     return m_channels[static_cast<std::size_t>(index)].data();
 }
 
-} // namespace hearth::model
+} // namespace howl::model

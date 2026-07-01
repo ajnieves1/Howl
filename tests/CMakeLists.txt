@@ -1,4 +1,4 @@
-add_executable(HearthTests
+add_executable(HowlTests
     ArrangementTests.cpp
     AudioClipTests.cpp
     AudioTrackTests.cpp
@@ -14,15 +14,15 @@ add_executable(HearthTests
     Vst3StateTests.cpp
 )
 
-target_compile_features(HearthTests PRIVATE cxx_std_20)
+target_compile_features(HowlTests PRIVATE cxx_std_20)
 
-target_link_libraries(HearthTests PRIVATE
-    HearthDsp
-    HearthEngine
-    HearthModel
-    HearthPlugins
+target_link_libraries(HowlTests PRIVATE
+    HowlDsp
+    HowlEngine
+    HowlModel
+    HowlPlugins
     Catch2::Catch2WithMain
 )
 
 include(Catch)
-catch_discover_tests(HearthTests)
+catch_discover_tests(HowlTests)

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Hearth DAW: plays a MidiClip through an Instrument in sync with the transport
+// Howl DAW: plays a MidiClip through an Instrument in sync with the transport
 
 #pragma once
 
@@ -9,7 +9,7 @@
 #include "engine/Transport.h"
 #include "model/MidiClip.h"
 
-namespace hearth::model {
+namespace howl::model {
 
 class SequencerNode : public engine::Node {
 public:
@@ -46,4 +46,4 @@ private:
     float* m_channelPointers[kMaxChannels] {};
 };
 
-} // namespace hearth::model
+} // namespace howl::model

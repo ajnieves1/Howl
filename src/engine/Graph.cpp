@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Hearth DAW: owns graph nodes and processes them in topological order
+// Howl DAW: owns graph nodes and processes them in topological order
 
 #include "engine/Graph.h"
 
-namespace hearth::engine {
+namespace howl::engine {
 
 // Takes ownership of the node, returns its id
 Graph::NodeId Graph::addNode(std::unique_ptr<Node> node) {
@@ -53,4 +53,4 @@ void Graph::process(AudioBlock& audio, SampleCount pos) noexcept {
     }
 }
 
-} // namespace hearth::engine
+} // namespace howl::engine

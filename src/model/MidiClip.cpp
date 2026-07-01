@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Hearth DAW: an ordered collection of notes with a fixed length in ticks
+// Howl DAW: an ordered collection of notes with a fixed length in ticks
 
 #include "model/MidiClip.h"
 
 #include <algorithm>
 
-namespace hearth::model {
+namespace howl::model {
 
 // Inserts note keeping notes() sorted by startTick
 void MidiClip::addNote(const Note& note) {
@@ -49,4 +49,4 @@ void MidiClip::setLengthTicks(int64_t length) {
     m_lengthTicks = length;
 }
 
-} // namespace hearth::model
+} // namespace howl::model

@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Hearth DAW: scans system VST3 plugins on a background thread, caches the result
+// Howl DAW: scans system VST3 plugins on a background thread, caches the result
 
 #include "plugins/PluginHost.h"
 #include "plugins/Vst3Adapter.h"
 
-namespace hearth::plugins {
+namespace howl::plugins {
 
 namespace {
 constexpr double kInitialSampleRate = 44100.0;
@@ -126,8 +126,8 @@ void PluginHost::refreshDescriptors() {
 // Path to the cached KnownPluginList XML
 juce::File PluginHost::cacheFilePath() {
     return juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
-        .getChildFile("Hearth")
+        .getChildFile("Howl")
         .getChildFile("vst3_cache.xml");
 }
 
-} // namespace hearth::plugins
+} // namespace howl::plugins

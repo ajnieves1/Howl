@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Hearth DAW: records input to disk via a ring buffer, plays a file back
+// Howl DAW: records input to disk via a ring buffer, plays a file back
 
 #pragma once
 
@@ -13,7 +13,7 @@
 #include <thread>
 #include <vector>
 
-namespace hearth::engine {
+namespace howl::engine {
 
 class AudioTrack {
 public:
@@ -55,4 +55,4 @@ private:
     io::AudioFileReader m_reader;
 };
 
-} // namespace hearth::engine
+} // namespace howl::engine

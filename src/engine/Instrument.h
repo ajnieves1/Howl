@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Hearth DAW: the interface every built-in instrument implements
+// Howl DAW: the interface every built-in instrument implements
 
 #pragma once
 
 #include "core/Types.h"
 
-namespace hearth::engine {
+namespace howl::engine {
 
 class Instrument {
 public:
@@ -25,4 +25,4 @@ public:
     virtual void render(AudioBlock& audio) noexcept = 0;
 };
 
-} // namespace hearth::engine
+} // namespace howl::engine

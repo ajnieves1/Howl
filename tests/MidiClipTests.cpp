@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Hearth DAW: MidiClip note ordering, removal, and length tests
+// Howl DAW: MidiClip note ordering, removal, and length tests
 
 #include "model/MidiClip.h"
 
 #include <catch2/catch_test_macros.hpp>
 
-using hearth::model::MidiClip;
-using hearth::model::Note;
+using howl::model::MidiClip;
+using howl::model::Note;
 
 TEST_CASE("MidiClip keeps notes sorted by startTick regardless of insertion order", "[model]") {
     MidiClip clip;

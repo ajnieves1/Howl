@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Hearth DAW: owns graph nodes and processes them in topological order
+// Howl DAW: owns graph nodes and processes them in topological order
 
 #pragma once
 
@@ -10,7 +10,7 @@
 #include <memory>
 #include <vector>
 
-namespace hearth::engine {
+namespace howl::engine {
 
 class Graph {
 public:
@@ -39,4 +39,4 @@ private:
     std::vector<NodeId> m_order;
 };
 
-} // namespace hearth::engine
+} // namespace howl::engine

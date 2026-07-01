@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Hearth DAW: Transport playhead and loop-wrap tests
+// Howl DAW: Transport playhead and loop-wrap tests
 
 #include "engine/Transport.h"
 
 #include <catch2/catch_test_macros.hpp>
 
-using hearth::SampleCount;
-using hearth::engine::Transport;
+using howl::SampleCount;
+using howl::engine::Transport;
 
 TEST_CASE("Transport advances the playhead sample-exactly", "[transport]") {
     Transport transport;

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Hearth DAW: tracks holding clips placed at tick positions on the timeline
+// Howl DAW: tracks holding clips placed at tick positions on the timeline
 
 #pragma once
 
@@ -11,7 +11,7 @@
 #include <string>
 #include <vector>
 
-namespace hearth::model {
+namespace howl::model {
 
 // A MIDI clip placed on the timeline at startTick
 struct MidiClipPlacement {
@@ -62,4 +62,4 @@ private:
     std::vector<Track> m_tracks;
 };
 
-} // namespace hearth::model
+} // namespace howl::model
