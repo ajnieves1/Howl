@@ -4,6 +4,7 @@ add_executable(HearthTests
     MeterTests.cpp
     PluginHostTests.cpp
     TransportTests.cpp
+    Vst3AdapterTests.cpp
 )
 
 target_compile_features(HearthTests PRIVATE cxx_std_20)

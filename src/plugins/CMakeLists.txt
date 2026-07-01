@@ -1,5 +1,6 @@
 add_library(HearthPlugins STATIC
     PluginHost.cpp
+    Vst3Adapter.cpp
 )
 
 target_include_directories(HearthPlugins PUBLIC

@@ -2,8 +2,14 @@
 // Hearth DAW: scans system VST3 plugins on a background thread, caches the result
 
 #include "plugins/PluginHost.h"
+#include "plugins/Vst3Adapter.h"
 
 namespace hearth::plugins {
+
+namespace {
+constexpr double kInitialSampleRate = 44100.0;
+constexpr int kInitialBufferSize = 512;
+} // namespace
 
 // Loads a previously cached scan result, if one exists on disk
 PluginHost::PluginHost() {
@@ -49,8 +55,23 @@ void PluginHost::waitForScanToFinish() {
     }
 }
 
-// Not yet implemented, wired up when the VST3 adapter is built
-std::unique_ptr<IPluginInstance> PluginHost::instantiate(const PluginDescriptor& /*descriptor*/) {
+// Creates a VST3 instance for the given descriptor, matched against the cached scan
+std::unique_ptr<IPluginInstance> PluginHost::instantiate(const PluginDescriptor& descriptor) {
+    for (const auto& type : m_knownPlugins.getTypes()) {
+        if (type.fileOrIdentifier.toStdString() != descriptor.path) {
+            continue;
+        }
+
+        juce::String errorMessage;
+        auto plugin = m_formatManager.createPluginInstance(type, kInitialSampleRate,
+                                                            kInitialBufferSize, errorMessage);
+        if (plugin == nullptr) {
+            return nullptr;
+        }
+
+        return std::make_unique<Vst3Adapter>(std::move(plugin));
+    }
+
     return nullptr;
 }
 
@@ -93,7 +114,8 @@ void PluginHost::refreshDescriptors() {
             type.name.toStdString(),
             type.manufacturerName.toStdString(),
             type.pluginFormatName.toStdString(),
-            type.fileOrIdentifier.toStdString()
+            type.fileOrIdentifier.toStdString(),
+            type.isInstrument
         });
     }
 

@@ -12,6 +12,7 @@ struct PluginDescriptor {
     std::string vendor;
     std::string format;
     std::string path;
+    bool isInstrument;
 };
 
 } // namespace hearth::plugins
