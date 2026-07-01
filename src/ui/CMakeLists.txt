@@ -1,4 +1,5 @@
 add_library(HearthUi STATIC
+    PianoRoll.cpp
     PluginWindow.cpp
 )
 
@@ -10,6 +11,7 @@ target_compile_features(HearthUi PRIVATE cxx_std_20)
 
 target_link_libraries(HearthUi
     PUBLIC
+        HearthModel
         HearthPlugins
         juce::juce_gui_basics
     PRIVATE

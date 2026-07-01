@@ -21,6 +21,19 @@ void MidiClip::removeNoteAt(std::size_t index) {
     m_notes.erase(m_notes.begin() + static_cast<std::ptrdiff_t>(index));
 }
 
+// Replaces the note at index with note, re-sorted by startTick, returns its new index
+std::size_t MidiClip::replaceNoteAt(std::size_t index, const Note& note) {
+    m_notes.erase(m_notes.begin() + static_cast<std::ptrdiff_t>(index));
+
+    const auto insertPos = std::upper_bound(m_notes.begin(), m_notes.end(), note,
+        [](const Note& a, const Note& b) {
+            return a.startTick < b.startTick;
+        });
+    const auto newIndex = static_cast<std::size_t>(insertPos - m_notes.begin());
+    m_notes.insert(insertPos, note);
+    return newIndex;
+}
+
 // Returns all notes, sorted by startTick
 const std::vector<Note>& MidiClip::notes() const {
     return m_notes;

@@ -19,6 +19,9 @@ public:
     // Removes the note at index, index must be within notes().size()
     void removeNoteAt(std::size_t index);
 
+    // Replaces the note at index with note, re-sorted by startTick, returns its new index
+    std::size_t replaceNoteAt(std::size_t index, const Note& note);
+
     // Returns all notes, sorted by startTick
     const std::vector<Note>& notes() const;
 
