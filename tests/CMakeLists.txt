@@ -1,5 +1,6 @@
 add_executable(HearthTests
     AudioTrackTests.cpp
+    ClapAdapterTests.cpp
     GraphTests.cpp
     MeterTests.cpp
     PluginHostTests.cpp

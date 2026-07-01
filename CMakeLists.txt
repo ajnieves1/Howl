@@ -24,7 +24,33 @@ FetchContent_Declare(
     GIT_SHALLOW    TRUE
 )
 
-FetchContent_MakeAvailable(JUCE Catch2)
+FetchContent_Declare(
+    clap
+    GIT_REPOSITORY https://github.com/free-audio/clap.git
+    GIT_TAG        1.2.9
+    GIT_SHALLOW    TRUE
+)
+
+# clap-helpers has no tagged releases, so pin a specific main commit
+FetchContent_Declare(
+    clap-helpers
+    GIT_REPOSITORY https://github.com/free-audio/clap-helpers.git
+    GIT_TAG        fd5abecb9f79f7051f4397725baddd2fe7d57b7b
+)
+
+# clap must be made available before clap-helpers, which looks for the
+# clap target at configure time and errors out if it is not defined yet
+FetchContent_MakeAvailable(JUCE Catch2 clap clap-helpers)
+
+# Treat the fetched CLAP headers as system headers so their own warnings
+# stay out of our zero-warning build output (SYSTEM property is CMake 3.25+,
+# silently ignored on older versions)
+if (TARGET clap)
+    set_target_properties(clap PROPERTIES SYSTEM TRUE)
+endif()
+if (TARGET clap-helpers)
+    set_target_properties(clap-helpers PROPERTIES SYSTEM TRUE)
+endif()
 
 list(APPEND CMAKE_MODULE_PATH ${catch2_SOURCE_DIR}/extras)
 

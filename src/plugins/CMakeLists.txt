@@ -1,4 +1,5 @@
 add_library(HearthPlugins STATIC
+    ClapAdapter.cpp
     PluginHost.cpp
     Vst3Adapter.cpp
 )
@@ -15,6 +16,8 @@ target_link_libraries(HearthPlugins
     PUBLIC
         juce::juce_audio_processors
     PRIVATE
+        clap
+        clap-helpers
         juce::juce_recommended_warning_flags
         Threads::Threads
 )
