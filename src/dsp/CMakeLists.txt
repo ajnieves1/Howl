@@ -1,8 +1,10 @@
 add_library(HowlDsp STATIC
     Compressor.cpp
+    Delay.cpp
     Equalizer.cpp
     GainEffect.cpp
     Limiter.cpp
+    Reverb.cpp
     SubtractiveSynth.cpp
 )
 
