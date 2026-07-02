@@ -30,6 +30,9 @@ public:
     // [RT] Sets the gain, value is normalized 0..1 mapped to a dB range
     void setParameter(int index, float value) noexcept override;
 
+    // Returns "Gain"
+    const char* displayName() const noexcept override;
+
 private:
     static constexpr int kGainParam = 0;
     static constexpr float kMinGainDb = -60.0f;

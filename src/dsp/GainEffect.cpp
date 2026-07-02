@@ -54,4 +54,9 @@ void GainEffect::setParameter(int index, float value) noexcept {
     m_gainLinear = std::pow(10.0f, gainDb / 20.0f);
 }
 
+// Returns "Gain"
+const char* GainEffect::displayName() const noexcept {
+    return "Gain";
+}
+
 } // namespace howl::dsp

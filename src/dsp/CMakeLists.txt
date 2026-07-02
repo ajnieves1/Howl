@@ -1,4 +1,5 @@
 add_library(HowlDsp STATIC
+    Equalizer.cpp
     GainEffect.cpp
     SubtractiveSynth.cpp
 )

@@ -56,6 +56,11 @@ public:
     void setParameter(int, float) noexcept override {
     }
 
+    // Returns a fixed stub name
+    const char* displayName() const noexcept override {
+        return "LatencyStub";
+    }
+
 private:
     int m_latency;
 };

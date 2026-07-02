@@ -37,6 +37,9 @@ public:
 
     // [RT] Sets a parameter by index, value is normalized 0..1
     virtual void setParameter(int index, float value) noexcept = 0;
+
+    // Fixed human-readable effect name for UI lists
+    virtual const char* displayName() const noexcept = 0;
 };
 
 } // namespace howl::engine

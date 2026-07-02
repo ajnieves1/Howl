@@ -9,6 +9,7 @@ add_executable(HowlTests
     ClapAdapterTests.cpp
     CommandStackTests.cpp
     EffectChainTests.cpp
+    EqualizerTests.cpp
     GoldenRenderTests.cpp
     GraphTests.cpp
     MeterTests.cpp
