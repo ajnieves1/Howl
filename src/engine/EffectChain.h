@@ -20,6 +20,12 @@ public:
     // Removes the effect at index, off the audio thread
     void removeAt(std::size_t index);
 
+    // Removes and returns the effect at index, off the audio thread
+    std::unique_ptr<Effect> takeAt(std::size_t index);
+
+    // Inserts an effect at index, off the audio thread
+    void insertAt(std::size_t index, std::unique_ptr<Effect> effect);
+
     // Returns how many effects are in the chain
     std::size_t size() const;
 

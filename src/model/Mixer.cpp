@@ -84,6 +84,12 @@ void Mixer::prepare(std::size_t numTracks, double sampleRate, int maxBlockSize, 
     m_pdcWritePos.assign(numTracks, 0);
     m_pdcSamples.assign(numTracks, 0);
 
+    m_trackMeters.clear();
+    m_trackMeters.reserve(numTracks);
+    for (std::size_t i = 0; i < numTracks; ++i) {
+        m_trackMeters.push_back(std::make_unique<engine::Meter>());
+    }
+
     updateLatencies();
 }
 
@@ -173,6 +179,59 @@ int Mixer::totalLatencySamples() const noexcept {
     return m_maxPathLatency + m_masterStrip.effects().latencySamples();
 }
 
+// Resolves a strip address to its channel strip
+ChannelStrip& Mixer::strip(const StripAddress& address) {
+    switch (address.kind) {
+        case StripKind::Track:
+            return m_trackStrips[address.index];
+        case StripKind::Bus:
+            return m_buses[address.index].strip;
+        case StripKind::Master:
+        default:
+            return m_masterStrip;
+    }
+}
+
+// Returns the number of buses
+std::size_t Mixer::numBuses() const {
+    return m_buses.size();
+}
+
+// Returns the name a bus was created with
+const std::string& Mixer::busName(std::size_t busIndex) const {
+    return m_buses[busIndex].name;
+}
+
+// Returns a track's current main output destination (a bus index or kMaster)
+std::size_t Mixer::trackOutput(std::size_t trackIndex) const {
+    return m_trackOutputs[trackIndex];
+}
+
+// Returns a track's sends
+const std::vector<Send>& Mixer::sends(std::size_t trackIndex) const {
+    return m_trackSends[trackIndex];
+}
+
+// Sets one send's level directly, continuous control, not undoable
+void Mixer::setSendLevel(std::size_t trackIndex, std::size_t sendIndex, float level) {
+    m_trackSends[trackIndex][sendIndex].level = level;
+}
+
+// Post-fader track meter, filled during process
+engine::Meter& Mixer::trackMeter(std::size_t trackIndex) {
+    return *m_trackMeters[trackIndex];
+}
+
+// Post-fader bus meter, filled during process
+engine::Meter& Mixer::busMeter(std::size_t busIndex) {
+    return *m_buses[busIndex].meter;
+}
+
+// Post-fader master meter, filled during process
+engine::Meter& Mixer::masterMeter() {
+    return m_masterMeter;
+}
+
 // [RT] Runs a track's buffer through its PDC compensation ring, in place
 void Mixer::applyPdcRing(std::size_t trackIndex, AudioBlock& block) noexcept {
     const int comp = m_pdcSamples[trackIndex];
@@ -241,6 +300,10 @@ void Mixer::process(const std::vector<AudioBlock>& trackBuffers, AudioBlock& out
 
         strip.applyGain(trackBlock);
 
+        if (i < m_trackMeters.size()) {
+            m_trackMeters[i]->processBlock(trackBlock);
+        }
+
         for (const Send& send : m_trackSends[i]) {
             if (send.busIndex >= m_buses.size()) {
                 continue;
@@ -261,10 +324,12 @@ void Mixer::process(const std::vector<AudioBlock>& trackBuffers, AudioBlock& out
 
     for (auto& bus : m_buses) {
         bus.strip.process(bus.block);
+        bus.meter->processBlock(bus.block);
         accumulateScaled(bus.block, output, 1.0f);
     }
 
     m_masterStrip.process(output);
+    m_masterMeter.processBlock(output);
 }
 
 } // namespace howl::model

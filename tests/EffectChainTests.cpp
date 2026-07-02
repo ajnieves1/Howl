@@ -114,6 +114,40 @@ TEST_CASE("EffectChain removeAt shrinks the chain", "[effectchain]") {
     REQUIRE(chain.at(1).latencySamples() == 3);
 }
 
+TEST_CASE("EffectChain.takeAt returns the exact instance and shrinks the chain", "[effectchain]") {
+    EffectChain chain;
+    chain.add(std::make_unique<LatencyStubEffect>(1));
+    chain.add(std::make_unique<LatencyStubEffect>(2));
+    chain.add(std::make_unique<LatencyStubEffect>(3));
+
+    howl::engine::Effect* middle = &chain.at(1);
+    std::unique_ptr<howl::engine::Effect> taken = chain.takeAt(1);
+
+    REQUIRE(taken.get() == middle);
+    REQUIRE(chain.size() == 2);
+    REQUIRE(chain.at(0).latencySamples() == 1);
+    REQUIRE(chain.at(1).latencySamples() == 3);
+}
+
+TEST_CASE("EffectChain.insertAt restores order at the front and in the middle", "[effectchain]") {
+    EffectChain chain;
+    chain.add(std::make_unique<LatencyStubEffect>(1));
+    chain.add(std::make_unique<LatencyStubEffect>(3));
+
+    chain.insertAt(0, std::make_unique<LatencyStubEffect>(0));
+    REQUIRE(chain.size() == 3);
+    REQUIRE(chain.at(0).latencySamples() == 0);
+    REQUIRE(chain.at(1).latencySamples() == 1);
+    REQUIRE(chain.at(2).latencySamples() == 3);
+
+    chain.insertAt(2, std::make_unique<LatencyStubEffect>(2));
+    REQUIRE(chain.size() == 4);
+    REQUIRE(chain.at(0).latencySamples() == 0);
+    REQUIRE(chain.at(1).latencySamples() == 1);
+    REQUIRE(chain.at(2).latencySamples() == 2);
+    REQUIRE(chain.at(3).latencySamples() == 3);
+}
+
 TEST_CASE("GainEffect at unity gain leaves samples unchanged", "[effectchain]") {
     float samples[2] = { 3.0f, -3.0f };
     float* channels[1] = { samples };

@@ -3,13 +3,16 @@
 
 #pragma once
 
+#include "engine/Effect.h"
 #include "model/Arrangement.h"
 #include "model/Command.h"
 #include "model/MidiClip.h"
+#include "model/Mixer.h"
 #include "model/Note.h"
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 
 namespace howl::model {
 
@@ -114,6 +117,76 @@ private:
     std::size_t m_placementIndex;
     std::size_t m_noteIndex;
     Note m_removedNote {};
+};
+
+// Adds a created effect to a strip's chain, undo takes it back out and holds it
+class AddEffectCommand : public Command {
+public:
+    // Takes the mixer, the target strip, and ownership of the effect to add
+    AddEffectCommand(Mixer& mixer, StripAddress strip, std::unique_ptr<engine::Effect> effect);
+
+    // Moves the effect into the chain, then recomputes PDC latencies
+    void execute() override;
+
+    // Takes the effect back out of the chain, holds it, then recomputes PDC latencies
+    void undo() override;
+
+private:
+    Mixer& m_mixer;
+    StripAddress m_strip;
+    std::unique_ptr<engine::Effect> m_effect;
+    std::size_t m_index = 0;
+};
+
+// Removes the effect at index from a strip's chain, undo re-inserts it at the same index
+class RemoveEffectCommand : public Command {
+public:
+    // Stores the mixer, the target strip, and the effect index to remove on execute()
+    RemoveEffectCommand(Mixer& mixer, StripAddress strip, std::size_t effectIndex);
+
+    // Takes the effect out of the chain and holds it, then recomputes PDC latencies
+    void execute() override;
+
+    // Re-inserts the held effect at its original index, then recomputes PDC latencies
+    void undo() override;
+
+private:
+    Mixer& m_mixer;
+    StripAddress m_strip;
+    std::size_t m_index;
+    std::unique_ptr<engine::Effect> m_effect;
+};
+
+// Adds a send from a track to a bus, undo removes it
+class AddSendCommand : public Command {
+public:
+    // Stores the mixer, track, and send to add on execute()
+    AddSendCommand(Mixer& mixer, std::size_t trackIndex, Send send);
+
+    void execute() override;
+    void undo() override;
+
+private:
+    Mixer& m_mixer;
+    std::size_t m_trackIndex;
+    Send m_send;
+};
+
+// Removes the send at index from a track, undo re-adds it (at the end, order is
+// irrelevant, sends only accumulate)
+class RemoveSendCommand : public Command {
+public:
+    // Stores the mixer, track, and send index to remove on execute()
+    RemoveSendCommand(Mixer& mixer, std::size_t trackIndex, std::size_t sendIndex);
+
+    void execute() override;
+    void undo() override;
+
+private:
+    Mixer& m_mixer;
+    std::size_t m_trackIndex;
+    std::size_t m_sendIndex;
+    Send m_removedSend {};
 };
 
 } // namespace howl::model

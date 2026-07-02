@@ -130,4 +130,87 @@ void RemoveNoteCommand::undo() {
     m_noteIndex = clip.addNote(m_removedNote);
 }
 
+// Takes the mixer, the target strip, and ownership of the effect to add
+AddEffectCommand::AddEffectCommand(Mixer& mixer, StripAddress strip, std::unique_ptr<engine::Effect> effect)
+    : m_mixer(mixer)
+    , m_strip(strip)
+    , m_effect(std::move(effect))
+{
+}
+
+// Moves the effect into the chain, then recomputes PDC latencies
+void AddEffectCommand::execute() {
+    engine::EffectChain& chain = m_mixer.strip(m_strip).effects();
+    m_index = chain.size();
+    chain.add(std::move(m_effect));
+    m_mixer.updateLatencies();
+}
+
+// Takes the effect back out of the chain, holds it, then recomputes PDC latencies
+void AddEffectCommand::undo() {
+    engine::EffectChain& chain = m_mixer.strip(m_strip).effects();
+    m_effect = chain.takeAt(m_index);
+    m_mixer.updateLatencies();
+}
+
+// Stores the mixer, the target strip, and the effect index to remove on execute()
+RemoveEffectCommand::RemoveEffectCommand(Mixer& mixer, StripAddress strip, std::size_t effectIndex)
+    : m_mixer(mixer)
+    , m_strip(strip)
+    , m_index(effectIndex)
+{
+}
+
+// Takes the effect out of the chain and holds it, then recomputes PDC latencies
+void RemoveEffectCommand::execute() {
+    engine::EffectChain& chain = m_mixer.strip(m_strip).effects();
+    m_effect = chain.takeAt(m_index);
+    m_mixer.updateLatencies();
+}
+
+// Re-inserts the held effect at its original index, then recomputes PDC latencies
+void RemoveEffectCommand::undo() {
+    engine::EffectChain& chain = m_mixer.strip(m_strip).effects();
+    chain.insertAt(m_index, std::move(m_effect));
+    m_mixer.updateLatencies();
+}
+
+// Stores the mixer, track, and send to add on execute()
+AddSendCommand::AddSendCommand(Mixer& mixer, std::size_t trackIndex, Send send)
+    : m_mixer(mixer)
+    , m_trackIndex(trackIndex)
+    , m_send(send)
+{
+}
+
+// Adds the stored send to the track
+void AddSendCommand::execute() {
+    m_mixer.addSend(m_trackIndex, m_send);
+}
+
+// Removes the send this command added, it is always the last one
+void AddSendCommand::undo() {
+    const std::size_t lastIndex = m_mixer.sends(m_trackIndex).size() - 1;
+    m_mixer.removeSend(m_trackIndex, lastIndex);
+}
+
+// Stores the mixer, track, and send index to remove on execute()
+RemoveSendCommand::RemoveSendCommand(Mixer& mixer, std::size_t trackIndex, std::size_t sendIndex)
+    : m_mixer(mixer)
+    , m_trackIndex(trackIndex)
+    , m_sendIndex(sendIndex)
+{
+}
+
+// Remembers the send's data, then removes it
+void RemoveSendCommand::execute() {
+    m_removedSend = m_mixer.sends(m_trackIndex)[m_sendIndex];
+    m_mixer.removeSend(m_trackIndex, m_sendIndex);
+}
+
+// Re-adds the removed send at the end
+void RemoveSendCommand::undo() {
+    m_mixer.addSend(m_trackIndex, m_removedSend);
+}
+
 } // namespace howl::model

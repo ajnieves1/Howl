@@ -1,5 +1,7 @@
 add_library(HowlUi STATIC
     ArrangeView.cpp
+    ChannelStripComponent.cpp
+    MixerView.cpp
     PianoRoll.cpp
     PluginWindow.cpp
 )

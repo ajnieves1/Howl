@@ -4,9 +4,11 @@
 #pragma once
 
 #include "core/Types.h"
+#include "engine/Meter.h"
 #include "model/ChannelStrip.h"
 
 #include <cstddef>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -17,6 +19,18 @@ struct Send {
     std::size_t busIndex;
     float level;
     bool preFader;
+};
+
+// Which strip a command or component targets
+enum class StripKind {
+    Track,
+    Bus,
+    Master
+};
+
+struct StripAddress {
+    StripKind kind;
+    std::size_t index; // ignored for Master
 };
 
 class Mixer {
@@ -54,6 +68,33 @@ public:
     // Longest track-to-master path latency plus the master chain's own latency
     int totalLatencySamples() const noexcept;
 
+    // Resolves a strip address to its channel strip
+    ChannelStrip& strip(const StripAddress& address);
+
+    // Returns the number of buses
+    std::size_t numBuses() const;
+
+    // Returns the name a bus was created with
+    const std::string& busName(std::size_t busIndex) const;
+
+    // Returns a track's current main output destination (a bus index or kMaster)
+    std::size_t trackOutput(std::size_t trackIndex) const;
+
+    // Returns a track's sends
+    const std::vector<Send>& sends(std::size_t trackIndex) const;
+
+    // Sets one send's level directly, continuous control, not undoable
+    void setSendLevel(std::size_t trackIndex, std::size_t sendIndex, float level);
+
+    // Post-fader track meter, filled during process
+    engine::Meter& trackMeter(std::size_t trackIndex);
+
+    // Post-fader bus meter, filled during process
+    engine::Meter& busMeter(std::size_t busIndex);
+
+    // Post-fader master meter, filled during process
+    engine::Meter& masterMeter();
+
     // [RT] Runs track strips, routes main outputs and sends into buses/master, sums buses, applies master
     void process(const std::vector<AudioBlock>& trackBuffers, AudioBlock& output, SampleCount pos) noexcept;
 
@@ -66,6 +107,7 @@ private:
         std::vector<std::vector<float>> channelBuffers;
         std::vector<float*> channelPointers;
         AudioBlock block { nullptr, 0, 0 };
+        std::unique_ptr<engine::Meter> meter = std::make_unique<engine::Meter>();
     };
 
     // Allocates a bus's scratch accumulation buffer at the mixer's current size
@@ -94,6 +136,10 @@ private:
     std::vector<int> m_pdcWritePos;
     std::vector<int> m_pdcSamples;
     int m_maxPathLatency = 0;
+
+    // Meter holds atomics so it is not movable, vectors hold pointers
+    std::vector<std::unique_ptr<engine::Meter>> m_trackMeters;
+    engine::Meter m_masterMeter;
 };
 
 } // namespace howl::model

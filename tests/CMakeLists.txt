@@ -19,6 +19,7 @@ add_executable(HowlTests
     MeterTests.cpp
     MidiClipTests.cpp
     MidiTrackRendererTests.cpp
+    MixerCommandTests.cpp
     MixerPdcTests.cpp
     MixerTests.cpp
     PluginEffectTests.cpp
