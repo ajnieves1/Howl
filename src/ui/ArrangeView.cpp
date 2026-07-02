@@ -17,6 +17,8 @@ ArrangeView::ArrangeView(model::Arrangement& arrangement, engine::Transport& tra
     , m_commandStack(commandStack)
     , m_sampleRate(sampleRate)
 {
+    // Without this, grabKeyboardFocus and click-to-focus are no-ops and keyPressed never fires
+    setWantsKeyboardFocus(true);
     startTimerHz(30);
 }
 
@@ -56,7 +58,7 @@ int64_t ArrangeView::visibleTickSpan() const {
         }
     }
 
-    return maxEndTick;
+    return maxEndTick + model::kTicksPerQuarter * 4;
 }
 
 // Converts a pixel x position to a tick, clamped to the visible span
@@ -143,11 +145,17 @@ void ArrangeView::paint(juce::Graphics& g) {
         g.drawHorizontalLine(static_cast<int>(y), 0.0f, static_cast<float>(getWidth()));
     }
 
+    g.setColour(juce::Colours::grey.withAlpha(0.25f));
+    const int64_t span = visibleTickSpan();
+    for (int64_t tick = 0; tick < span; tick += model::kTicksPerQuarter * 4) {
+        const auto x = static_cast<int>(tickToX(tick));
+        g.drawVerticalLine(x, 0.0f, static_cast<float>(getHeight()));
+    }
+
     for (std::size_t i = 0; i < numTracks; ++i) {
         const model::Track& track = m_arrangement.track(i);
         const auto y = static_cast<float>(i) * height;
 
-        g.setColour(juce::Colours::orange);
         for (std::size_t p = 0; p < track.midiClips.size(); ++p) {
             const auto& placement = track.midiClips[p];
             int64_t startTick = placement.startTick;
@@ -158,10 +166,13 @@ void ArrangeView::paint(juce::Graphics& g) {
 
             const float x = tickToX(startTick);
             const float width = tickToX(startTick + placement.clip.lengthTicks()) - x;
-            g.fillRect(x, y, juce::jmax(2.0f, width), height - 1.0f);
+            juce::Rectangle<float> r { x, y + 2.0f, juce::jmax(2.0f, width), height - 5.0f };
+            g.setColour(juce::Colours::orange);
+            g.fillRect(r);
+            g.setColour(juce::Colours::orange.darker(0.8f));
+            g.drawRect(r, 1.5f);
         }
 
-        g.setColour(juce::Colours::steelblue);
         for (std::size_t p = 0; p < track.audioClips.size(); ++p) {
             const auto& placement = track.audioClips[p];
             int64_t startTick = placement.startTick;
@@ -173,8 +184,15 @@ void ArrangeView::paint(juce::Graphics& g) {
             const auto lengthTicks = static_cast<int64_t>(static_cast<double>(placement.clip.lengthSamples()) / spt);
             const float x = tickToX(startTick);
             const float width = tickToX(startTick + lengthTicks) - x;
-            g.fillRect(x, y, juce::jmax(2.0f, width), height - 1.0f);
+            juce::Rectangle<float> r { x, y + 2.0f, juce::jmax(2.0f, width), height - 5.0f };
+            g.setColour(juce::Colours::steelblue);
+            g.fillRect(r);
+            g.setColour(juce::Colours::steelblue.darker(0.8f));
+            g.drawRect(r, 1.5f);
         }
+
+        g.setColour(juce::Colours::white.withAlpha(0.7f));
+        g.drawText(track.name, 4, static_cast<int>(y) + 2, 200, 14, juce::Justification::topLeft);
     }
 
     g.setColour(juce::Colours::white);
