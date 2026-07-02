@@ -8,10 +8,12 @@ add_executable(HowlTests
     ChannelStripTests.cpp
     ClapAdapterTests.cpp
     CommandStackTests.cpp
+    CompressorTests.cpp
     EffectChainTests.cpp
     EqualizerTests.cpp
     GoldenRenderTests.cpp
     GraphTests.cpp
+    LimiterTests.cpp
     MeterTests.cpp
     MidiClipTests.cpp
     MidiTrackRendererTests.cpp
