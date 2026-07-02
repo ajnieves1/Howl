@@ -1,4 +1,5 @@
 add_library(HowlDsp STATIC
+    BuiltInEffectFactory.cpp
     Compressor.cpp
     Delay.cpp
     Equalizer.cpp

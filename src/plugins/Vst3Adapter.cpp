@@ -40,6 +40,11 @@ void Vst3Adapter::release() {
     m_plugin->releaseResources();
 }
 
+// Returns the plugin's self-reported processing latency
+int Vst3Adapter::latencySamples() const noexcept {
+    return m_plugin->getLatencySamples();
+}
+
 // [RT] midiIn must point to a const juce::MidiBuffer, may be nullptr
 void Vst3Adapter::process(AudioBlock& audio, const void* midiIn) {
     juce::AudioBuffer<float> buffer(audio.channels, audio.numChannels, audio.numFrames);

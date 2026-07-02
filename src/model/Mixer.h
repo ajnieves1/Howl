@@ -48,10 +48,18 @@ public:
     // Removes the send at index from a track, off the audio thread
     void removeSend(std::size_t trackIndex, std::size_t sendIndex);
 
+    // Recomputes every track's compensation delay from current chain latencies, off the audio thread, transport stopped
+    void updateLatencies();
+
+    // Longest track-to-master path latency plus the master chain's own latency
+    int totalLatencySamples() const noexcept;
+
     // [RT] Runs track strips, routes main outputs and sends into buses/master, sums buses, applies master
     void process(const std::vector<AudioBlock>& trackBuffers, AudioBlock& output, SampleCount pos) noexcept;
 
 private:
+    static constexpr int kMaxPdcSamples = 16384;
+
     struct Bus {
         std::string name;
         ChannelStrip strip;
@@ -62,6 +70,9 @@ private:
 
     // Allocates a bus's scratch accumulation buffer at the mixer's current size
     void allocateBusScratch(Bus& bus);
+
+    // [RT] Runs a track's buffer through its PDC compensation ring, in place
+    void applyPdcRing(std::size_t trackIndex, AudioBlock& block) noexcept;
 
     std::vector<ChannelStrip> m_trackStrips;
     std::vector<std::size_t> m_trackOutputs;
@@ -77,6 +88,12 @@ private:
     double m_sampleRate = 44100.0;
     int m_maxBlockSize = 0;
     int m_numChannels = 0;
+
+    // One compensation ring per track per channel, sized in prepare, kMaxPdcSamples + 1 each
+    std::vector<std::vector<std::vector<float>>> m_pdcLines;
+    std::vector<int> m_pdcWritePos;
+    std::vector<int> m_pdcSamples;
+    int m_maxPathLatency = 0;
 };
 
 } // namespace howl::model

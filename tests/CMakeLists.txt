@@ -11,6 +11,7 @@ add_executable(HowlTests
     CompressorTests.cpp
     DelayTests.cpp
     EffectChainTests.cpp
+    EffectFactoryTests.cpp
     EqualizerTests.cpp
     GoldenRenderTests.cpp
     GraphTests.cpp
@@ -18,7 +19,9 @@ add_executable(HowlTests
     MeterTests.cpp
     MidiClipTests.cpp
     MidiTrackRendererTests.cpp
+    MixerPdcTests.cpp
     MixerTests.cpp
+    PluginEffectTests.cpp
     PluginHostTests.cpp
     ReverbTests.cpp
     SequencerNodeTests.cpp

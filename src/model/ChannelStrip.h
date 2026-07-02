@@ -37,6 +37,9 @@ public:
     // Returns the strip's effect chain
     engine::EffectChain& effects();
 
+    // Returns the strip's effect chain, const overload for latency walks
+    const engine::EffectChain& effects() const;
+
     // [RT] Runs the FX chain in place, no gain, pan, or mute applied
     void processEffects(AudioBlock& audio) noexcept;
 

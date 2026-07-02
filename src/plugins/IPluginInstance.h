@@ -32,6 +32,11 @@ public:
     // [RT] Audio and MIDI processing, no allocation inside
     virtual void process(AudioBlock& audio, const void* midiIn) = 0;
 
+    // Reported processing latency in samples, adapters override when the format exposes it
+    virtual int latencySamples() const noexcept {
+        return 0;
+    }
+
     // State, off the audio thread
     virtual StateBlob saveState() const = 0;
     virtual void loadState(const StateBlob&) = 0;

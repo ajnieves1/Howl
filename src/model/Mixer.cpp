@@ -3,6 +3,8 @@
 
 #include "model/Mixer.h"
 
+#include <algorithm>
+
 namespace howl::model {
 
 namespace {
@@ -75,6 +77,14 @@ void Mixer::prepare(std::size_t numTracks, double sampleRate, int maxBlockSize, 
     }
 
     m_masterStrip.effects().prepare(sampleRate, maxBlockSize);
+
+    const std::size_t pdcLineSize = static_cast<std::size_t>(kMaxPdcSamples) + 1;
+    m_pdcLines.assign(numTracks, std::vector<std::vector<float>>(
+        static_cast<std::size_t>(numChannels), std::vector<float>(pdcLineSize, 0.0f)));
+    m_pdcWritePos.assign(numTracks, 0);
+    m_pdcSamples.assign(numTracks, 0);
+
+    updateLatencies();
 }
 
 // Returns the channel strip for the given track
@@ -132,7 +142,67 @@ void Mixer::removeSend(std::size_t trackIndex, std::size_t sendIndex) {
     sends.erase(sends.begin() + static_cast<std::ptrdiff_t>(sendIndex));
 }
 
+// Recomputes every track's compensation delay from current chain latencies, off the audio thread, transport stopped
+void Mixer::updateLatencies() {
+    std::vector<int> pathLatency(m_trackStrips.size(), 0);
+
+    for (std::size_t i = 0; i < m_trackStrips.size(); ++i) {
+        int latency = m_trackStrips[i].effects().latencySamples();
+        const std::size_t destination = m_trackOutputs[i];
+
+        if (destination != kMaster && destination < m_buses.size()) {
+            latency += m_buses[destination].strip.effects().latencySamples();
+        }
+
+        pathLatency[i] = latency;
+    }
+
+    m_maxPathLatency = 0;
+    for (int latency : pathLatency) {
+        m_maxPathLatency = std::max(m_maxPathLatency, latency);
+    }
+
+    for (std::size_t i = 0; i < m_trackStrips.size() && i < m_pdcSamples.size(); ++i) {
+        const int compensation = m_maxPathLatency - pathLatency[i];
+        m_pdcSamples[i] = std::min(std::max(compensation, 0), kMaxPdcSamples);
+    }
+}
+
+// Longest track-to-master path latency plus the master chain's own latency
+int Mixer::totalLatencySamples() const noexcept {
+    return m_maxPathLatency + m_masterStrip.effects().latencySamples();
+}
+
+// [RT] Runs a track's buffer through its PDC compensation ring, in place
+void Mixer::applyPdcRing(std::size_t trackIndex, AudioBlock& block) noexcept {
+    const int comp = m_pdcSamples[trackIndex];
+    const int lineSize = kMaxPdcSamples + 1;
+    auto& lines = m_pdcLines[trackIndex];
+    int writePos = m_pdcWritePos[trackIndex];
+
+    const int channels = block.numChannels < static_cast<int>(lines.size())
+        ? block.numChannels
+        : static_cast<int>(lines.size());
+
+    for (int frame = 0; frame < block.numFrames; ++frame) {
+        const int readPos = (writePos - comp + lineSize) % lineSize;
+
+        for (int channel = 0; channel < channels; ++channel) {
+            const float incoming = block.channels[channel][frame];
+            lines[static_cast<std::size_t>(channel)][static_cast<std::size_t>(writePos)] = incoming;
+            block.channels[channel][frame] = lines[static_cast<std::size_t>(channel)][static_cast<std::size_t>(readPos)];
+        }
+
+        writePos = (writePos + 1) % lineSize;
+    }
+
+    m_pdcWritePos[trackIndex] = writePos;
+}
+
 // [RT] Runs track strips, routes main outputs and sends into buses/master, sums buses, applies master
+// Note: sends are not latency-compensated in v1; a send into a bus other than a
+// track's main destination is skewed by the difference of the two bus chains'
+// latencies. Full send PDC is a follow-up.
 void Mixer::process(const std::vector<AudioBlock>& trackBuffers, AudioBlock& output, SampleCount) noexcept {
     zeroBlock(output);
 
@@ -150,6 +220,11 @@ void Mixer::process(const std::vector<AudioBlock>& trackBuffers, AudioBlock& out
 
     for (std::size_t i = 0; i < m_trackStrips.size() && i < trackBuffers.size(); ++i) {
         ChannelStrip& strip = m_trackStrips[i];
+        AudioBlock trackBlock = trackBuffers[i];
+
+        if (m_pdcSamples[i] > 0) {
+            applyPdcRing(i, trackBlock);
+        }
 
         if (strip.muted()) {
             continue;
@@ -159,7 +234,6 @@ void Mixer::process(const std::vector<AudioBlock>& trackBuffers, AudioBlock& out
             continue;
         }
 
-        AudioBlock trackBlock = trackBuffers[i];
         strip.processEffects(trackBlock);
 
         AudioBlock& preFaderBlock = m_preFaderBlocks[i];

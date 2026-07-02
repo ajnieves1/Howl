@@ -28,6 +28,9 @@ public:
     // [RT] midiIn must point to a const juce::MidiBuffer, may be nullptr
     void process(AudioBlock& audio, const void* midiIn) override;
 
+    // Returns the plugin's self-reported processing latency
+    int latencySamples() const noexcept override;
+
     // Serializes the plugin's internal state
     StateBlob saveState() const override;
 

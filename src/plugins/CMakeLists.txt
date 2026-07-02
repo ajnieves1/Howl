@@ -1,5 +1,6 @@
 add_library(HowlPlugins STATIC
     ClapAdapter.cpp
+    PluginEffect.cpp
     PluginHost.cpp
     Vst3Adapter.cpp
 )
@@ -14,6 +15,7 @@ find_package(Threads REQUIRED)
 
 target_link_libraries(HowlPlugins
     PUBLIC
+        HowlEngine
         juce::juce_audio_processors
     PRIVATE
         clap

@@ -40,6 +40,9 @@ public:
     // [RT] midiIn must point to a const juce::MidiBuffer, may be nullptr
     void process(AudioBlock& audio, const void* midiIn) override;
 
+    // No latencySamples() override, uses IPluginInstance's default (0);
+    // the clap_plugin_latency extension is a follow-up
+
     // Serializes the plugin's state via the CLAP state extension
     StateBlob saveState() const override;
 

@@ -52,6 +52,11 @@ engine::EffectChain& ChannelStrip::effects() {
     return m_effects;
 }
 
+// Returns the strip's effect chain, const overload for latency walks
+const engine::EffectChain& ChannelStrip::effects() const {
+    return m_effects;
+}
+
 // [RT] Runs the FX chain in place, no gain, pan, or mute applied
 void ChannelStrip::processEffects(AudioBlock& audio) noexcept {
     m_effects.process(audio);
