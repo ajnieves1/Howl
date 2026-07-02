@@ -41,8 +41,14 @@ public:
     // Issues the move-clip command for a completed drag, or fires onMidiClipSelected for a plain click
     void mouseUp(const juce::MouseEvent& event) override;
 
+    // Toggles the transport between play and stop on space, fires onMixerRequested on M
+    bool keyPressed(const juce::KeyPress& key) override;
+
     // Called with (trackIndex, placementIndex) when a MIDI clip is clicked without dragging
     std::function<void(std::size_t, std::size_t)> onMidiClipSelected;
+
+    // Called when M is pressed to open the mixer
+    std::function<void()> onMixerRequested;
 
 private:
     static constexpr int64_t kMinimumVisibleTicks = model::kTicksPerQuarter * 16; // 4 bars at 4/4

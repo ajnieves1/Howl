@@ -243,4 +243,25 @@ void ArrangeView::mouseUp(const juce::MouseEvent&) {
     repaint();
 }
 
+// Toggles the transport between play and stop on space, fires onMixerRequested on M
+bool ArrangeView::keyPressed(const juce::KeyPress& key) {
+    if (key == juce::KeyPress::spaceKey) {
+        if (m_transport.isPlaying()) {
+            m_transport.stop();
+        } else {
+            m_transport.play();
+        }
+        return true;
+    }
+
+    if (key == juce::KeyPress('M')) {
+        if (onMixerRequested) {
+            onMixerRequested();
+        }
+        return true;
+    }
+
+    return false;
+}
+
 } // namespace howl::ui
