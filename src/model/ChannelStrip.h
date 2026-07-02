@@ -37,6 +37,12 @@ public:
     // Returns the strip's effect chain
     engine::EffectChain& effects();
 
+    // [RT] Runs the FX chain in place, no gain, pan, or mute applied
+    void processEffects(AudioBlock& audio) noexcept;
+
+    // [RT] Applies gain and pan in place, no FX or mute applied
+    void applyGain(AudioBlock& audio) noexcept;
+
     // [RT] Runs the FX chain then applies gain and pan in place
     void process(AudioBlock& audio) noexcept;
 

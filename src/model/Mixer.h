@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Howl DAW: per-track channel strips summed to a master strip
+// Howl DAW: per-track channel strips routed through buses and sends to a master strip
 
 #pragma once
 
@@ -7,12 +7,23 @@
 #include "model/ChannelStrip.h"
 
 #include <cstddef>
+#include <string>
 #include <vector>
 
 namespace howl::model {
 
+// A level-controlled tap from a track into a bus, pre- or post-fader
+struct Send {
+    std::size_t busIndex;
+    float level;
+    bool preFader;
+};
+
 class Mixer {
 public:
+    // Routes a track's main output back to the master strip
+    static constexpr std::size_t kMaster = static_cast<std::size_t>(-1);
+
     // Sizes the mixer to numTracks track strips plus a master strip
     void prepare(std::size_t numTracks, double sampleRate, int maxBlockSize, int numChannels);
 
@@ -22,12 +33,50 @@ public:
     // Returns the master channel strip
     ChannelStrip& masterStrip();
 
-    // [RT] Applies each track strip, sums soloed/unmuted tracks, applies master, into output
+    // Adds a bus strip, returns its index
+    std::size_t addBus(const std::string& name);
+
+    // Returns the channel strip for the given bus
+    ChannelStrip& busStrip(std::size_t busIndex);
+
+    // Routes a track's main output to a bus, or back to master with kMaster
+    void setTrackOutput(std::size_t trackIndex, std::size_t busIndexOrMaster);
+
+    // Adds a send from a track to a bus, off the audio thread
+    void addSend(std::size_t trackIndex, const Send& send);
+
+    // Removes the send at index from a track, off the audio thread
+    void removeSend(std::size_t trackIndex, std::size_t sendIndex);
+
+    // [RT] Runs track strips, routes main outputs and sends into buses/master, sums buses, applies master
     void process(const std::vector<AudioBlock>& trackBuffers, AudioBlock& output, SampleCount pos) noexcept;
 
 private:
+    struct Bus {
+        std::string name;
+        ChannelStrip strip;
+        std::vector<std::vector<float>> channelBuffers;
+        std::vector<float*> channelPointers;
+        AudioBlock block { nullptr, 0, 0 };
+    };
+
+    // Allocates a bus's scratch accumulation buffer at the mixer's current size
+    void allocateBusScratch(Bus& bus);
+
     std::vector<ChannelStrip> m_trackStrips;
+    std::vector<std::size_t> m_trackOutputs;
+    std::vector<std::vector<Send>> m_trackSends;
     ChannelStrip m_masterStrip;
+
+    std::vector<Bus> m_buses;
+
+    std::vector<std::vector<std::vector<float>>> m_preFaderBuffers;
+    std::vector<std::vector<float*>> m_preFaderPointers;
+    std::vector<AudioBlock> m_preFaderBlocks;
+
+    double m_sampleRate = 44100.0;
+    int m_maxBlockSize = 0;
+    int m_numChannels = 0;
 };
 
 } // namespace howl::model

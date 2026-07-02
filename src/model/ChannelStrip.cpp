@@ -52,20 +52,13 @@ engine::EffectChain& ChannelStrip::effects() {
     return m_effects;
 }
 
-// [RT] Runs the FX chain then applies gain and pan in place
-void ChannelStrip::process(AudioBlock& audio) noexcept {
-    if (m_muted) {
-        for (int channel = 0; channel < audio.numChannels; ++channel) {
-            for (int frame = 0; frame < audio.numFrames; ++frame) {
-                audio.channels[channel][frame] = 0.0f;
-            }
-        }
-
-        return;
-    }
-
+// [RT] Runs the FX chain in place, no gain, pan, or mute applied
+void ChannelStrip::processEffects(AudioBlock& audio) noexcept {
     m_effects.process(audio);
+}
 
+// [RT] Applies gain and pan in place, no FX or mute applied
+void ChannelStrip::applyGain(AudioBlock& audio) noexcept {
     const float gainLinear = std::pow(10.0f, m_gainDb / 20.0f);
     const float leftGain = m_pan <= 0.0f ? 1.0f : (1.0f - m_pan);
     const float rightGain = m_pan >= 0.0f ? 1.0f : (1.0f + m_pan);
@@ -78,6 +71,22 @@ void ChannelStrip::process(AudioBlock& audio) noexcept {
             audio.channels[channel][frame] *= channelGain;
         }
     }
+}
+
+// [RT] Runs the FX chain then applies gain and pan in place
+void ChannelStrip::process(AudioBlock& audio) noexcept {
+    if (m_muted) {
+        for (int channel = 0; channel < audio.numChannels; ++channel) {
+            for (int frame = 0; frame < audio.numFrames; ++frame) {
+                audio.channels[channel][frame] = 0.0f;
+            }
+        }
+
+        return;
+    }
+
+    processEffects(audio);
+    applyGain(audio);
 }
 
 } // namespace howl::model
