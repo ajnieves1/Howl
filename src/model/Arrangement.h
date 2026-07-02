@@ -43,6 +43,12 @@ public:
     // Adds an empty track of the given kind, returns its index
     std::size_t addTrack(const std::string& name, TrackKind kind);
 
+    // Removes the track at index
+    void removeTrack(std::size_t index);
+
+    // Inserts a track at index (undo support)
+    void insertTrack(std::size_t index, Track track);
+
     // Returns the track at index
     Track& track(std::size_t index);
 

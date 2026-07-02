@@ -51,21 +51,15 @@ void Mixer::prepare(std::size_t numTracks, double sampleRate, int maxBlockSize, 
     m_numChannels = numChannels;
 
     m_trackStrips.resize(numTracks);
-    m_trackOutputs.assign(numTracks, kMaster);
-    m_trackSends.assign(numTracks, std::vector<Send>());
+    m_trackOutputs.resize(numTracks, kMaster);
+    m_trackSends.resize(numTracks);
 
     m_preFaderBuffers.assign(numTracks, std::vector<std::vector<float>>(
         static_cast<std::size_t>(numChannels), std::vector<float>(static_cast<std::size_t>(maxBlockSize), 0.0f)));
     m_preFaderPointers.assign(numTracks, std::vector<float*>(static_cast<std::size_t>(numChannels)));
     m_preFaderBlocks.assign(numTracks, AudioBlock { nullptr, numChannels, maxBlockSize });
 
-    for (std::size_t track = 0; track < numTracks; ++track) {
-        for (std::size_t channel = 0; channel < m_preFaderPointers[track].size(); ++channel) {
-            m_preFaderPointers[track][channel] = m_preFaderBuffers[track][channel].data();
-        }
-
-        m_preFaderBlocks[track].channels = m_preFaderPointers[track].data();
-    }
+    repointPreFaderBlocks();
 
     for (auto& strip : m_trackStrips) {
         strip.effects().prepare(sampleRate, maxBlockSize);
@@ -79,15 +73,17 @@ void Mixer::prepare(std::size_t numTracks, double sampleRate, int maxBlockSize, 
     m_masterStrip.effects().prepare(sampleRate, maxBlockSize);
 
     const std::size_t pdcLineSize = static_cast<std::size_t>(kMaxPdcSamples) + 1;
-    m_pdcLines.assign(numTracks, std::vector<std::vector<float>>(
+    m_pdcLines.resize(numTracks, std::vector<std::vector<float>>(
         static_cast<std::size_t>(numChannels), std::vector<float>(pdcLineSize, 0.0f)));
-    m_pdcWritePos.assign(numTracks, 0);
-    m_pdcSamples.assign(numTracks, 0);
+    m_pdcWritePos.resize(numTracks, 0);
+    m_pdcSamples.resize(numTracks, 0);
 
-    m_trackMeters.clear();
-    m_trackMeters.reserve(numTracks);
-    for (std::size_t i = 0; i < numTracks; ++i) {
-        m_trackMeters.push_back(std::make_unique<engine::Meter>());
+    if (numTracks > m_trackMeters.size()) {
+        while (m_trackMeters.size() < numTracks) {
+            m_trackMeters.push_back(std::make_unique<engine::Meter>());
+        }
+    } else {
+        m_trackMeters.resize(numTracks);
     }
 
     updateLatencies();
@@ -101,6 +97,66 @@ ChannelStrip& Mixer::trackStrip(std::size_t trackIndex) {
 // Returns the master channel strip
 ChannelStrip& Mixer::masterStrip() {
     return m_masterStrip;
+}
+
+// Re-derives every track's pre-fader pointer array from its buffer, after an insert/erase shift
+void Mixer::repointPreFaderBlocks() {
+    for (std::size_t i = 0; i < m_preFaderBuffers.size(); ++i) {
+        for (std::size_t channel = 0; channel < m_preFaderPointers[i].size(); ++channel) {
+            m_preFaderPointers[i][channel] = m_preFaderBuffers[i][channel].data();
+        }
+
+        m_preFaderBlocks[i].channels = m_preFaderPointers[i].data();
+    }
+}
+
+// Inserts a default strip (and default routing/sends/meter/pdc slot) at trackIndex, off the audio thread
+void Mixer::insertTrackStrip(std::size_t trackIndex) {
+    const auto pos = static_cast<std::ptrdiff_t>(trackIndex);
+
+    m_trackStrips.insert(m_trackStrips.begin() + pos, ChannelStrip());
+    m_trackStrips[trackIndex].effects().prepare(m_sampleRate, m_maxBlockSize);
+
+    m_trackOutputs.insert(m_trackOutputs.begin() + pos, kMaster);
+    m_trackSends.insert(m_trackSends.begin() + pos, std::vector<Send>());
+
+    m_preFaderBuffers.insert(m_preFaderBuffers.begin() + pos, std::vector<std::vector<float>>(
+        static_cast<std::size_t>(m_numChannels), std::vector<float>(static_cast<std::size_t>(m_maxBlockSize), 0.0f)));
+    m_preFaderPointers.insert(m_preFaderPointers.begin() + pos, std::vector<float*>(static_cast<std::size_t>(m_numChannels)));
+    m_preFaderBlocks.insert(m_preFaderBlocks.begin() + pos, AudioBlock { nullptr, m_numChannels, m_maxBlockSize });
+    repointPreFaderBlocks();
+
+    const std::size_t pdcLineSize = static_cast<std::size_t>(kMaxPdcSamples) + 1;
+    m_pdcLines.insert(m_pdcLines.begin() + pos, std::vector<std::vector<float>>(
+        static_cast<std::size_t>(m_numChannels), std::vector<float>(pdcLineSize, 0.0f)));
+    m_pdcWritePos.insert(m_pdcWritePos.begin() + pos, 0);
+    m_pdcSamples.insert(m_pdcSamples.begin() + pos, 0);
+
+    m_trackMeters.insert(m_trackMeters.begin() + pos, std::make_unique<engine::Meter>());
+
+    updateLatencies();
+}
+
+// Removes the strip and its routing/sends/meter/pdc slot at trackIndex, off the audio thread
+void Mixer::removeTrackStrip(std::size_t trackIndex) {
+    const auto pos = static_cast<std::ptrdiff_t>(trackIndex);
+
+    m_trackStrips.erase(m_trackStrips.begin() + pos);
+    m_trackOutputs.erase(m_trackOutputs.begin() + pos);
+    m_trackSends.erase(m_trackSends.begin() + pos);
+
+    m_preFaderBuffers.erase(m_preFaderBuffers.begin() + pos);
+    m_preFaderPointers.erase(m_preFaderPointers.begin() + pos);
+    m_preFaderBlocks.erase(m_preFaderBlocks.begin() + pos);
+    repointPreFaderBlocks();
+
+    m_pdcLines.erase(m_pdcLines.begin() + pos);
+    m_pdcWritePos.erase(m_pdcWritePos.begin() + pos);
+    m_pdcSamples.erase(m_pdcSamples.begin() + pos);
+
+    m_trackMeters.erase(m_trackMeters.begin() + pos);
+
+    updateLatencies();
 }
 
 // Allocates a bus's scratch accumulation buffer at the mixer's current size

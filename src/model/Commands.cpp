@@ -213,4 +213,46 @@ void RemoveSendCommand::undo() {
     m_mixer.addSend(m_trackIndex, m_removedSend);
 }
 
+// Stores the arrangement, mixer, and the new track's name and kind
+AddTrackCommand::AddTrackCommand(Arrangement& arrangement, Mixer& mixer, std::string name, TrackKind kind)
+    : m_arrangement(arrangement)
+    , m_mixer(mixer)
+    , m_name(std::move(name))
+    , m_kind(kind)
+{
+}
+
+// arrangement.addTrack + mixer.insertTrackStrip at the new index
+void AddTrackCommand::execute() {
+    m_index = m_arrangement.addTrack(m_name, m_kind);
+    m_mixer.insertTrackStrip(m_index);
+}
+
+// arrangement.removeTrack + mixer.removeTrackStrip
+void AddTrackCommand::undo() {
+    m_arrangement.removeTrack(m_index);
+    m_mixer.removeTrackStrip(m_index);
+}
+
+// Stores the arrangement, mixer, and the track index to remove on execute()
+RemoveTrackCommand::RemoveTrackCommand(Arrangement& arrangement, Mixer& mixer, std::size_t trackIndex)
+    : m_arrangement(arrangement)
+    , m_mixer(mixer)
+    , m_index(trackIndex)
+{
+}
+
+// Copies the Track (Track is copyable by design), then removes both
+void RemoveTrackCommand::execute() {
+    m_removedTrack = m_arrangement.track(m_index);
+    m_arrangement.removeTrack(m_index);
+    m_mixer.removeTrackStrip(m_index);
+}
+
+// arrangement.insertTrack(index, copy) + mixer.insertTrackStrip(index)
+void RemoveTrackCommand::undo() {
+    m_arrangement.insertTrack(m_index, m_removedTrack);
+    m_mixer.insertTrackStrip(m_index);
+}
+
 } // namespace howl::model

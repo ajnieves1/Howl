@@ -6,6 +6,7 @@ add_library(HowlUi STATIC
     MixerView.cpp
     PianoRoll.cpp
     PluginWindow.cpp
+    TrackHeaderPanel.cpp
     TransportBar.cpp
 )
 

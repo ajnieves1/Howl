@@ -13,6 +13,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <string>
 
 namespace howl::model {
 
@@ -187,6 +188,46 @@ private:
     std::size_t m_trackIndex;
     std::size_t m_sendIndex;
     Send m_removedSend {};
+};
+
+// Adds a track to the arrangement and a default strip to the mixer, undo removes both
+class AddTrackCommand : public Command {
+public:
+    // Stores the arrangement, mixer, and the new track's name and kind
+    AddTrackCommand(Arrangement& arrangement, Mixer& mixer, std::string name, TrackKind kind);
+
+    // arrangement.addTrack + mixer.insertTrackStrip at the new index
+    void execute() override;
+
+    // arrangement.removeTrack + mixer.removeTrackStrip
+    void undo() override;
+
+private:
+    Arrangement& m_arrangement;
+    Mixer& m_mixer;
+    std::string m_name;
+    TrackKind m_kind;
+    std::size_t m_index = 0;
+};
+
+// Removes a track and its strip, undo restores the track copy and a DEFAULT strip
+// (strip contents - FX, gain, sends - are not preserved across remove/undo in v1, documented)
+class RemoveTrackCommand : public Command {
+public:
+    // Stores the arrangement, mixer, and the track index to remove on execute()
+    RemoveTrackCommand(Arrangement& arrangement, Mixer& mixer, std::size_t trackIndex);
+
+    // Copies the Track (Track is copyable by design), then removes both
+    void execute() override;
+
+    // arrangement.insertTrack(index, copy) + mixer.insertTrackStrip(index)
+    void undo() override;
+
+private:
+    Arrangement& m_arrangement;
+    Mixer& m_mixer;
+    std::size_t m_index;
+    Track m_removedTrack {};
 };
 
 } // namespace howl::model

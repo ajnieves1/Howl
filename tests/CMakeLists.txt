@@ -25,9 +25,11 @@ add_executable(HowlTests
     MixerTests.cpp
     PluginEffectTests.cpp
     PluginHostTests.cpp
+    PluginInstrumentTests.cpp
     ReverbTests.cpp
     SequencerNodeTests.cpp
     SubtractiveSynthTests.cpp
+    TrackCommandTests.cpp
     TransportTests.cpp
     Vst3AdapterTests.cpp
     Vst3StateTests.cpp

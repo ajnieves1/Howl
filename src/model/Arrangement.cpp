@@ -4,6 +4,7 @@
 #include "model/Arrangement.h"
 
 #include <algorithm>
+#include <utility>
 
 namespace howl::model {
 
@@ -11,6 +12,16 @@ namespace howl::model {
 std::size_t Arrangement::addTrack(const std::string& name, TrackKind kind) {
     m_tracks.push_back(Track { name, kind, {}, {} });
     return m_tracks.size() - 1;
+}
+
+// Removes the track at index
+void Arrangement::removeTrack(std::size_t index) {
+    m_tracks.erase(m_tracks.begin() + static_cast<std::ptrdiff_t>(index));
+}
+
+// Inserts a track at index (undo support)
+void Arrangement::insertTrack(std::size_t index, Track track) {
+    m_tracks.insert(m_tracks.begin() + static_cast<std::ptrdiff_t>(index), std::move(track));
 }
 
 // Returns the track at index

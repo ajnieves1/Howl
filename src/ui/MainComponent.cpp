@@ -15,13 +15,32 @@ MainComponent::MainComponent(model::Arrangement& arrangement, engine::Transport&
     , m_commandStack(commandStack)
     , m_sampleRate(sampleRate)
     , m_transportBar(transport, commandStack, sampleRate)
+    , m_trackHeaderPanel(arrangement, mixer, commandStack)
     , m_arrangeView(arrangement, transport, commandStack, sampleRate)
 {
     // Without this, keyPressed never fires anywhere in the shell (the P5-T10 lesson)
     setWantsKeyboardFocus(true);
 
     addAndMakeVisible(m_transportBar);
+    addAndMakeVisible(m_trackHeaderPanel);
     addAndMakeVisible(m_arrangeView);
+
+    m_trackHeaderPanel.onTracksChanged = [this] {
+        if (onTracksChanged) {
+            onTracksChanged();
+        }
+    };
+    m_trackHeaderPanel.onInstrumentPickRequested = [this](std::size_t trackIndex) {
+        if (onInstrumentPickRequested) {
+            onInstrumentPickRequested(trackIndex);
+        }
+    };
+    m_trackHeaderPanel.instrumentNameFor = [this](std::size_t trackIndex) -> juce::String {
+        if (instrumentNameFor) {
+            return instrumentNameFor(trackIndex);
+        }
+        return {};
+    };
 
     m_arrangeView.onMidiClipSelected = [this](std::size_t trackIndex, std::size_t placementIndex) {
         showPianoRollFor(trackIndex, placementIndex);
@@ -60,6 +79,7 @@ void MainComponent::resized() {
         }
     }
 
+    m_trackHeaderPanel.setBounds(bounds.removeFromLeft(kTrackHeaderWidth));
     m_arrangeView.setBounds(bounds);
 }
 
@@ -122,9 +142,10 @@ void MainComponent::toggleMixer() {
     resized();
 }
 
-// Repaints the arrange view, refreshes mixer strips, closes any open effect editors
+// Repaints the arrange view, refreshes mixer strips and track headers, closes any open effect editors
 void MainComponent::refreshAllViews() {
     m_arrangeView.repaint();
+    m_trackHeaderPanel.refreshFromModel();
 
     if (m_mixerView != nullptr) {
         m_mixerView->refreshStrips();

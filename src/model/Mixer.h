@@ -47,6 +47,12 @@ public:
     // Returns the master channel strip
     ChannelStrip& masterStrip();
 
+    // Inserts a default strip (and default routing/sends/meter/pdc slot) at trackIndex, off the audio thread
+    void insertTrackStrip(std::size_t trackIndex);
+
+    // Removes the strip and its routing/sends/meter/pdc slot at trackIndex, off the audio thread
+    void removeTrackStrip(std::size_t trackIndex);
+
     // Adds a bus strip, returns its index
     std::size_t addBus(const std::string& name);
 
@@ -115,6 +121,9 @@ private:
 
     // [RT] Runs a track's buffer through its PDC compensation ring, in place
     void applyPdcRing(std::size_t trackIndex, AudioBlock& block) noexcept;
+
+    // Re-derives every track's pre-fader pointer array from its buffer, after an insert/erase shift
+    void repointPreFaderBlocks();
 
     std::vector<ChannelStrip> m_trackStrips;
     std::vector<std::size_t> m_trackOutputs;

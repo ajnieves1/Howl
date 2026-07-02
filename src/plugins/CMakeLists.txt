@@ -2,6 +2,7 @@ add_library(HowlPlugins STATIC
     ClapAdapter.cpp
     PluginEffect.cpp
     PluginHost.cpp
+    PluginInstrument.cpp
     Vst3Adapter.cpp
 )
 
