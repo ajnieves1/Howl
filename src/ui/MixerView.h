@@ -34,6 +34,9 @@ public:
     // Fills the background
     void paint(juce::Graphics& g) override;
 
+    // Public wrapper around rebuildStrips(), called after undo/redo or a track/bus add
+    void refreshStrips();
+
 private:
     static constexpr int kStripWidth = 96;
 

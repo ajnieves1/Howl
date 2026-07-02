@@ -55,6 +55,11 @@ void MixerView::paint(juce::Graphics& g) {
     g.fillAll(juce::Colours::darkgrey);
 }
 
+// Public wrapper around rebuildStrips(), called after undo/redo or a track/bus add
+void MixerView::refreshStrips() {
+    rebuildStrips();
+}
+
 // Rebuilds one ChannelStripComponent per track, bus, and master
 void MixerView::rebuildStrips() {
     m_strips.clear();

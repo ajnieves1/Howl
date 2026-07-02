@@ -14,9 +14,7 @@
 #include "model/MidiClip.h"
 #include "model/Note.h"
 #include "plugins/PluginHost.h"
-#include "ui/ArrangeView.h"
-#include "ui/MixerView.h"
-#include "ui/PianoRoll.h"
+#include "ui/MainComponent.h"
 
 #include <juce_core/juce_core.h>
 #include <juce_events/juce_events.h>
@@ -65,10 +63,10 @@ private:
 
 class MainWindow : public juce::DocumentWindow {
 public:
-    // Creates and shows a window hosting the arrange view
+    // Creates and shows a window hosting the whole app shell (MainComponent)
     MainWindow(model::Arrangement& arrangement, engine::Transport& transport, model::CommandStack& commandStack,
-               double sampleRate, std::function<void(std::size_t, std::size_t)> onMidiClipSelected,
-               std::function<void()> onMixerRequested)
+               model::Mixer& mixer, engine::IEffectFactory& factory, plugins::IPluginHost* pluginHost,
+               double sampleRate, int maxBlockSize)
         : DocumentWindow(
               "Howl",
               juce::Desktop::getInstance().getDefaultLookAndFeel()
@@ -76,14 +74,13 @@ public:
               DocumentWindow::allButtons)
     {
         setUsingNativeTitleBar(true);
-        auto* arrangeView = new ui::ArrangeView(arrangement, transport, commandStack, sampleRate);
-        arrangeView->onMidiClipSelected = std::move(onMidiClipSelected);
-        arrangeView->onMixerRequested = std::move(onMixerRequested);
-        setContentOwned(arrangeView, true);
+        auto* mainComponent = new ui::MainComponent(arrangement, transport, commandStack, mixer,
+            factory, pluginHost, sampleRate, maxBlockSize);
+        setContentOwned(mainComponent, true);
         setResizable(true, true);
-        centreWithSize(900, 600);
+        centreWithSize(1000, 700);
         setVisible(true);
-        arrangeView->grabKeyboardFocus();
+        mainComponent->grabKeyboardFocus();
     }
 
     // Requests app shutdown when the window's close button is clicked
@@ -94,67 +91,6 @@ public:
 
 private:
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainWindow)
-};
-
-class PianoRollWindow : public juce::DocumentWindow {
-public:
-    // Creates and shows a window hosting a piano roll for clip
-    PianoRollWindow(model::MidiClip& clip, engine::Transport& transport, double sampleRate)
-        : DocumentWindow(
-              "Howl: Piano Roll",
-              juce::Desktop::getInstance().getDefaultLookAndFeel()
-                  .findColour(juce::ResizableWindow::backgroundColourId),
-              DocumentWindow::allButtons)
-    {
-        setUsingNativeTitleBar(true);
-        auto* pianoRoll = new ui::PianoRoll(clip, transport, sampleRate);
-        setContentOwned(pianoRoll, true);
-        setResizable(true, true);
-        centreWithSize(900, 400);
-        setVisible(true);
-        pianoRoll->grabKeyboardFocus();
-    }
-
-    // Hides the window, does not quit the app, only the main window does that
-    void closeButtonPressed() override
-    {
-        setVisible(false);
-    }
-
-private:
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PianoRollWindow)
-};
-
-class MixerWindow : public juce::DocumentWindow {
-public:
-    // Creates and shows a window hosting the mixer view
-    MixerWindow(model::Mixer& mixer, model::Arrangement& arrangement, engine::IEffectFactory& factory,
-                plugins::IPluginHost* pluginHost, model::CommandStack& commandStack,
-                double sampleRate, int maxBlockSize)
-        : DocumentWindow(
-              "Howl: Mixer",
-              juce::Desktop::getInstance().getDefaultLookAndFeel()
-                  .findColour(juce::ResizableWindow::backgroundColourId),
-              DocumentWindow::allButtons)
-    {
-        setUsingNativeTitleBar(true);
-        auto* mixerView = new ui::MixerView(mixer, arrangement, factory, pluginHost, commandStack,
-            sampleRate, maxBlockSize);
-        setContentOwned(mixerView, true);
-        setResizable(true, true);
-        centreWithSize(900, 400);
-        setVisible(true);
-        mixerView->grabKeyboardFocus();
-    }
-
-    // Hides the window, does not quit the app, only the main window does that
-    void closeButtonPressed() override
-    {
-        setVisible(false);
-    }
-
-private:
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MixerWindow)
 };
 
 class HowlApp : public juce::JUCEApplication {
@@ -199,13 +135,8 @@ public:
 
         m_arrangementNode->mixer().addBus("Bus 1");
 
-        m_mainWindow = std::make_unique<MainWindow>(m_arrangement, m_transport, m_commandStack, m_sampleRate,
-            [this](std::size_t trackIndex, std::size_t placementIndex) {
-                openPianoRollFor(trackIndex, placementIndex);
-            },
-            [this] {
-                openMixer();
-            });
+        m_mainWindow = std::make_unique<MainWindow>(m_arrangement, m_transport, m_commandStack,
+            m_arrangementNode->mixer(), m_effectFactory, &m_pluginHost, m_sampleRate, m_bufferSize);
 
         m_audioDevice.start([this](AudioBlock& block) {
             const SampleCount pos = m_transport.advance(block.numFrames);
@@ -216,13 +147,11 @@ public:
         m_xrunWatcher->start();
     }
 
-    // Stops the xrun watcher, closes the audio device, and closes the windows
+    // Stops the xrun watcher, closes the audio device, and closes the window
     void shutdown() override
     {
         m_xrunWatcher.reset();
         m_audioDevice.close();
-        m_mixerWindow.reset();
-        m_pianoRollWindow.reset();
         m_mainWindow.reset();
     }
 
@@ -233,20 +162,6 @@ public:
     }
 
 private:
-    // Opens (or replaces) the piano roll window for the given MIDI clip placement
-    void openPianoRollFor(std::size_t trackIndex, std::size_t placementIndex)
-    {
-        model::MidiClip& clip = m_arrangement.track(trackIndex).midiClips[placementIndex].clip;
-        m_pianoRollWindow = std::make_unique<PianoRollWindow>(clip, m_transport, m_sampleRate);
-    }
-
-    // Opens (or replaces) the mixer window
-    void openMixer()
-    {
-        m_mixerWindow = std::make_unique<MixerWindow>(m_arrangementNode->mixer(), m_arrangement,
-            m_effectFactory, &m_pluginHost, m_commandStack, m_sampleRate, m_bufferSize);
-    }
-
     engine::Transport m_transport;
     model::Arrangement m_arrangement;
     model::CommandStack m_commandStack;
@@ -259,8 +174,6 @@ private:
     double m_sampleRate = 44100.0;
     int m_bufferSize = 0;
     std::unique_ptr<MainWindow> m_mainWindow;
-    std::unique_ptr<PianoRollWindow> m_pianoRollWindow;
-    std::unique_ptr<MixerWindow> m_mixerWindow;
     std::unique_ptr<XrunWatcher> m_xrunWatcher;
 };
 

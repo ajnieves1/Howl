@@ -105,7 +105,6 @@ void ChannelStripComponent::resized() {
     auto bounds = getLocalBounds().reduced(4);
 
     bounds.removeFromTop(16); // name, drawn in paint()
-    bounds.removeFromTop(8);  // meter bar, drawn in paint()
 
     auto muteSoloArea = bounds.removeFromTop(20);
     m_muteButton.setBounds(muteSoloArea.removeFromLeft(muteSoloArea.getWidth() / 2));
@@ -134,6 +133,7 @@ void ChannelStripComponent::resized() {
         }
     }
 
+    m_meterBounds = bounds.removeFromRight(10);
     m_gainSlider.setBounds(bounds);
 }
 
@@ -147,13 +147,12 @@ void ChannelStripComponent::paint(juce::Graphics& g) {
     g.setColour(juce::Colours::white);
     g.drawText(m_name, nameArea, juce::Justification::centred);
 
-    auto meterArea = bounds.removeFromTop(8);
     g.setColour(juce::Colours::black);
-    g.fillRect(meterArea);
+    g.fillRect(m_meterBounds);
 
-    const int meterWidth = static_cast<int>(static_cast<float>(meterArea.getWidth()) * m_meterPeak);
+    const int meterHeight = static_cast<int>(static_cast<float>(m_meterBounds.getHeight()) * m_meterPeak);
     g.setColour(juce::Colours::limegreen);
-    g.fillRect(meterArea.removeFromLeft(meterWidth));
+    g.fillRect(m_meterBounds.withTop(m_meterBounds.getBottom() - meterHeight));
 }
 
 // Pops pending meter readings and repaints the meter region, called by MixerView's timer

@@ -98,6 +98,8 @@ private:
     // The currently open per-effect parameter editor, if any; closed on every structural edit
     std::unique_ptr<EffectEditorWindow> m_effectEditor;
 
+    // The vertical meter column reserved to the right of the gain fader, set in resized()
+    juce::Rectangle<int> m_meterBounds;
     float m_meterPeak = 0.0f;
 };
 
