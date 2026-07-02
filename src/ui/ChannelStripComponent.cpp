@@ -181,6 +181,10 @@ void ChannelStripComponent::refreshMeter() {
 
 // Reloads the FX list and send rows from the model, called after any structural edit
 void ChannelStripComponent::refreshFromModel() {
+    // Any structural edit can move or destroy effects, so close the editor first to
+    // guarantee it never holds a dangling reference
+    m_effectEditor.reset();
+
     m_fxList.updateContent();
 
     if (m_outputCombo != nullptr) {
@@ -222,6 +226,24 @@ void ChannelStripComponent::paintListBoxItem(int rowNumber, juce::Graphics& g, i
     g.setColour(juce::Colours::black);
     g.drawText(chain.at(static_cast<std::size_t>(rowNumber)).displayName(),
         4, 0, width - 8, height, juce::Justification::centredLeft);
+}
+
+// Opens (or replaces) the generic parameter editor for the double-clicked effect
+void ChannelStripComponent::listBoxItemDoubleClicked(int row, const juce::MouseEvent&) {
+    auto& chain = channelStrip().effects();
+    if (row < 0 || static_cast<std::size_t>(row) >= chain.size()) {
+        return;
+    }
+
+    engine::Effect& effect = chain.at(static_cast<std::size_t>(row));
+
+    // Pragmatic RTTI use: only a PluginEffect can offer a native editor button
+    plugins::IPluginInstance* nativeInstance = nullptr;
+    if (auto* pluginEffect = dynamic_cast<plugins::PluginEffect*>(&effect)) {
+        nativeInstance = &pluginEffect->instance();
+    }
+
+    m_effectEditor = std::make_unique<EffectEditorWindow>(effect, nativeInstance);
 }
 
 // Returns the strip this component targets

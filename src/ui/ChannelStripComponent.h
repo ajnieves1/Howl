@@ -7,6 +7,7 @@
 #include "model/CommandStack.h"
 #include "model/Mixer.h"
 #include "plugins/IPluginInstance.h"
+#include "ui/EffectEditorWindow.h"
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
@@ -53,6 +54,9 @@ private:
     // Draws one effect's display name
     void paintListBoxItem(int rowNumber, juce::Graphics& g, int width, int height, bool rowIsSelected) override;
 
+    // Opens (or replaces) the generic parameter editor for the double-clicked effect
+    void listBoxItemDoubleClicked(int row, const juce::MouseEvent& event) override;
+
     // Returns the strip this component targets
     model::ChannelStrip& channelStrip();
 
@@ -90,6 +94,9 @@ private:
     std::unique_ptr<juce::ComboBox> m_outputCombo;
     std::unique_ptr<juce::TextButton> m_addSendButton;
     std::vector<SendRow> m_sendRows;
+
+    // The currently open per-effect parameter editor, if any; closed on every structural edit
+    std::unique_ptr<EffectEditorWindow> m_effectEditor;
 
     float m_meterPeak = 0.0f;
 };

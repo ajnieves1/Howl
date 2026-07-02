@@ -25,7 +25,29 @@ float mapExponential(float value, float min, float max) noexcept {
     return min * std::pow(max / min, clampNormalized(value));
 }
 
+// Converts a real-unit value back to the normalized 0..1 value a linear map would produce
+float inverseLinear(float x, float min, float max) noexcept {
+    return (x - min) / (max - min);
+}
+
+// Converts a real-unit value back to the normalized 0..1 value an exponential map would produce
+float inverseExponential(float x, float min, float max) noexcept {
+    return std::log(x / min) / std::log(max / min);
+}
+
 } // namespace
+
+// Initializes the normalized parameter cache from the real-unit defaults
+Compressor::Compressor()
+    : m_paramValues {
+        inverseLinear(m_thresholdDb, -60.0f, 0.0f),
+        inverseExponential(m_ratio, 1.0f, 20.0f),
+        inverseExponential(m_attackMs, 0.1f, 100.0f),
+        inverseExponential(m_releaseMs, 10.0f, 1000.0f),
+        inverseLinear(m_makeupDb, 0.0f, 24.0f)
+      }
+{
+}
 
 // Stores the sample rate and recomputes the envelope coefficients
 void Compressor::prepare(double sampleRate, int) {
@@ -83,6 +105,12 @@ const char* Compressor::parameterName(int index) const {
 
 // [RT] Maps and stores the value, re-prepares the envelope if the rate is known
 void Compressor::setParameter(int index, float value) noexcept {
+    if (index < 0 || index >= 5) {
+        return;
+    }
+
+    m_paramValues[index] = clampNormalized(value);
+
     switch (index) {
         case kThreshold:
             m_thresholdDb = mapLinear(value, -60.0f, 0.0f);
@@ -106,6 +134,15 @@ void Compressor::setParameter(int index, float value) noexcept {
     if (m_sampleRate > 0.0) {
         m_envelope.prepare(m_sampleRate, m_attackMs, m_releaseMs);
     }
+}
+
+// Returns the last normalized value set for the param at index, its default before any set
+float Compressor::getParameter(int index) const noexcept {
+    if (index < 0 || index >= 5) {
+        return 0.0f;
+    }
+
+    return m_paramValues[index];
 }
 
 // Returns "Compressor"

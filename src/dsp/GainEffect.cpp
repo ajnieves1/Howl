@@ -7,6 +7,21 @@
 
 namespace howl::dsp {
 
+namespace {
+
+// Converts a real-unit value back to the normalized 0..1 value a linear map would produce
+float inverseLinear(float x, float min, float max) noexcept {
+    return (x - min) / (max - min);
+}
+
+} // namespace
+
+// Initializes the normalized parameter cache from the real-unit default (0 dB)
+GainEffect::GainEffect()
+    : m_paramValues { inverseLinear(0.0f, kMinGainDb, kMaxGainDb) }
+{
+}
+
 // Prepares the effect, gain has no rate or block size dependence
 void GainEffect::prepare(double, int) {
 }
@@ -50,8 +65,18 @@ void GainEffect::setParameter(int index, float value) noexcept {
     }
 
     const float clamped = value < 0.0f ? 0.0f : (value > 1.0f ? 1.0f : value);
+    m_paramValues[kGainParam] = clamped;
     const float gainDb = kMinGainDb + clamped * (kMaxGainDb - kMinGainDb);
     m_gainLinear = std::pow(10.0f, gainDb / 20.0f);
+}
+
+// Returns the last normalized value set for the param at index, its default before any set
+float GainEffect::getParameter(int index) const noexcept {
+    if (index != kGainParam) {
+        return 0.0f;
+    }
+
+    return m_paramValues[kGainParam];
 }
 
 // Returns "Gain"

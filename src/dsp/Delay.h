@@ -11,6 +11,9 @@ namespace howl::dsp {
 
 class Delay : public engine::Effect {
 public:
+    // Initializes the normalized parameter cache from the real-unit defaults
+    Delay();
+
     // Param indices, every setParameter value is normalized 0..1
     static constexpr int kTime = 0;
     static constexpr int kFeedback = 1;
@@ -37,6 +40,9 @@ public:
     // [RT] Maps and stores the value, recomputes the delay in samples if the rate is known
     void setParameter(int index, float value) noexcept override;
 
+    // Returns the last normalized value set for the param at index, its default before any set
+    float getParameter(int index) const noexcept override;
+
     // Returns "Delay"
     const char* displayName() const noexcept override;
 
@@ -56,6 +62,9 @@ private:
     float m_feedback = 0.35f;
     float m_mix = 0.5f;
     double m_sampleRate = 0.0;
+    // Normalized cache, one slot per param index, declared last so the real-unit
+    // defaults above are already set when this is constructed
+    float m_paramValues[3];
 };
 
 } // namespace howl::dsp

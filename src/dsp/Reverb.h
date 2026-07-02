@@ -11,6 +11,9 @@ namespace howl::dsp {
 
 class Reverb : public engine::Effect {
 public:
+    // Initializes the normalized parameter cache to the flat defaults (room 0.5, damp 0.5, mix 0.33)
+    Reverb();
+
     // Param indices, every setParameter value is normalized 0..1
     static constexpr int kRoomSize = 0;
     static constexpr int kDamping = 1;
@@ -36,6 +39,9 @@ public:
 
     // [RT] Maps and stores the value, plain float stores, no atomics
     void setParameter(int index, float value) noexcept override;
+
+    // Returns the last normalized value set for the param at index, its default before any set
+    float getParameter(int index) const noexcept override;
 
     // Returns "Reverb"
     const char* displayName() const noexcept override;
@@ -69,6 +75,8 @@ private:
     float m_combFeedback = 0.84f;
     float m_damp = 0.2f;
     float m_mix = 0.33f;
+    // Raw clamped normalized values, one slot per param index
+    float m_paramValues[3];
 };
 
 } // namespace howl::dsp

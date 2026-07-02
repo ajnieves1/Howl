@@ -9,6 +9,9 @@ namespace howl::dsp {
 
 class GainEffect : public engine::Effect {
 public:
+    // Initializes the normalized parameter cache from the real-unit default (0 dB)
+    GainEffect();
+
     // Prepares the effect, gain has no rate or block size dependence
     void prepare(double sampleRate, int maxBlockSize) override;
 
@@ -30,6 +33,9 @@ public:
     // [RT] Sets the gain, value is normalized 0..1 mapped to a dB range
     void setParameter(int index, float value) noexcept override;
 
+    // Returns the last normalized value set for the param at index, its default before any set
+    float getParameter(int index) const noexcept override;
+
     // Returns "Gain"
     const char* displayName() const noexcept override;
 
@@ -39,6 +45,7 @@ private:
     static constexpr float kMaxGainDb = 12.0f;
 
     float m_gainLinear = 1.0f;
+    float m_paramValues[1];
 };
 
 } // namespace howl::dsp

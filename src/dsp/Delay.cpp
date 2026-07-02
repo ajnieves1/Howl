@@ -25,7 +25,27 @@ float mapExponential(float value, float min, float max) noexcept {
     return min * std::pow(max / min, clampNormalized(value));
 }
 
+// Converts a real-unit value back to the normalized 0..1 value a linear map would produce
+float inverseLinear(float x, float min, float max) noexcept {
+    return (x - min) / (max - min);
+}
+
+// Converts a real-unit value back to the normalized 0..1 value an exponential map would produce
+float inverseExponential(float x, float min, float max) noexcept {
+    return std::log(x / min) / std::log(max / min);
+}
+
 } // namespace
+
+// Initializes the normalized parameter cache from the real-unit defaults
+Delay::Delay()
+    : m_paramValues {
+        inverseExponential(m_timeMs, 1.0f, 2000.0f),
+        inverseLinear(m_feedback, 0.0f, 0.95f),
+        inverseLinear(m_mix, 0.0f, 1.0f)
+      }
+{
+}
 
 // Sizes one ring buffer per channel and recomputes the delay in samples
 void Delay::prepare(double sampleRate, int) {
@@ -83,6 +103,12 @@ const char* Delay::parameterName(int index) const {
 
 // [RT] Maps and stores the value, recomputes the delay in samples if the rate is known
 void Delay::setParameter(int index, float value) noexcept {
+    if (index < 0 || index >= 3) {
+        return;
+    }
+
+    m_paramValues[index] = clampNormalized(value);
+
     switch (index) {
         case kTime:
             m_timeMs = mapExponential(value, 1.0f, 2000.0f);
@@ -99,6 +125,15 @@ void Delay::setParameter(int index, float value) noexcept {
         default:
             break;
     }
+}
+
+// Returns the last normalized value set for the param at index, its default before any set
+float Delay::getParameter(int index) const noexcept {
+    if (index < 0 || index >= 3) {
+        return 0.0f;
+    }
+
+    return m_paramValues[index];
 }
 
 // Returns "Delay"

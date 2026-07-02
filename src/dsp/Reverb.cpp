@@ -27,6 +27,12 @@ float mapLinear(float value, float min, float max) noexcept {
 
 } // namespace
 
+// Initializes the normalized parameter cache to the flat defaults (room 0.5, damp 0.5, mix 0.33)
+Reverb::Reverb()
+    : m_paramValues { 0.5f, 0.5f, 0.33f }
+{
+}
+
 // Sizes every comb and allpass line from the Freeverb tunings scaled to the rate
 void Reverb::prepare(double sampleRate, int) {
     const double scale = sampleRate / 44100.0;
@@ -109,6 +115,12 @@ const char* Reverb::parameterName(int index) const {
 
 // [RT] Maps and stores the value, plain float stores, no atomics
 void Reverb::setParameter(int index, float value) noexcept {
+    if (index < 0 || index >= 3) {
+        return;
+    }
+
+    m_paramValues[index] = clampNormalized(value);
+
     switch (index) {
         case kRoomSize:
             m_combFeedback = 0.7f + clampNormalized(value) * 0.28f;
@@ -122,6 +134,15 @@ void Reverb::setParameter(int index, float value) noexcept {
         default:
             break;
     }
+}
+
+// Returns the last normalized value set for the param at index, its default before any set
+float Reverb::getParameter(int index) const noexcept {
+    if (index < 0 || index >= 3) {
+        return 0.0f;
+    }
+
+    return m_paramValues[index];
 }
 
 // Returns "Reverb"

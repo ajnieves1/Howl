@@ -25,7 +25,26 @@ float mapExponential(float value, float min, float max) noexcept {
     return min * std::pow(max / min, clampNormalized(value));
 }
 
+// Converts a real-unit value back to the normalized 0..1 value a linear map would produce
+float inverseLinear(float x, float min, float max) noexcept {
+    return (x - min) / (max - min);
+}
+
+// Converts a real-unit value back to the normalized 0..1 value an exponential map would produce
+float inverseExponential(float x, float min, float max) noexcept {
+    return std::log(x / min) / std::log(max / min);
+}
+
 } // namespace
+
+// Initializes the normalized parameter cache from the real-unit defaults
+Limiter::Limiter()
+    : m_paramValues {
+        inverseLinear(m_ceilingDb, -24.0f, 0.0f),
+        inverseExponential(m_releaseMs, 10.0f, 1000.0f)
+      }
+{
+}
 
 // Stores the sample rate and recomputes the release coefficient
 void Limiter::prepare(double sampleRate, int) {
@@ -83,6 +102,12 @@ const char* Limiter::parameterName(int index) const {
 
 // [RT] Maps and stores the value, recomputes derived state if the rate is known
 void Limiter::setParameter(int index, float value) noexcept {
+    if (index < 0 || index >= 2) {
+        return;
+    }
+
+    m_paramValues[index] = clampNormalized(value);
+
     switch (index) {
         case kCeiling:
             m_ceilingDb = mapLinear(value, -24.0f, 0.0f);
@@ -97,6 +122,15 @@ void Limiter::setParameter(int index, float value) noexcept {
         default:
             break;
     }
+}
+
+// Returns the last normalized value set for the param at index, its default before any set
+float Limiter::getParameter(int index) const noexcept {
+    if (index < 0 || index >= 2) {
+        return 0.0f;
+    }
+
+    return m_paramValues[index];
 }
 
 // Returns "Limiter"

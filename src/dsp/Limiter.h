@@ -9,6 +9,9 @@ namespace howl::dsp {
 
 class Limiter : public engine::Effect {
 public:
+    // Initializes the normalized parameter cache from the real-unit defaults
+    Limiter();
+
     // Param indices, every setParameter value is normalized 0..1
     static constexpr int kCeiling = 0;
     static constexpr int kRelease = 1;
@@ -34,6 +37,9 @@ public:
     // [RT] Maps and stores the value, recomputes derived state if the rate is known
     void setParameter(int index, float value) noexcept override;
 
+    // Returns the last normalized value set for the param at index, its default before any set
+    float getParameter(int index) const noexcept override;
+
     // Returns "Limiter"
     const char* displayName() const noexcept override;
 
@@ -44,6 +50,9 @@ private:
     float m_releaseCoeff = 0.0f;
     float m_gain = 1.0f;
     double m_sampleRate = 0.0;
+    // Normalized cache, one slot per param index, declared last so the real-unit
+    // defaults above are already set when this is constructed
+    float m_paramValues[2];
 };
 
 } // namespace howl::dsp

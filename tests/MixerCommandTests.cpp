@@ -53,6 +53,11 @@ public:
     void setParameter(int, float) noexcept override {
     }
 
+    // No parameters exist
+    float getParameter(int) const noexcept override {
+        return 0.0f;
+    }
+
     const char* displayName() const noexcept override {
         return "LatencyOnly";
     }

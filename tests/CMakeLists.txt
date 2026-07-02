@@ -12,6 +12,7 @@ add_executable(HowlTests
     DelayTests.cpp
     EffectChainTests.cpp
     EffectFactoryTests.cpp
+    EffectParameterTests.cpp
     EqualizerTests.cpp
     GoldenRenderTests.cpp
     GraphTests.cpp

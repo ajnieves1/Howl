@@ -20,6 +20,9 @@ struct BiquadCoeffs {
 
 class Equalizer : public engine::Effect {
 public:
+    // Initializes the normalized parameter cache from the flat-EQ real-unit defaults
+    Equalizer();
+
     // Param indices, every setParameter value is normalized 0..1
     static constexpr int kLowFreq = 0;
     static constexpr int kLowGain = 1;
@@ -50,6 +53,9 @@ public:
     // [RT] Maps and stores the value, then republishes the affected band's coefficients
     void setParameter(int index, float value) noexcept override;
 
+    // Returns the last normalized value set for the param at index, its default before any set
+    float getParameter(int index) const noexcept override;
+
     // Returns "EQ"
     const char* displayName() const noexcept override;
 
@@ -74,6 +80,9 @@ private:
     float m_highFreqHz = 5000.0f;
     float m_highGainDb = 0.0f;
     double m_sampleRate = 0.0;
+    // Normalized cache, one slot per param index, declared last so the real-unit
+    // defaults above are already set when this is constructed
+    float m_paramValues[7];
 };
 
 } // namespace howl::dsp

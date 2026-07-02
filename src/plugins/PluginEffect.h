@@ -8,6 +8,7 @@
 
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace howl::plugins {
 
@@ -40,12 +41,21 @@ public:
     // [RT] Forwards to setParamNormalized with the param id at index
     void setParameter(int index, float value) noexcept override;
 
+    // Returns the last normalized value set for the param at index, its default before any set.
+    // Note: changes made inside a plugin's native editor are not reflected back into this
+    // cache (no host param listening yet, follow-up).
+    float getParameter(int index) const noexcept override;
+
     // Returns the descriptor name given at construction
     const char* displayName() const noexcept override;
+
+    // Returns the wrapped plugin instance, the editor window needs it for the native-editor button
+    IPluginInstance& instance() noexcept;
 
 private:
     std::unique_ptr<IPluginInstance> m_instance;
     std::string m_displayName;
+    std::vector<float> m_paramValues;
 };
 
 } // namespace howl::plugins

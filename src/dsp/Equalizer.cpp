@@ -26,6 +26,16 @@ float mapExponential(float value, float min, float max) noexcept {
     return min * std::pow(max / min, clampNormalized(value));
 }
 
+// Converts a real-unit value back to the normalized 0..1 value a linear map would produce
+float inverseLinear(float x, float min, float max) noexcept {
+    return (x - min) / (max - min);
+}
+
+// Converts a real-unit value back to the normalized 0..1 value an exponential map would produce
+float inverseExponential(float x, float min, float max) noexcept {
+    return std::log(x / min) / std::log(max / min);
+}
+
 // RBJ Audio EQ Cookbook low shelf, slope S = 1
 BiquadCoeffs computeLowShelf(float freqHz, float gainDb, double sampleRate) noexcept {
     const float a = std::pow(10.0f, gainDb / 40.0f);
@@ -83,6 +93,20 @@ BiquadCoeffs computePeaking(float freqHz, float gainDb, float q, double sampleRa
 }
 
 } // namespace
+
+// Initializes the normalized parameter cache from the flat-EQ real-unit defaults
+Equalizer::Equalizer()
+    : m_paramValues {
+        inverseExponential(m_lowFreqHz, 20.0f, 2000.0f),
+        inverseLinear(m_lowGainDb, -24.0f, 24.0f),
+        inverseExponential(m_peakFreqHz, 20.0f, 20000.0f),
+        inverseLinear(m_peakGainDb, -24.0f, 24.0f),
+        inverseExponential(m_peakQ, 0.3f, 10.0f),
+        inverseExponential(m_highFreqHz, 200.0f, 20000.0f),
+        inverseLinear(m_highGainDb, -24.0f, 24.0f)
+      }
+{
+}
 
 // Stores the sample rate and recomputes every band's coefficients
 void Equalizer::prepare(double sampleRate, int) {
@@ -159,6 +183,12 @@ const char* Equalizer::parameterName(int index) const {
 
 // [RT] Maps and stores the value, then republishes the affected band's coefficients
 void Equalizer::setParameter(int index, float value) noexcept {
+    if (index < 0 || index >= 7) {
+        return;
+    }
+
+    m_paramValues[index] = clampNormalized(value);
+
     switch (index) {
         case kLowFreq:
             m_lowFreqHz = mapExponential(value, 20.0f, 2000.0f);
@@ -205,6 +235,15 @@ void Equalizer::setParameter(int index, float value) noexcept {
         default:
             break;
     }
+}
+
+// Returns the last normalized value set for the param at index, its default before any set
+float Equalizer::getParameter(int index) const noexcept {
+    if (index < 0 || index >= 7) {
+        return 0.0f;
+    }
+
+    return m_paramValues[index];
 }
 
 // Returns "EQ"

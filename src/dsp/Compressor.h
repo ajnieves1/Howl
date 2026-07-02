@@ -10,6 +10,9 @@ namespace howl::dsp {
 
 class Compressor : public engine::Effect {
 public:
+    // Initializes the normalized parameter cache from the real-unit defaults
+    Compressor();
+
     // Param indices, every setParameter value is normalized 0..1
     static constexpr int kThreshold = 0;
     static constexpr int kRatio = 1;
@@ -38,6 +41,9 @@ public:
     // [RT] Maps and stores the value, re-prepares the envelope if the rate is known
     void setParameter(int index, float value) noexcept override;
 
+    // Returns the last normalized value set for the param at index, its default before any set
+    float getParameter(int index) const noexcept override;
+
     // Returns "Compressor"
     const char* displayName() const noexcept override;
 
@@ -49,6 +55,9 @@ private:
     float m_releaseMs = 100.0f;
     float m_makeupDb = 0.0f;
     double m_sampleRate = 0.0;
+    // Normalized cache, one slot per param index, declared last so the real-unit
+    // defaults above are already set when this is constructed
+    float m_paramValues[5];
 };
 
 } // namespace howl::dsp

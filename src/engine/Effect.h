@@ -38,6 +38,9 @@ public:
     // [RT] Sets a parameter by index, value is normalized 0..1
     virtual void setParameter(int index, float value) noexcept = 0;
 
+    // Returns the last normalized 0..1 value set for the param at index, its default before any set
+    virtual float getParameter(int index) const noexcept = 0;
+
     // Fixed human-readable effect name for UI lists
     virtual const char* displayName() const noexcept = 0;
 };
