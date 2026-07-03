@@ -4,6 +4,7 @@
 #pragma once
 
 #include <cstdint>
+#include <string>
 #include <vector>
 
 namespace howl::model {
@@ -25,9 +26,16 @@ public:
     // Read-only view of one channel, size lengthSamples()
     const float* channelData(int index) const;
 
+    // Absolute path of the file this clip was imported from, empty if none, used by persistence
+    void setSourcePath(const std::string& path);
+
+    // Returns the source file path, empty if this clip was not imported from a file
+    const std::string& sourcePath() const;
+
 private:
     std::vector<std::vector<float>> m_channels;
     double m_sourceSampleRate;
+    std::string m_sourcePath;
 };
 
 } // namespace howl::model

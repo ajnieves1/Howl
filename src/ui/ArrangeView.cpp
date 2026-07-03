@@ -61,26 +61,38 @@ int64_t ArrangeView::visibleTickSpan() const {
     return maxEndTick + model::kTicksPerQuarter * 4;
 }
 
-// Converts a pixel x position to a tick, clamped to the visible span
+// Ticks spanned by the current zoom level, visibleTickSpan() / m_zoom
+double ArrangeView::zoomedVisibleSpan() const {
+    return static_cast<double>(visibleTickSpan()) / m_zoom;
+}
+
+// Clamps m_scrollTick to [0, visibleTickSpan() - zoomedVisibleSpan()]
+void ArrangeView::clampScroll() {
+    const double maxScroll = juce::jmax(0.0, static_cast<double>(visibleTickSpan()) - zoomedVisibleSpan());
+    m_scrollTick = static_cast<int64_t>(juce::jlimit(0.0, maxScroll, static_cast<double>(m_scrollTick)));
+}
+
+// Converts a pixel x position to a tick, offset by the current scroll
 int64_t ArrangeView::xToTick(int x) const {
-    const int64_t span = visibleTickSpan();
-    const float ratio = juce::jlimit(0.0f, 1.0f, static_cast<float>(x) / static_cast<float>(getWidth()));
-    return static_cast<int64_t>(ratio * static_cast<float>(span));
+    const double span = zoomedVisibleSpan();
+    const double ratio = juce::jlimit(0.0, 1.0, static_cast<double>(x) / static_cast<double>(getWidth()));
+    return m_scrollTick + static_cast<int64_t>(ratio * span);
 }
 
-// Converts a tick to a pixel x position
+// Converts a tick to a pixel x position, offset by the current scroll
 float ArrangeView::tickToX(int64_t tick) const {
-    const int64_t span = visibleTickSpan();
-    return static_cast<float>(tick) / static_cast<float>(span) * static_cast<float>(getWidth());
+    const double span = zoomedVisibleSpan();
+    return static_cast<float>(static_cast<double>(tick - m_scrollTick) / span * static_cast<double>(getWidth()));
 }
 
-// Returns the height of one track lane
+// Returns the height of one track lane, below the ruler
 float ArrangeView::laneHeight() const {
     const std::size_t numTracks = m_arrangement.numTracks();
+    const float available = static_cast<float>(getHeight() - kRulerHeight);
     if (numTracks == 0) {
-        return static_cast<float>(getHeight());
+        return available;
     }
-    return static_cast<float>(getHeight()) / static_cast<float>(numTracks);
+    return available / static_cast<float>(numTracks);
 }
 
 // Converts a pixel y position to a track index, clamped to numTracks() - 1
@@ -91,7 +103,7 @@ std::size_t ArrangeView::yToTrackIndex(int y) const {
     }
 
     const float height = laneHeight();
-    const int index = static_cast<int>(static_cast<float>(y) / height);
+    const int index = static_cast<int>(static_cast<float>(y - kRulerHeight) / height);
     return static_cast<std::size_t>(juce::jlimit(0, static_cast<int>(numTracks) - 1, index));
 }
 
@@ -127,9 +139,26 @@ bool ArrangeView::hitTestClip(std::size_t trackIndex, int64_t tick, DraggedClip&
     return false;
 }
 
-// Draws one lane per track, each clip as a block, and the playhead
+// Draws the ruler, one lane per track, each clip as a block, and the playhead
 void ArrangeView::paint(juce::Graphics& g) {
     g.fillAll(juce::Colours::black);
+
+    const int64_t span = visibleTickSpan();
+    const int64_t barTicks = model::kTicksPerQuarter * 4;
+    const int64_t firstBarTick = (m_scrollTick / barTicks) * barTicks;
+
+    g.setColour(juce::Colours::grey.withAlpha(0.25f));
+    for (int64_t tick = firstBarTick; tick < span; tick += barTicks) {
+        const auto x = static_cast<int>(tickToX(tick));
+        g.drawVerticalLine(x, 0.0f, static_cast<float>(getHeight()));
+    }
+
+    g.setColour(juce::Colours::white.withAlpha(0.8f));
+    for (int64_t tick = firstBarTick; tick < span; tick += barTicks) {
+        const auto x = static_cast<int>(tickToX(tick));
+        const int barNumber = static_cast<int>(tick / barTicks) + 1;
+        g.drawText(juce::String(barNumber), x + 2, 0, 40, kRulerHeight, juce::Justification::centredLeft);
+    }
 
     const std::size_t numTracks = m_arrangement.numTracks();
     if (numTracks == 0) {
@@ -141,20 +170,13 @@ void ArrangeView::paint(juce::Graphics& g) {
 
     g.setColour(juce::Colours::grey.withAlpha(0.4f));
     for (std::size_t i = 1; i < numTracks; ++i) {
-        const auto y = static_cast<float>(i) * height;
+        const auto y = kRulerHeight + static_cast<float>(i) * height;
         g.drawHorizontalLine(static_cast<int>(y), 0.0f, static_cast<float>(getWidth()));
-    }
-
-    g.setColour(juce::Colours::grey.withAlpha(0.25f));
-    const int64_t span = visibleTickSpan();
-    for (int64_t tick = 0; tick < span; tick += model::kTicksPerQuarter * 4) {
-        const auto x = static_cast<int>(tickToX(tick));
-        g.drawVerticalLine(x, 0.0f, static_cast<float>(getHeight()));
     }
 
     for (std::size_t i = 0; i < numTracks; ++i) {
         const model::Track& track = m_arrangement.track(i);
-        const auto y = static_cast<float>(i) * height;
+        const auto y = kRulerHeight + static_cast<float>(i) * height;
 
         for (std::size_t p = 0; p < track.midiClips.size(); ++p) {
             const auto& placement = track.midiClips[p];
@@ -200,13 +222,13 @@ void ArrangeView::paint(juce::Graphics& g) {
     g.drawVerticalLine(static_cast<int>(playheadX), 0.0f, static_cast<float>(getHeight()));
 }
 
-// Begins a move drag if the click landed on a clip
+// Begins a move drag if the click landed on a clip, opens a delete menu on right-click
 void ArrangeView::mouseDown(const juce::MouseEvent& event) {
     m_mouseDownPosition = event.getPosition();
     m_hasDraggedBeyondThreshold = false;
     m_dragging = false;
 
-    if (m_arrangement.numTracks() == 0) {
+    if (m_arrangement.numTracks() == 0 || event.y < kRulerHeight) {
         return;
     }
 
@@ -214,11 +236,18 @@ void ArrangeView::mouseDown(const juce::MouseEvent& event) {
     const int64_t tick = xToTick(event.x);
 
     DraggedClip found {};
-    if (hitTestClip(trackIndex, tick, found)) {
-        m_draggedClip = found;
-        m_dragCurrentTick = found.originalStartTick;
-        m_dragging = true;
+    if (!hitTestClip(trackIndex, tick, found)) {
+        return;
     }
+
+    if (event.mods.isPopupMenu()) {
+        showDeleteClipMenu(found);
+        return;
+    }
+
+    m_draggedClip = found;
+    m_dragCurrentTick = found.originalStartTick;
+    m_dragging = true;
 }
 
 // Continues a move drag once the mouse has moved past a small threshold
@@ -259,6 +288,107 @@ void ArrangeView::mouseUp(const juce::MouseEvent&) {
 
     m_dragging = false;
     repaint();
+}
+
+// Creates a new 4-bar MIDI clip on an empty MIDI lane, snapped to the bar
+void ArrangeView::mouseDoubleClick(const juce::MouseEvent& event) {
+    if (m_arrangement.numTracks() == 0 || event.y < kRulerHeight) {
+        return;
+    }
+
+    const std::size_t trackIndex = yToTrackIndex(event.y);
+    const model::Track& track = m_arrangement.track(trackIndex);
+
+    if (track.kind != model::TrackKind::Midi) {
+        return;
+    }
+
+    const int64_t tick = xToTick(event.x);
+
+    DraggedClip found {};
+    if (hitTestClip(trackIndex, tick, found)) {
+        return;
+    }
+
+    const int64_t barTicks = model::kTicksPerQuarter * 4;
+    const int64_t snappedTick = tick - (tick % barTicks);
+
+    model::MidiClip clip;
+    clip.setLengthTicks(model::kTicksPerQuarter * 16);
+
+    m_commandStack.perform(std::make_unique<model::AddMidiClipCommand>(
+        m_arrangement, trackIndex, model::MidiClipPlacement { snappedTick, clip }));
+
+    repaint();
+}
+
+// Ctrl+wheel zooms around the cursor, plain wheel scrolls horizontally
+void ArrangeView::mouseWheelMove(const juce::MouseEvent& event, const juce::MouseWheelDetails& wheel) {
+    if (event.mods.isCtrlDown() || event.mods.isCommandDown()) {
+        const int64_t tickUnderCursor = xToTick(event.x);
+        m_zoom = juce::jlimit(kMinZoom, kMaxZoom, m_zoom * (1.0 + static_cast<double>(wheel.deltaY)));
+
+        const double newSpan = zoomedVisibleSpan();
+        const double ratio = static_cast<double>(event.x) / static_cast<double>(getWidth());
+        m_scrollTick = tickUnderCursor - static_cast<int64_t>(ratio * newSpan);
+    } else {
+        const double span = zoomedVisibleSpan();
+        m_scrollTick += static_cast<int64_t>(-static_cast<double>(wheel.deltaY) * span / 4.0);
+    }
+
+    clampScroll();
+    repaint();
+}
+
+// Accepts a drag hovering any .wav file
+bool ArrangeView::isInterestedInFileDrag(const juce::StringArray& files) {
+    for (const auto& file : files) {
+        if (file.endsWithIgnoreCase(".wav")) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+// Fires onAudioFileDropped with the drop lane and snapped tick for each dropped .wav
+void ArrangeView::filesDropped(const juce::StringArray& files, int x, int y) {
+    if (m_arrangement.numTracks() == 0 || y < kRulerHeight) {
+        return;
+    }
+
+    const std::size_t trackIndex = yToTrackIndex(y);
+    const int64_t tick = xToTick(x);
+    const int64_t barTicks = model::kTicksPerQuarter * 4;
+    const int64_t snappedTick = tick - (tick % barTicks);
+
+    for (const auto& file : files) {
+        if (file.endsWithIgnoreCase(".wav") && onAudioFileDropped) {
+            onAudioFileDropped(file, trackIndex, snappedTick);
+        }
+    }
+}
+
+// Opens a "Delete Clip" popup for the given clip
+void ArrangeView::showDeleteClipMenu(const DraggedClip& target) {
+    juce::PopupMenu menu;
+    menu.addItem(1, "Delete Clip");
+
+    menu.showMenuAsync(juce::PopupMenu::Options(), [this, target](int result) {
+        if (result != 1) {
+            return;
+        }
+
+        if (target.kind == ClipKind::Midi) {
+            m_commandStack.perform(std::make_unique<model::RemoveMidiClipCommand>(
+                m_arrangement, target.trackIndex, target.placementIndex));
+        } else {
+            m_commandStack.perform(std::make_unique<model::RemoveAudioClipCommand>(
+                m_arrangement, target.trackIndex, target.placementIndex));
+        }
+
+        repaint();
+    });
 }
 
 // Toggles the transport between play and stop on space, fires onMixerRequested on M

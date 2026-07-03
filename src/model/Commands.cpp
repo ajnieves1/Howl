@@ -255,4 +255,42 @@ void RemoveTrackCommand::undo() {
     m_mixer.insertTrackStrip(m_index);
 }
 
+// Stores the arrangement, track, and placement to add on execute()
+AddAudioClipCommand::AddAudioClipCommand(Arrangement& arrangement, std::size_t trackIndex, AudioClipPlacement placement)
+    : m_arrangement(arrangement)
+    , m_trackIndex(trackIndex)
+    , m_placement(std::move(placement))
+{
+}
+
+// Inserts the stored placement, remembers where it landed
+void AddAudioClipCommand::execute() {
+    m_placementIndex = m_arrangement.addAudioClipPlacement(m_trackIndex, m_placement);
+}
+
+// Removes the placement this command added
+void AddAudioClipCommand::undo() {
+    m_arrangement.removeAudioClipPlacementAt(m_trackIndex, m_placementIndex);
+}
+
+// Stores the arrangement, track, and placement index to remove on execute()
+RemoveAudioClipCommand::RemoveAudioClipCommand(Arrangement& arrangement, std::size_t trackIndex, std::size_t placementIndex)
+    : m_arrangement(arrangement)
+    , m_trackIndex(trackIndex)
+    , m_placementIndex(placementIndex)
+    , m_removedPlacement { 0, AudioClip({}, 44100.0) }
+{
+}
+
+// Remembers the placement's data, then removes it
+void RemoveAudioClipCommand::execute() {
+    m_removedPlacement = m_arrangement.track(m_trackIndex).audioClips[m_placementIndex];
+    m_arrangement.removeAudioClipPlacementAt(m_trackIndex, m_placementIndex);
+}
+
+// Re-adds the removed placement, remembers its new index
+void RemoveAudioClipCommand::undo() {
+    m_placementIndex = m_arrangement.addAudioClipPlacement(m_trackIndex, m_removedPlacement);
+}
+
 } // namespace howl::model

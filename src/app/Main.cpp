@@ -9,9 +9,12 @@
 #include "engine/Node.h"
 #include "engine/Transport.h"
 #include "io/AudioDevice.h"
+#include "io/AudioFile.h"
 #include "model/Arrangement.h"
 #include "model/ArrangementNode.h"
+#include "model/AudioClip.h"
 #include "model/CommandStack.h"
+#include "model/Commands.h"
 #include "model/MidiClip.h"
 #include "model/Note.h"
 #include "plugins/PluginHost.h"
@@ -80,6 +83,7 @@ public:
         m_mainComponent = new ui::MainComponent(arrangement, transport, commandStack, mixer,
             factory, pluginHost, sampleRate, maxBlockSize);
         setContentOwned(m_mainComponent, true);
+        setMenuBar(m_mainComponent);
         setResizable(true, true);
         centreWithSize(1000, 700);
         setVisible(true);
@@ -164,6 +168,17 @@ public:
                 return m_instrumentNames[trackIndex];
             }
             return {};
+        };
+        mainComponent->onImportAudioRequested = [this] {
+            showImportAudioFileChooser();
+        };
+        mainComponent->onAudioFileDropped = [this](juce::String path, std::size_t trackIndex, int64_t tick) {
+            std::size_t targetTrack = trackIndex;
+            if (trackIndex >= m_arrangement.numTracks()
+                || m_arrangement.track(trackIndex).kind != model::TrackKind::Audio) {
+                targetTrack = ensureFirstAudioTrack();
+            }
+            importAudioFile(juce::File(path), targetTrack, tick);
         };
         // Re-renders the initial track's instrument label, now that instrumentNameFor is wired
         mainComponent->refreshAllViews();
@@ -292,6 +307,72 @@ private:
 
             rebuildAudioGraph();
             m_mainWindow->mainComponent()->refreshAllViews();
+        });
+    }
+
+    // Returns the index of the first audio track, creating one (always at the current end,
+    // since addTrack always appends) if the arrangement has none yet
+    std::size_t ensureFirstAudioTrack()
+    {
+        for (std::size_t i = 0; i < m_arrangement.numTracks(); ++i) {
+            if (m_arrangement.track(i).kind == model::TrackKind::Audio) {
+                return i;
+            }
+        }
+
+        const std::size_t newIndex = m_arrangement.numTracks();
+        m_commandStack.perform(std::make_unique<model::AddTrackCommand>(
+            m_arrangement, m_arrangementNode->mixer(), "Audio 1", model::TrackKind::Audio));
+        reconcileTrackInstruments();
+        return newIndex;
+    }
+
+    // Reads a WAV file fully into memory, places it as a clip, and rebuilds the graph/views
+    void importAudioFile(const juce::File& file, std::size_t trackIndex, int64_t startTick)
+    {
+        io::AudioFileReader reader;
+        if (!reader.open(file.getFullPathName().toStdString())) {
+            juce::Logger::writeToLog("Howl: failed to import audio file " + file.getFullPathName());
+            return;
+        }
+
+        const int numChannels = reader.numChannels();
+        const auto lengthSamples = static_cast<int>(reader.lengthInSamples());
+
+        std::vector<std::vector<float>> channelData(static_cast<std::size_t>(numChannels),
+            std::vector<float>(static_cast<std::size_t>(lengthSamples), 0.0f));
+        std::vector<float*> channelPointers(static_cast<std::size_t>(numChannels));
+        for (int channel = 0; channel < numChannels; ++channel) {
+            channelPointers[static_cast<std::size_t>(channel)] = channelData[static_cast<std::size_t>(channel)].data();
+        }
+
+        AudioBlock block { channelPointers.data(), numChannels, lengthSamples };
+        reader.read(block, 0);
+
+        model::AudioClip audioClip(std::move(channelData), reader.sampleRate());
+        audioClip.setSourcePath(file.getFullPathName().toStdString());
+
+        m_commandStack.perform(std::make_unique<model::AddAudioClipCommand>(
+            m_arrangement, trackIndex, model::AudioClipPlacement { startTick, std::move(audioClip) }));
+
+        rebuildAudioGraph();
+        m_mainWindow->mainComponent()->refreshAllViews();
+    }
+
+    // Opens an async file chooser filtered to .wav, imports onto the first audio track at tick 0
+    void showImportAudioFileChooser()
+    {
+        auto chooser = std::make_shared<juce::FileChooser>("Import Audio", juce::File(), "*.wav");
+        constexpr int flags = juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles;
+
+        chooser->launchAsync(flags, [this, chooser](const juce::FileChooser& fc) {
+            const juce::File file = fc.getResult();
+            if (file == juce::File()) {
+                return;
+            }
+
+            const std::size_t trackIndex = ensureFirstAudioTrack();
+            importAudioFile(file, trackIndex, 0);
         });
     }
 

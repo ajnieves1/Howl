@@ -48,6 +48,11 @@ MainComponent::MainComponent(model::Arrangement& arrangement, engine::Transport&
     m_arrangeView.onMixerRequested = [this] {
         toggleMixer();
     };
+    m_arrangeView.onAudioFileDropped = [this](juce::String path, std::size_t trackIndex, int64_t tick) {
+        if (onAudioFileDropped) {
+            onAudioFileDropped(path, trackIndex, tick);
+        }
+    };
 
     m_transportBar.onMixerToggle = [this] {
         toggleMixer();
@@ -149,6 +154,51 @@ void MainComponent::refreshAllViews() {
 
     if (m_mixerView != nullptr) {
         m_mixerView->refreshStrips();
+    }
+}
+
+// juce::MenuBarModel: File, Edit, View
+juce::StringArray MainComponent::getMenuBarNames() {
+    return { "File", "Edit", "View" };
+}
+
+// juce::MenuBarModel: builds each top-level menu's items
+juce::PopupMenu MainComponent::getMenuForIndex(int topLevelMenuIndex, const juce::String&) {
+    juce::PopupMenu menu;
+
+    if (topLevelMenuIndex == 0) {
+        menu.addItem(1, "Import Audio...");
+    } else if (topLevelMenuIndex == 1) {
+        menu.addItem(2, "Undo");
+        menu.addItem(3, "Redo");
+    } else if (topLevelMenuIndex == 2) {
+        menu.addItem(4, "Toggle Mixer");
+    }
+
+    return menu;
+}
+
+// juce::MenuBarModel: dispatches the picked item, routing undo/redo through refreshAllViews()
+void MainComponent::menuItemSelected(int menuItemID, int) {
+    switch (menuItemID) {
+        case 1:
+            if (onImportAudioRequested) {
+                onImportAudioRequested();
+            }
+            break;
+        case 2:
+            m_commandStack.undo();
+            refreshAllViews();
+            break;
+        case 3:
+            m_commandStack.redo();
+            refreshAllViews();
+            break;
+        case 4:
+            toggleMixer();
+            break;
+        default:
+            break;
     }
 }
 

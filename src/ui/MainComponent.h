@@ -19,12 +19,13 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 
 namespace howl::ui {
 
 // The whole app shell: transport bar top, arrange view center, piano roll or mixer bottom
-class MainComponent : public juce::Component {
+class MainComponent : public juce::Component, public juce::MenuBarModel {
 public:
     MainComponent(model::Arrangement& arrangement, engine::Transport& transport,
                   model::CommandStack& commandStack, model::Mixer& mixer,
@@ -45,6 +46,11 @@ public:
     // Repaints the arrange view, refreshes mixer strips and track headers, closes any open effect editors
     void refreshAllViews();
 
+    // juce::MenuBarModel: File, Edit, View
+    juce::StringArray getMenuBarNames() override;
+    juce::PopupMenu getMenuForIndex(int topLevelMenuIndex, const juce::String& menuName) override;
+    void menuItemSelected(int menuItemID, int topLevelMenuIndex) override;
+
     // Fired after any track add/remove so the app rebuilds the audio graph and views
     std::function<void()> onTracksChanged;
 
@@ -53,6 +59,12 @@ public:
 
     // App-provided display name for a track's current instrument
     std::function<juce::String(std::size_t)> instrumentNameFor;
+
+    // Fired when "Import Audio..." is picked, the app shows a FileChooser
+    std::function<void()> onImportAudioRequested;
+
+    // Fired with (path, trackIndex, tick) when a .wav file is dropped onto the arrange view
+    std::function<void(juce::String, std::size_t, int64_t)> onAudioFileDropped;
 
 private:
     static constexpr int kTransportHeight = 36;

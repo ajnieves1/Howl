@@ -20,7 +20,7 @@ namespace howl::ui {
 // transport stopped, same caveat as PianoRoll. Clicking a MIDI clip without
 // dragging fires onMidiClipSelected, actually opening a PianoRoll for it is
 // wired in P4-T7
-class ArrangeView : public juce::Component, private juce::Timer {
+class ArrangeView : public juce::Component, public juce::FileDragAndDropTarget, private juce::Timer {
 public:
     // Stores references to the arrangement, transport, and command stack, starts the playhead timer
     ArrangeView(model::Arrangement& arrangement, engine::Transport& transport,
@@ -29,10 +29,10 @@ public:
     // Stops the playhead timer
     ~ArrangeView() override;
 
-    // Draws one lane per track, each clip as a block, and the playhead
+    // Draws the ruler, one lane per track, each clip as a block, and the playhead
     void paint(juce::Graphics& g) override;
 
-    // Begins a move drag if the click landed on a clip
+    // Begins a move drag if the click landed on a clip, opens a delete menu on right-click
     void mouseDown(const juce::MouseEvent& event) override;
 
     // Continues a move drag once the mouse has moved past a small threshold
@@ -41,8 +41,20 @@ public:
     // Issues the move-clip command for a completed drag, or fires onMidiClipSelected for a plain click
     void mouseUp(const juce::MouseEvent& event) override;
 
+    // Creates a new 4-bar MIDI clip on an empty MIDI lane, snapped to the bar
+    void mouseDoubleClick(const juce::MouseEvent& event) override;
+
+    // Ctrl+wheel zooms around the cursor, plain wheel scrolls horizontally
+    void mouseWheelMove(const juce::MouseEvent& event, const juce::MouseWheelDetails& wheel) override;
+
     // Toggles the transport between play and stop on space, fires onMixerRequested on M
     bool keyPressed(const juce::KeyPress& key) override;
+
+    // Accepts a drag hovering any .wav file
+    bool isInterestedInFileDrag(const juce::StringArray& files) override;
+
+    // Fires onAudioFileDropped with the drop lane and snapped tick for each dropped .wav
+    void filesDropped(const juce::StringArray& files, int x, int y) override;
 
     // Called with (trackIndex, placementIndex) when a MIDI clip is clicked without dragging
     std::function<void(std::size_t, std::size_t)> onMidiClipSelected;
@@ -50,9 +62,15 @@ public:
     // Called when M is pressed to open the mixer
     std::function<void()> onMixerRequested;
 
+    // Called with (path, trackIndex, tick) when a .wav file is dropped onto a lane
+    std::function<void(juce::String, std::size_t, int64_t)> onAudioFileDropped;
+
 private:
     static constexpr int64_t kMinimumVisibleTicks = model::kTicksPerQuarter * 16; // 4 bars at 4/4
     static constexpr int kDragThresholdPixels = 4;
+    static constexpr int kRulerHeight = 20;
+    static constexpr double kMinZoom = 1.0;
+    static constexpr double kMaxZoom = 64.0;
 
     enum class ClipKind {
         Midi,
@@ -75,13 +93,19 @@ private:
     // Ticks spanned by the visible timeline, covers every placed clip plus a sensible minimum
     int64_t visibleTickSpan() const;
 
-    // Converts a pixel x position to a tick, clamped to the visible span
+    // Ticks spanned by the current zoom level, visibleTickSpan() / m_zoom
+    double zoomedVisibleSpan() const;
+
+    // Clamps m_scrollTick to [0, visibleTickSpan() - zoomedVisibleSpan()]
+    void clampScroll();
+
+    // Converts a pixel x position to a tick, offset by the current scroll
     int64_t xToTick(int x) const;
 
-    // Converts a tick to a pixel x position
+    // Converts a tick to a pixel x position, offset by the current scroll
     float tickToX(int64_t tick) const;
 
-    // Returns the height of one track lane
+    // Returns the height of one track lane, below the ruler
     float laneHeight() const;
 
     // Converts a pixel y position to a track index, clamped to numTracks() - 1
@@ -93,10 +117,16 @@ private:
     // Finds the clip under (trackIndex, tick), fills found and returns true on a hit
     bool hitTestClip(std::size_t trackIndex, int64_t tick, DraggedClip& found) const;
 
+    // Opens a "Delete Clip" popup for the given clip
+    void showDeleteClipMenu(const DraggedClip& target);
+
     model::Arrangement& m_arrangement;
     engine::Transport& m_transport;
     model::CommandStack& m_commandStack;
     double m_sampleRate;
+
+    double m_zoom = 1.0;
+    int64_t m_scrollTick = 0;
 
     bool m_dragging = false;
     DraggedClip m_draggedClip {};

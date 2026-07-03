@@ -1,6 +1,7 @@
 add_executable(HowlTests
     ArrangementNodeTests.cpp
     ArrangementTests.cpp
+    AudioClipCommandTests.cpp
     AudioClipTests.cpp
     AudioTrackRendererTests.cpp
     AudioTrackTests.cpp

@@ -230,4 +230,42 @@ private:
     Track m_removedTrack {};
 };
 
+// Adds an audio clip placement to a track, undo removes it
+class AddAudioClipCommand : public Command {
+public:
+    // Stores the arrangement, track, and placement to add on execute()
+    AddAudioClipCommand(Arrangement& arrangement, std::size_t trackIndex, AudioClipPlacement placement);
+
+    // Inserts the stored placement, remembers where it landed
+    void execute() override;
+
+    // Removes the placement this command added
+    void undo() override;
+
+private:
+    Arrangement& m_arrangement;
+    std::size_t m_trackIndex;
+    AudioClipPlacement m_placement;
+    std::size_t m_placementIndex = 0;
+};
+
+// Removes an audio clip placement from a track, undo re-adds it
+class RemoveAudioClipCommand : public Command {
+public:
+    // Stores the arrangement, track, and placement index to remove on execute()
+    RemoveAudioClipCommand(Arrangement& arrangement, std::size_t trackIndex, std::size_t placementIndex);
+
+    // Remembers the placement's data, then removes it
+    void execute() override;
+
+    // Re-adds the removed placement, remembers its new index
+    void undo() override;
+
+private:
+    Arrangement& m_arrangement;
+    std::size_t m_trackIndex;
+    std::size_t m_placementIndex;
+    AudioClipPlacement m_removedPlacement;
+};
+
 } // namespace howl::model

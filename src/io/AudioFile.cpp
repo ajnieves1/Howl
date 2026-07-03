@@ -57,6 +57,7 @@ bool AudioFileReader::open(const std::string& path) {
 
     m_buffer.setSize(numChannels, numFrames);
     reader->read(&m_buffer, 0, numFrames, 0, true, true);
+    m_sampleRate = reader->sampleRate;
     return true;
 }
 
@@ -80,6 +81,16 @@ void AudioFileReader::read(AudioBlock& block, SampleCount readPosition) const no
 // Total length of the loaded file in samples
 SampleCount AudioFileReader::lengthInSamples() const noexcept {
     return m_buffer.getNumSamples();
+}
+
+// Number of channels in the loaded file
+int AudioFileReader::numChannels() const noexcept {
+    return m_buffer.getNumChannels();
+}
+
+// Sample rate the file was recorded at
+double AudioFileReader::sampleRate() const noexcept {
+    return m_sampleRate;
 }
 
 } // namespace howl::io

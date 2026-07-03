@@ -43,8 +43,15 @@ public:
     // Total length of the loaded file in samples
     SampleCount lengthInSamples() const noexcept;
 
+    // Number of channels in the loaded file
+    int numChannels() const noexcept;
+
+    // Sample rate the file was recorded at
+    double sampleRate() const noexcept;
+
 private:
     juce::AudioBuffer<float> m_buffer;
+    double m_sampleRate = 0.0;
 };
 
 } // namespace howl::io

@@ -32,4 +32,14 @@ const float* AudioClip::channelData(int index) const {
     return m_channels[static_cast<std::size_t>(index)].data();
 }
 
+// Absolute path of the file this clip was imported from, empty if none, used by persistence
+void AudioClip::setSourcePath(const std::string& path) {
+    m_sourcePath = path;
+}
+
+// Returns the source file path, empty if this clip was not imported from a file
+const std::string& AudioClip::sourcePath() const {
+    return m_sourcePath;
+}
+
 } // namespace howl::model
