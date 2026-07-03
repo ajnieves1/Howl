@@ -41,6 +41,14 @@ public:
     // Sizes the mixer to numTracks track strips plus a master strip
     void prepare(std::size_t numTracks, double sampleRate, int maxBlockSize, int numChannels);
 
+    // Re-sizes to numTracks reusing the sample rate/block size/channel count from the last
+    // full prepare() call above; for rebuilding after reset() when those are already known
+    void prepare(std::size_t numTracks);
+
+    // Clears every strip, bus, route, send, and meter back to empty; the master strip back to
+    // defaults. Off the audio thread, device paused. Follow with prepare()/addBus() to rebuild
+    void reset();
+
     // Returns the channel strip for the given track
     ChannelStrip& trackStrip(std::size_t trackIndex);
 

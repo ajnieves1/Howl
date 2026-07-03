@@ -5,6 +5,7 @@
 
 #include "engine/Instrument.h"
 #include "plugins/IPluginInstance.h"
+#include "plugins/PluginDescriptor.h"
 
 #include <juce_audio_basics/juce_audio_basics.h>
 
@@ -16,8 +17,14 @@ namespace howl::plugins {
 
 class PluginInstrument : public engine::Instrument {
 public:
-    // Takes ownership of a loaded instance, displayName comes from the plugin's descriptor
+    // Takes ownership of a loaded instance, displayName comes from the plugin's descriptor.
+    // pluginFormat()/pluginPath() are empty when constructed this way (not persistable as a
+    // real plugin on save/load, prefer the PluginDescriptor overload below for new code)
     PluginInstrument(std::unique_ptr<IPluginInstance> instance, std::string displayName);
+
+    // Takes ownership of a loaded instance, remembers the descriptor's name/format/path so
+    // this instrument can be re-instantiated by src/project on save/load
+    PluginInstrument(std::unique_ptr<IPluginInstance> instance, const PluginDescriptor& descriptor);
 
     // Calls release() on the instance before it is destroyed, matching PluginEffect
     ~PluginInstrument() override;
@@ -46,7 +53,7 @@ public:
     // Returns the last normalized value set for the param at index, its default before any set.
     // Note: changes made inside a plugin's native editor are not reflected back into this
     // cache (no host param listening yet, follow-up).
-    float getParameter(int index) const noexcept;
+    float getParameter(int index) const noexcept override;
 
     // Returns the descriptor name given at construction
     const char* displayName() const noexcept;
@@ -54,9 +61,17 @@ public:
     // Returns the wrapped plugin instance, an editor window needs it for the native-editor button
     IPluginInstance& instance() noexcept;
 
+    // Returns the plugin format ("VST3"/"CLAP"), empty if constructed without a descriptor
+    const std::string& pluginFormat() const noexcept;
+
+    // Returns the plugin file path, empty if constructed without a descriptor
+    const std::string& pluginPath() const noexcept;
+
 private:
     std::unique_ptr<IPluginInstance> m_instance;
     std::string m_displayName;
+    std::string m_pluginFormat;
+    std::string m_pluginPath;
     juce::MidiBuffer m_midiScratch;
     std::vector<float> m_paramValues;
 };

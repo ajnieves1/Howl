@@ -32,6 +32,9 @@ public:
     // Returns the effect at index
     Effect& at(std::size_t index);
 
+    // Returns the effect at index
+    const Effect& at(std::size_t index) const;
+
     // Prepares every effect in the chain
     void prepare(double sampleRate, int maxBlockSize);
 

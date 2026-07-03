@@ -27,6 +27,7 @@ add_executable(HowlTests
     PluginEffectTests.cpp
     PluginHostTests.cpp
     PluginInstrumentTests.cpp
+    ProjectSerializerTests.cpp
     ReverbTests.cpp
     SequencerNodeTests.cpp
     SubtractiveSynthTests.cpp
@@ -43,6 +44,7 @@ target_link_libraries(HowlTests PRIVATE
     HowlEngine
     HowlModel
     HowlPlugins
+    HowlProject
     Catch2::Catch2WithMain
 )
 

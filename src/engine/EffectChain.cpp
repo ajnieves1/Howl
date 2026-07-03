@@ -41,6 +41,11 @@ Effect& EffectChain::at(std::size_t index) {
     return *m_effects[index];
 }
 
+// Returns the effect at index
+const Effect& EffectChain::at(std::size_t index) const {
+    return *m_effects[index];
+}
+
 // Prepares every effect in the chain
 void EffectChain::prepare(double sampleRate, int maxBlockSize) {
     for (auto& effect : m_effects) {

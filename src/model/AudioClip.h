@@ -14,6 +14,10 @@ public:
     // channels: one vector per channel, all the same length
     AudioClip(std::vector<std::vector<float>> channels, double sourceSampleRate);
 
+    // Empty placeholder clip (no samples), used when loading a project before the
+    // source file at sourcePath() is re-read and the real samples are filled in
+    AudioClip();
+
     // Returns the number of channels
     int numChannels() const;
 

@@ -12,6 +12,9 @@ namespace howl::dsp {
 
 class SubtractiveSynth : public engine::Instrument {
 public:
+    // Initializes the normalized parameter cache from the real-unit default
+    SubtractiveSynth();
+
     // Resets every voice and recomputes envelope and filter rates for sampleRate
     void prepare(double sampleRate, int maxBlockSize) override;
 
@@ -32,6 +35,9 @@ public:
 
     // [RT] Sets the filter cutoff, value is normalized 0..1 mapped log-scale to Hz
     void setParameter(int index, float value) noexcept override;
+
+    // Returns the last normalized value set for the param at index, its default before any set
+    float getParameter(int index) const noexcept override;
 
 private:
     static constexpr int kNumVoices = 16;
@@ -82,6 +88,10 @@ private:
     float m_decayRate = 0.0f;
     float m_sustainLevel = 0.7f;
     float m_releaseRate = 0.0f;
+
+    // Normalized cache, one slot per param index, declared last so m_filterCutoffHz above
+    // already has its default value when this is constructed
+    float m_paramValues[1];
 };
 
 } // namespace howl::dsp

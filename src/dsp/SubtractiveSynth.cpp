@@ -13,7 +13,19 @@ constexpr double kAttackSeconds = 0.005;
 constexpr double kDecaySeconds = 0.05;
 constexpr float kSustainLevel = 0.7f;
 constexpr double kReleaseSeconds = 0.2;
+
+// Converts a real-unit value back to the normalized 0..1 value an exponential map would produce
+float inverseExponential(double x, double min, double max) noexcept {
+    return static_cast<float>(std::log(x / min) / std::log(max / min));
+}
+
 } // namespace
+
+// Initializes the normalized parameter cache from the real-unit default
+SubtractiveSynth::SubtractiveSynth()
+    : m_paramValues { inverseExponential(m_filterCutoffHz, kMinFilterCutoffHz, kMaxFilterCutoffHz) }
+{
+}
 
 // Converts a MIDI key number to frequency in Hz
 double SubtractiveSynth::keyToFrequency(int key) noexcept {
@@ -175,9 +187,19 @@ void SubtractiveSynth::setParameter(int index, float value) noexcept {
     }
 
     const float clamped = value < 0.0f ? 0.0f : (value > 1.0f ? 1.0f : value);
+    m_paramValues[kFilterCutoffParam] = clamped;
     m_filterCutoffHz = kMinFilterCutoffHz * std::pow(kMaxFilterCutoffHz / kMinFilterCutoffHz,
                                                       static_cast<double>(clamped));
     recomputeFilterCoefficient();
+}
+
+// Returns the last normalized value set for the param at index, its default before any set
+float SubtractiveSynth::getParameter(int index) const noexcept {
+    if (index != kFilterCutoffParam) {
+        return 0.0f;
+    }
+
+    return m_paramValues[kFilterCutoffParam];
 }
 
 } // namespace howl::dsp

@@ -27,6 +27,9 @@ public:
     // Re-applies the most recently undone command
     void redo();
 
+    // Empties both stacks without undoing anything, for loading a fresh project
+    void clear();
+
 private:
     std::vector<std::unique_ptr<Command>> m_undoStack;
     std::vector<std::unique_ptr<Command>> m_redoStack;

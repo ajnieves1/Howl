@@ -15,6 +15,7 @@ target_link_libraries(Howl PRIVATE
     HowlEngine
     HowlIo
     HowlModel
+    HowlProject
     HowlUi
     juce::juce_audio_basics
     juce::juce_audio_devices

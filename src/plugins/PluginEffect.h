@@ -5,6 +5,7 @@
 
 #include "engine/Effect.h"
 #include "plugins/IPluginInstance.h"
+#include "plugins/PluginDescriptor.h"
 
 #include <memory>
 #include <string>
@@ -14,8 +15,14 @@ namespace howl::plugins {
 
 class PluginEffect : public engine::Effect {
 public:
-    // Takes ownership of a loaded instance, displayName comes from the plugin's descriptor
+    // Takes ownership of a loaded instance, displayName comes from the plugin's descriptor.
+    // pluginFormat()/pluginPath() are empty when constructed this way (not persistable as a
+    // real plugin on save/load, prefer the PluginDescriptor overload below for new code)
     PluginEffect(std::unique_ptr<IPluginInstance> instance, std::string displayName);
+
+    // Takes ownership of a loaded instance, remembers the descriptor's name/format/path so
+    // this effect can be re-instantiated by src/project on save/load
+    PluginEffect(std::unique_ptr<IPluginInstance> instance, const PluginDescriptor& descriptor);
 
     // Calls release() on the instance before it is destroyed, matching the P2 test pattern
     ~PluginEffect() override;
@@ -52,9 +59,17 @@ public:
     // Returns the wrapped plugin instance, the editor window needs it for the native-editor button
     IPluginInstance& instance() noexcept;
 
+    // Returns the plugin format ("VST3"/"CLAP"), empty if constructed without a descriptor
+    const std::string& pluginFormat() const noexcept;
+
+    // Returns the plugin file path, empty if constructed without a descriptor
+    const std::string& pluginPath() const noexcept;
+
 private:
     std::unique_ptr<IPluginInstance> m_instance;
     std::string m_displayName;
+    std::string m_pluginFormat;
+    std::string m_pluginPath;
     std::vector<float> m_paramValues;
 };
 

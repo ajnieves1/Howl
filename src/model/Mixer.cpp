@@ -44,6 +44,36 @@ void accumulateScaled(const AudioBlock& source, AudioBlock& destination, float g
 
 } // namespace
 
+// Clears every strip, bus, route, send, and meter back to empty; the master strip back to
+// defaults. Off the audio thread, device paused. Follow with prepare()/addBus() to rebuild
+void Mixer::reset() {
+    m_trackStrips.clear();
+    m_trackOutputs.clear();
+    m_trackSends.clear();
+    m_masterStrip = ChannelStrip();
+
+    m_buses.clear();
+
+    m_preFaderBuffers.clear();
+    m_preFaderPointers.clear();
+    m_preFaderBlocks.clear();
+
+    m_pdcLines.clear();
+    m_pdcWritePos.clear();
+    m_pdcSamples.clear();
+    m_maxPathLatency = 0;
+
+    // engine::Meter holds atomics and is not assignable; it has no persistent settings to
+    // reset, its queued readings are transient and self-correct once processing resumes
+    m_trackMeters.clear();
+}
+
+// Re-sizes to numTracks reusing the sample rate/block size/channel count from the last
+// full prepare() call above; for rebuilding after reset() when those are already known
+void Mixer::prepare(std::size_t numTracks) {
+    prepare(numTracks, m_sampleRate, m_maxBlockSize, m_numChannels);
+}
+
 // Sizes the mixer to numTracks track strips plus a master strip
 void Mixer::prepare(std::size_t numTracks, double sampleRate, int maxBlockSize, int numChannels) {
     m_sampleRate = sampleRate;

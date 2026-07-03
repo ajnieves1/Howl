@@ -19,6 +19,7 @@
 #include "model/Note.h"
 #include "plugins/PluginHost.h"
 #include "plugins/PluginInstrument.h"
+#include "project/ProjectSerializer.h"
 #include "ui/MainComponent.h"
 
 #include <juce_core/juce_core.h>
@@ -101,6 +102,11 @@ public:
         return m_mainComponent;
     }
 
+    // Sets the title bar to "Howl" (untitled) or "Howl - <fileName>"
+    void setProjectTitle(const juce::String& fileName) {
+        setName(fileName.isEmpty() ? juce::String("Howl") : "Howl - " + fileName);
+    }
+
 private:
     ui::MainComponent* m_mainComponent = nullptr;
 
@@ -180,8 +186,21 @@ public:
             }
             importAudioFile(juce::File(path), targetTrack, tick);
         };
+        mainComponent->onNewProjectRequested = [this] {
+            newProject();
+        };
+        mainComponent->onOpenProjectRequested = [this] {
+            showOpenProjectFileChooser();
+        };
+        mainComponent->onSaveProjectRequested = [this] {
+            saveCurrentProject();
+        };
+        mainComponent->onSaveAsProjectRequested = [this] {
+            showSaveProjectFileChooser();
+        };
         // Re-renders the initial track's instrument label, now that instrumentNameFor is wired
         mainComponent->refreshAllViews();
+        m_mainWindow->setProjectTitle({});
 
         m_audioDevice.start([this](AudioBlock& block) {
             const SampleCount pos = m_transport.advance(block.numFrames);
@@ -286,7 +305,7 @@ private:
                     if (pluginInstance != nullptr) {
                         name = instrumentPlugins[pluginIndex].name;
                         instrument = std::make_unique<plugins::PluginInstrument>(
-                            std::move(pluginInstance), name.toStdString());
+                            std::move(pluginInstance), instrumentPlugins[pluginIndex]);
                     }
                 }
             }
@@ -376,6 +395,288 @@ private:
         });
     }
 
+    // Builds the per-track instrument array save() embeds: null for audio tracks,
+    // {"kind":"subtractive","params":[...]} or {"kind":"plugin","name","format","path","state"}
+    juce::var buildInstrumentsVar()
+    {
+        juce::Array<juce::var> instruments;
+
+        for (std::size_t i = 0; i < m_arrangement.numTracks(); ++i) {
+            if (m_arrangement.track(i).kind != model::TrackKind::Midi
+                || i >= m_trackInstruments.size() || m_trackInstruments[i] == nullptr) {
+                instruments.add(juce::var());
+                continue;
+            }
+
+            engine::Instrument* instrument = m_trackInstruments[i].get();
+
+            if (auto* pluginInstrument = dynamic_cast<plugins::PluginInstrument*>(instrument)) {
+                const plugins::StateBlob blob = pluginInstrument->instance().saveState();
+                auto* obj = new juce::DynamicObject();
+                obj->setProperty("kind", "plugin");
+                obj->setProperty("name", juce::String(pluginInstrument->displayName()));
+                obj->setProperty("format", juce::String(pluginInstrument->pluginFormat()));
+                obj->setProperty("path", juce::String(pluginInstrument->pluginPath()));
+                obj->setProperty("state", juce::Base64::toBase64(blob.data(), blob.size()));
+                instruments.add(juce::var(obj));
+                continue;
+            }
+
+            auto* obj = new juce::DynamicObject();
+            obj->setProperty("kind", "subtractive");
+            juce::Array<juce::var> params;
+            for (int p = 0; p < instrument->numParameters(); ++p) {
+                params.add(static_cast<double>(instrument->getParameter(p)));
+            }
+            obj->setProperty("params", params);
+            instruments.add(juce::var(obj));
+        }
+
+        return instruments;
+    }
+
+    // Serializes the current session and writes it to file
+    void saveProject(const juce::File& file)
+    {
+        const juce::String json = project::ProjectSerializer::save(m_arrangement, m_arrangementNode->mixer(),
+            buildInstrumentsVar(), m_transport.tempo());
+
+        if (!file.replaceWithText(json)) {
+            juce::Logger::writeToLog("Howl: failed to write project file " + file.getFullPathName());
+            return;
+        }
+
+        m_currentProjectFile = file;
+        m_mainWindow->setProjectTitle(file.getFileName());
+    }
+
+    // Saves to the current file, or prompts for one if this session has never been saved
+    void saveCurrentProject()
+    {
+        if (m_currentProjectFile == juce::File()) {
+            showSaveProjectFileChooser();
+        } else {
+            saveProject(m_currentProjectFile);
+        }
+    }
+
+    // Opens an async save dialog defaulting to *.howl
+    void showSaveProjectFileChooser()
+    {
+        auto chooser = std::make_shared<juce::FileChooser>("Save Project", juce::File(), "*.howl");
+        constexpr int flags = juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::warnAboutOverwriting;
+
+        chooser->launchAsync(flags, [this, chooser](const juce::FileChooser& fc) {
+            const juce::File file = fc.getResult();
+            if (file == juce::File()) {
+                return;
+            }
+
+            saveProject(file.withFileExtension(".howl"));
+        });
+    }
+
+    // Opens an async open dialog filtered to *.howl
+    void showOpenProjectFileChooser()
+    {
+        auto chooser = std::make_shared<juce::FileChooser>("Open Project", juce::File(), "*.howl");
+        constexpr int flags = juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles;
+
+        chooser->launchAsync(flags, [this, chooser](const juce::FileChooser& fc) {
+            const juce::File file = fc.getResult();
+            if (file == juce::File()) {
+                return;
+            }
+
+            loadProjectFromJson(file.loadFileAsString(), file);
+        });
+    }
+
+    // Stops the transport and device, parses json into the live arrangement/mixer (mutated in
+    // place, ArrangementNode owns the mixer and cannot be replaced), re-reads audio clips from
+    // their sourcePath, rebuilds instruments, rebuilds the audio graph, and resumes
+    void loadProjectFromJson(const juce::String& json, const juce::File& sourceFile)
+    {
+        m_transport.stop();
+        m_audioDevice.stop();
+        m_commandStack.clear();
+
+        juce::var instrumentsVar;
+        double tempo = 120.0;
+
+        const bool ok = project::ProjectSerializer::load(json, m_arrangement, m_arrangementNode->mixer(),
+            m_effectFactory, &m_pluginHost, instrumentsVar, tempo);
+
+        if (!ok) {
+            juce::Logger::writeToLog("Howl: failed to parse project file");
+            m_audioDevice.start([this](AudioBlock& block) {
+                const SampleCount pos = m_transport.advance(block.numFrames);
+                m_graph.process(block, pos);
+            });
+            return;
+        }
+
+        m_transport.setTempo(tempo);
+
+        // Re-read every audio clip's source file now that placements only carry sourcePath
+        for (std::size_t i = 0; i < m_arrangement.numTracks(); ++i) {
+            model::Track& track = m_arrangement.track(i);
+
+            for (auto& placement : track.audioClips) {
+                const std::string path = placement.clip.sourcePath();
+                if (path.empty()) {
+                    continue;
+                }
+
+                io::AudioFileReader reader;
+                if (!reader.open(path)) {
+                    juce::Logger::writeToLog("Howl: missing audio file on load: " + juce::String(path));
+                    continue;
+                }
+
+                const int numChannels = reader.numChannels();
+                const auto lengthSamples = static_cast<int>(reader.lengthInSamples());
+
+                std::vector<std::vector<float>> channelData(static_cast<std::size_t>(numChannels),
+                    std::vector<float>(static_cast<std::size_t>(lengthSamples), 0.0f));
+                std::vector<float*> channelPointers(static_cast<std::size_t>(numChannels));
+                for (int channel = 0; channel < numChannels; ++channel) {
+                    channelPointers[static_cast<std::size_t>(channel)] = channelData[static_cast<std::size_t>(channel)].data();
+                }
+
+                AudioBlock block { channelPointers.data(), numChannels, lengthSamples };
+                reader.read(block, 0);
+
+                model::AudioClip realClip(std::move(channelData), reader.sampleRate());
+                realClip.setSourcePath(path);
+                placement.clip = realClip;
+            }
+        }
+
+        rebuildInstrumentsFromVar(instrumentsVar);
+
+        m_arrangementNode->prepare(m_sampleRate, m_bufferSize, 2);
+        applyTrackInstruments();
+
+        m_audioDevice.start([this](AudioBlock& block) {
+            const SampleCount pos = m_transport.advance(block.numFrames);
+            m_graph.process(block, pos);
+        });
+
+        m_currentProjectFile = sourceFile;
+        m_mainWindow->setProjectTitle(sourceFile == juce::File() ? juce::String() : sourceFile.getFileName());
+        m_mainWindow->mainComponent()->refreshAllViews();
+    }
+
+    // Rebuilds m_trackInstruments/m_instrumentNames from a loaded instruments var, falling back
+    // to a default synth for any MIDI track left without one (missing plugin, null entry, etc.)
+    void rebuildInstrumentsFromVar(const juce::var& instrumentsVar)
+    {
+        m_trackInstruments.clear();
+        m_instrumentNames.clear();
+        m_trackInstruments.resize(m_arrangement.numTracks());
+        m_instrumentNames.resize(m_arrangement.numTracks());
+
+        if (const auto* instrumentsArray = instrumentsVar.getArray()) {
+            for (int i = 0; i < instrumentsArray->size() && static_cast<std::size_t>(i) < m_trackInstruments.size(); ++i) {
+                const juce::var& entry = (*instrumentsArray)[i];
+                if (entry.isVoid() || entry.isUndefined()) {
+                    continue;
+                }
+
+                const auto trackIndex = static_cast<std::size_t>(i);
+                const juce::String kind = entry.getProperty("kind", juce::var()).toString();
+
+                if (kind == "subtractive") {
+                    auto synth = std::make_unique<dsp::SubtractiveSynth>();
+                    synth->prepare(m_sampleRate, m_bufferSize);
+                    if (const auto* paramsArray = entry.getProperty("params", juce::var()).getArray()) {
+                        for (int p = 0; p < paramsArray->size() && p < synth->numParameters(); ++p) {
+                            synth->setParameter(p, static_cast<float>(static_cast<double>((*paramsArray)[p])));
+                        }
+                    }
+                    m_trackInstruments[trackIndex] = std::move(synth);
+                    m_instrumentNames[trackIndex] = "Subtractive Synth";
+                } else if (kind == "plugin") {
+                    assignPluginInstrumentFromVar(entry, trackIndex);
+                }
+            }
+        }
+
+        // Fills any MIDI track still lacking an instrument (audio tracks stay empty)
+        reconcileTrackInstruments();
+    }
+
+    // Finds and instantiates a plugin instrument by name/format/path, restores its state,
+    // falls back to a default synth (logged) when the plugin cannot be found or instantiated
+    void assignPluginInstrumentFromVar(const juce::var& entry, std::size_t trackIndex)
+    {
+        const juce::String name = entry.getProperty("name", juce::var()).toString();
+        const juce::String format = entry.getProperty("format", juce::var()).toString();
+        const juce::String path = entry.getProperty("path", juce::var()).toString();
+
+        plugins::PluginDescriptor found;
+        bool foundAny = false;
+        for (const auto& descriptor : m_pluginHost.list()) {
+            if (descriptor.name == name.toStdString() && descriptor.format == format.toStdString()
+                && descriptor.path == path.toStdString()) {
+                found = descriptor;
+                foundAny = true;
+                break;
+            }
+        }
+
+        std::unique_ptr<engine::Instrument> instrument;
+        juce::String instrumentName;
+
+        if (foundAny) {
+            auto pluginInstance = m_pluginHost.instantiate(found);
+            if (pluginInstance != nullptr) {
+                juce::MemoryBlock stateBlock;
+                stateBlock.fromBase64Encoding(entry.getProperty("state", juce::var()).toString());
+                const auto* bytes = static_cast<const uint8_t*>(stateBlock.getData());
+                plugins::StateBlob blob(bytes, bytes + stateBlock.getSize());
+                pluginInstance->loadState(blob);
+                instrument = std::make_unique<plugins::PluginInstrument>(std::move(pluginInstance), found);
+                instrumentName = name;
+            }
+        }
+
+        if (instrument == nullptr) {
+            juce::Logger::writeToLog("Howl: plugin instrument '" + name + "' missing, using default synth");
+            instrument = std::make_unique<dsp::SubtractiveSynth>();
+            instrumentName = "Subtractive Synth";
+        }
+
+        instrument->prepare(m_sampleRate, m_bufferSize);
+        m_trackInstruments[trackIndex] = std::move(instrument);
+        m_instrumentNames[trackIndex] = instrumentName;
+    }
+
+    // Loads the built-in default session: one MIDI track "Lead", one empty 4-bar clip, one
+    // bus, 120 BPM. Same code path as opening a file, just with a literal JSON string
+    void newProject()
+    {
+        const juce::String defaultJson = R"({
+            "version": 1,
+            "tempo": 120.0,
+            "tracks": [
+                { "name": "Lead", "kind": "midi",
+                  "midiClips": [ { "startTick": 0, "lengthTicks": 15360, "notes": [] } ],
+                  "audioClips": [],
+                  "strip": { "gainDb": 0.0, "pan": 0.0, "muted": false, "soloed": false, "effects": [] },
+                  "output": -1, "sends": [] }
+            ],
+            "buses": [
+                { "name": "Bus 1", "strip": { "gainDb": 0.0, "pan": 0.0, "muted": false, "soloed": false, "effects": [] } }
+            ],
+            "masterStrip": { "gainDb": 0.0, "pan": 0.0, "muted": false, "soloed": false, "effects": [] },
+            "instruments": [ { "kind": "subtractive", "params": [] } ]
+        })";
+
+        loadProjectFromJson(defaultJson, juce::File());
+    }
+
     engine::Transport m_transport;
     model::Arrangement m_arrangement;
     model::CommandStack m_commandStack;
@@ -388,6 +689,7 @@ private:
     int m_bufferSize = 0;
     std::vector<std::unique_ptr<engine::Instrument>> m_trackInstruments;
     std::vector<juce::String> m_instrumentNames;
+    juce::File m_currentProjectFile;
     std::unique_ptr<MainWindow> m_mainWindow;
     std::unique_ptr<XrunWatcher> m_xrunWatcher;
 };

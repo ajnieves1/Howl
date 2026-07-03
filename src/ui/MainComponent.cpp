@@ -167,6 +167,11 @@ juce::PopupMenu MainComponent::getMenuForIndex(int topLevelMenuIndex, const juce
     juce::PopupMenu menu;
 
     if (topLevelMenuIndex == 0) {
+        menu.addItem(5, "New");
+        menu.addItem(6, "Open...");
+        menu.addItem(7, "Save");
+        menu.addItem(8, "Save As...");
+        menu.addSeparator();
         menu.addItem(1, "Import Audio...");
     } else if (topLevelMenuIndex == 1) {
         menu.addItem(2, "Undo");
@@ -196,6 +201,26 @@ void MainComponent::menuItemSelected(int menuItemID, int) {
             break;
         case 4:
             toggleMixer();
+            break;
+        case 5:
+            if (onNewProjectRequested) {
+                onNewProjectRequested();
+            }
+            break;
+        case 6:
+            if (onOpenProjectRequested) {
+                onOpenProjectRequested();
+            }
+            break;
+        case 7:
+            if (onSaveProjectRequested) {
+                onSaveProjectRequested();
+            }
+            break;
+        case 8:
+            if (onSaveAsProjectRequested) {
+                onSaveAsProjectRequested();
+            }
             break;
         default:
             break;

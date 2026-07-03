@@ -66,6 +66,12 @@ public:
     // Fired with (path, trackIndex, tick) when a .wav file is dropped onto the arrange view
     std::function<void(juce::String, std::size_t, int64_t)> onAudioFileDropped;
 
+    // Fired when File > New/Open/Save/Save As is picked
+    std::function<void()> onNewProjectRequested;
+    std::function<void()> onOpenProjectRequested;
+    std::function<void()> onSaveProjectRequested;
+    std::function<void()> onSaveAsProjectRequested;
+
 private:
     static constexpr int kTransportHeight = 36;
     static constexpr int kBottomPanelHeight = 300;

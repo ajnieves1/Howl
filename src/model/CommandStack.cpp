@@ -46,4 +46,10 @@ void CommandStack::redo() {
     m_undoStack.push_back(std::move(command));
 }
 
+// Empties both stacks without undoing anything, for loading a fresh project
+void CommandStack::clear() {
+    m_undoStack.clear();
+    m_redoStack.clear();
+}
+
 } // namespace howl::model

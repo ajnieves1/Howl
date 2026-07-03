@@ -1,0 +1,365 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Howl DAW: saves and loads a full session to/from .howl JSON text
+
+#include "project/ProjectSerializer.h"
+
+#include "model/AudioClip.h"
+#include "model/MidiClip.h"
+#include "model/Note.h"
+#include "plugins/PluginEffect.h"
+
+#include <cstdint>
+#include <memory>
+
+namespace howl::project {
+
+namespace {
+
+// Writes one effect's JSON entry: kind, identity (builtin type or plugin name/format/path/state), params
+juce::var effectToVar(engine::Effect& effect) {
+    auto* obj = new juce::DynamicObject();
+
+    if (auto* pluginEffect = dynamic_cast<plugins::PluginEffect*>(&effect)) {
+        const plugins::StateBlob blob = pluginEffect->instance().saveState();
+        obj->setProperty("kind", "plugin");
+        obj->setProperty("name", juce::String(pluginEffect->displayName()));
+        obj->setProperty("format", juce::String(pluginEffect->pluginFormat()));
+        obj->setProperty("path", juce::String(pluginEffect->pluginPath()));
+        obj->setProperty("state", juce::Base64::toBase64(blob.data(), blob.size()));
+    } else {
+        obj->setProperty("kind", "builtin");
+        obj->setProperty("type", juce::String(effect.displayName()));
+    }
+
+    juce::Array<juce::var> params;
+    for (int i = 0; i < effect.numParameters(); ++i) {
+        params.add(static_cast<double>(effect.getParameter(i)));
+    }
+    obj->setProperty("params", params);
+
+    return juce::var(obj);
+}
+
+// Writes one strip's JSON entry: gain, pan, mute, solo, and its effect chain
+juce::var stripToVar(model::ChannelStrip& strip) {
+    auto* obj = new juce::DynamicObject();
+    obj->setProperty("gainDb", static_cast<double>(strip.gainDb()));
+    obj->setProperty("pan", static_cast<double>(strip.pan()));
+    obj->setProperty("muted", strip.muted());
+    obj->setProperty("soloed", strip.soloed());
+
+    juce::Array<juce::var> effects;
+    engine::EffectChain& chain = strip.effects();
+    for (std::size_t i = 0; i < chain.size(); ++i) {
+        effects.add(effectToVar(chain.at(i)));
+    }
+    obj->setProperty("effects", effects);
+
+    return juce::var(obj);
+}
+
+// Writes one send's JSON entry
+juce::var sendToVar(const model::Send& send) {
+    auto* obj = new juce::DynamicObject();
+    obj->setProperty("bus", static_cast<int>(send.busIndex));
+    obj->setProperty("level", static_cast<double>(send.level));
+    obj->setProperty("preFader", send.preFader);
+    return juce::var(obj);
+}
+
+// Writes one note's JSON entry
+juce::var noteToVar(const model::Note& note) {
+    auto* obj = new juce::DynamicObject();
+    obj->setProperty("key", note.key);
+    obj->setProperty("velocity", static_cast<double>(note.velocity));
+    obj->setProperty("startTick", static_cast<juce::int64>(note.startTick));
+    obj->setProperty("lengthTicks", static_cast<juce::int64>(note.lengthTicks));
+    return juce::var(obj);
+}
+
+// Writes one MIDI clip placement's JSON entry, including its notes
+juce::var midiClipToVar(const model::MidiClipPlacement& placement) {
+    auto* obj = new juce::DynamicObject();
+    obj->setProperty("startTick", static_cast<juce::int64>(placement.startTick));
+    obj->setProperty("lengthTicks", static_cast<juce::int64>(placement.clip.lengthTicks()));
+
+    juce::Array<juce::var> notes;
+    for (const auto& note : placement.clip.notes()) {
+        notes.add(noteToVar(note));
+    }
+    obj->setProperty("notes", notes);
+
+    return juce::var(obj);
+}
+
+// Writes one audio clip placement's JSON entry, sourcePath only, never samples
+juce::var audioClipToVar(const model::AudioClipPlacement& placement) {
+    auto* obj = new juce::DynamicObject();
+    obj->setProperty("startTick", static_cast<juce::int64>(placement.startTick));
+    obj->setProperty("sourcePath", juce::String(placement.clip.sourcePath()));
+    return juce::var(obj);
+}
+
+// Writes one track's JSON entry: identity, clips, strip, output routing, sends
+juce::var trackToVar(const model::Track& track, model::Mixer& mixer, std::size_t trackIndex) {
+    auto* obj = new juce::DynamicObject();
+    obj->setProperty("name", juce::String(track.name));
+    obj->setProperty("kind", track.kind == model::TrackKind::Midi ? "midi" : "audio");
+
+    juce::Array<juce::var> midiClips;
+    for (const auto& placement : track.midiClips) {
+        midiClips.add(midiClipToVar(placement));
+    }
+    obj->setProperty("midiClips", midiClips);
+
+    juce::Array<juce::var> audioClips;
+    for (const auto& placement : track.audioClips) {
+        audioClips.add(audioClipToVar(placement));
+    }
+    obj->setProperty("audioClips", audioClips);
+
+    obj->setProperty("strip", stripToVar(mixer.trackStrip(trackIndex)));
+
+    const std::size_t output = mixer.trackOutput(trackIndex);
+    obj->setProperty("output", output == model::Mixer::kMaster ? -1 : static_cast<int>(output));
+
+    juce::Array<juce::var> sends;
+    for (const auto& send : mixer.sends(trackIndex)) {
+        sends.add(sendToVar(send));
+    }
+    obj->setProperty("sends", sends);
+
+    return juce::var(obj);
+}
+
+// Applies a saved param array onto a freshly created effect, index for index
+void applyParams(const juce::var& effectVar, engine::Effect& effect) {
+    if (const auto* paramsArray = effectVar.getProperty("params", juce::var()).getArray()) {
+        for (int i = 0; i < paramsArray->size() && i < effect.numParameters(); ++i) {
+            effect.setParameter(i, static_cast<float>(static_cast<double>((*paramsArray)[i])));
+        }
+    }
+}
+
+// Recreates one effect from its JSON entry, built-ins via factory, plugins via pluginHost.
+// Returns nullptr (logged) when the type/plugin cannot be resolved, never throws
+std::unique_ptr<engine::Effect> effectFromVar(const juce::var& effectVar, engine::IEffectFactory& factory,
+                                              plugins::IPluginHost* pluginHost) {
+    const juce::String kind = effectVar.getProperty("kind", juce::var()).toString();
+
+    if (kind == "builtin") {
+        const juce::String type = effectVar.getProperty("type", juce::var()).toString();
+
+        for (engine::EffectType candidate : factory.availableTypes()) {
+            if (juce::String(factory.displayName(candidate)) == type) {
+                std::unique_ptr<engine::Effect> effect = factory.create(candidate);
+                applyParams(effectVar, *effect);
+                return effect;
+            }
+        }
+
+        juce::Logger::writeToLog("Howl: unknown built-in effect type '" + type + "', skipped on load");
+        return nullptr;
+    }
+
+    if (kind == "plugin") {
+        if (pluginHost == nullptr) {
+            juce::Logger::writeToLog("Howl: no plugin host, skipped a plugin effect on load");
+            return nullptr;
+        }
+
+        const juce::String name = effectVar.getProperty("name", juce::var()).toString();
+        const juce::String format = effectVar.getProperty("format", juce::var()).toString();
+        const juce::String path = effectVar.getProperty("path", juce::var()).toString();
+
+        plugins::PluginDescriptor found;
+        bool foundAny = false;
+        for (const auto& descriptor : pluginHost->list()) {
+            if (descriptor.name == name.toStdString() && descriptor.format == format.toStdString()
+                && descriptor.path == path.toStdString()) {
+                found = descriptor;
+                foundAny = true;
+                break;
+            }
+        }
+
+        if (!foundAny) {
+            juce::Logger::writeToLog("Howl: plugin '" + name + "' not found, skipped an effect on load");
+            return nullptr;
+        }
+
+        auto instance = pluginHost->instantiate(found);
+        if (instance == nullptr) {
+            juce::Logger::writeToLog("Howl: failed to instantiate plugin '" + name + "', skipped an effect on load");
+            return nullptr;
+        }
+
+        juce::MemoryBlock stateBlock;
+        stateBlock.fromBase64Encoding(effectVar.getProperty("state", juce::var()).toString());
+        const auto* stateBytes = static_cast<const uint8_t*>(stateBlock.getData());
+        plugins::StateBlob blob(stateBytes, stateBytes + stateBlock.getSize());
+        instance->loadState(blob);
+
+        auto effect = std::make_unique<plugins::PluginEffect>(std::move(instance), found);
+        applyParams(effectVar, *effect);
+        return effect;
+    }
+
+    return nullptr;
+}
+
+// Applies a saved strip entry (gain/pan/mute/solo/effects) onto a live ChannelStrip
+void applyStripVar(const juce::var& stripVar, model::ChannelStrip& strip, engine::IEffectFactory& factory,
+                   plugins::IPluginHost* pluginHost) {
+    strip.setGainDb(static_cast<float>(static_cast<double>(stripVar.getProperty("gainDb", 0.0))));
+    strip.setPan(static_cast<float>(static_cast<double>(stripVar.getProperty("pan", 0.0))));
+    strip.setMuted(static_cast<bool>(stripVar.getProperty("muted", false)));
+    strip.setSoloed(static_cast<bool>(stripVar.getProperty("soloed", false)));
+
+    if (const auto* effectsArray = stripVar.getProperty("effects", juce::var()).getArray()) {
+        for (const auto& effectVar : *effectsArray) {
+            std::unique_ptr<engine::Effect> effect = effectFromVar(effectVar, factory, pluginHost);
+            if (effect != nullptr) {
+                strip.effects().add(std::move(effect));
+            }
+        }
+    }
+}
+
+} // namespace
+
+// Serializes the session to .howl JSON text; instruments is a juce::var array, one entry
+// per track (in track order), built by the app
+juce::String ProjectSerializer::save(const model::Arrangement& arrangement, model::Mixer& mixer,
+                                     const juce::var& instruments, double tempo) {
+    auto* root = new juce::DynamicObject();
+    root->setProperty("version", 1);
+    root->setProperty("tempo", tempo);
+
+    juce::Array<juce::var> tracks;
+    for (std::size_t i = 0; i < arrangement.numTracks(); ++i) {
+        tracks.add(trackToVar(arrangement.track(i), mixer, i));
+    }
+    root->setProperty("tracks", tracks);
+
+    juce::Array<juce::var> buses;
+    for (std::size_t i = 0; i < mixer.numBuses(); ++i) {
+        auto* busObj = new juce::DynamicObject();
+        busObj->setProperty("name", juce::String(mixer.busName(i)));
+        busObj->setProperty("strip", stripToVar(mixer.busStrip(i)));
+        buses.add(juce::var(busObj));
+    }
+    root->setProperty("buses", buses);
+
+    root->setProperty("masterStrip", stripToVar(mixer.masterStrip()));
+    root->setProperty("instruments", instruments);
+
+    return juce::JSON::toString(juce::var(root));
+}
+
+// Parses json and rebuilds into arrangement/mixer (mixer is reset() then rebuilt in place).
+// Built-in effects come from factory; plugin effects come from pluginHost and are skipped
+// (with a log line) when pluginHost is null or the plugin cannot be found. Returns false
+// only on JSON parse failure
+bool ProjectSerializer::load(const juce::String& json, model::Arrangement& arrangement,
+                             model::Mixer& mixer, engine::IEffectFactory& factory,
+                             plugins::IPluginHost* pluginHost, juce::var& instrumentsOut,
+                             double& tempoOut) {
+    juce::var parsed;
+    const juce::Result parseResult = juce::JSON::parse(json, parsed);
+    if (parseResult.failed() || !parsed.isObject()) {
+        return false;
+    }
+
+    tempoOut = static_cast<double>(parsed.getProperty("tempo", 120.0));
+    instrumentsOut = parsed.getProperty("instruments", juce::var());
+
+    arrangement = model::Arrangement();
+
+    if (const auto* tracksArray = parsed.getProperty("tracks", juce::var()).getArray()) {
+        for (const auto& trackVar : *tracksArray) {
+            const juce::String kindStr = trackVar.getProperty("kind", "midi").toString();
+            const model::TrackKind kind = kindStr == "audio" ? model::TrackKind::Audio : model::TrackKind::Midi;
+            const std::string name = trackVar.getProperty("name", juce::var()).toString().toStdString();
+
+            const std::size_t trackIndex = arrangement.addTrack(name, kind);
+
+            if (const auto* midiClipsArray = trackVar.getProperty("midiClips", juce::var()).getArray()) {
+                for (const auto& clipVar : *midiClipsArray) {
+                    model::MidiClip clip;
+                    clip.setLengthTicks(static_cast<int64_t>(
+                        static_cast<juce::int64>(clipVar.getProperty("lengthTicks", 0))));
+
+                    if (const auto* notesArray = clipVar.getProperty("notes", juce::var()).getArray()) {
+                        for (const auto& noteVar : *notesArray) {
+                            model::Note note {
+                                static_cast<int>(noteVar.getProperty("key", 60)),
+                                static_cast<float>(static_cast<double>(noteVar.getProperty("velocity", 1.0))),
+                                static_cast<int64_t>(static_cast<juce::int64>(noteVar.getProperty("startTick", 0))),
+                                static_cast<int64_t>(static_cast<juce::int64>(noteVar.getProperty("lengthTicks", 0)))
+                            };
+                            clip.addNote(note);
+                        }
+                    }
+
+                    const int64_t startTick = static_cast<int64_t>(
+                        static_cast<juce::int64>(clipVar.getProperty("startTick", 0)));
+                    arrangement.addMidiClipPlacement(trackIndex, model::MidiClipPlacement { startTick, clip });
+                }
+            }
+
+            if (const auto* audioClipsArray = trackVar.getProperty("audioClips", juce::var()).getArray()) {
+                for (const auto& clipVar : *audioClipsArray) {
+                    const int64_t startTick = static_cast<int64_t>(
+                        static_cast<juce::int64>(clipVar.getProperty("startTick", 0)));
+                    const std::string sourcePath = clipVar.getProperty("sourcePath", juce::var()).toString().toStdString();
+
+                    model::AudioClip clip;
+                    clip.setSourcePath(sourcePath);
+                    arrangement.addAudioClipPlacement(trackIndex, model::AudioClipPlacement { startTick, clip });
+                }
+            }
+        }
+    }
+
+    mixer.reset();
+    mixer.prepare(arrangement.numTracks());
+
+    if (const auto* busesArray = parsed.getProperty("buses", juce::var()).getArray()) {
+        for (const auto& busVar : *busesArray) {
+            const std::size_t busIndex = mixer.addBus(busVar.getProperty("name", juce::var()).toString().toStdString());
+            applyStripVar(busVar.getProperty("strip", juce::var()), mixer.busStrip(busIndex), factory, pluginHost);
+        }
+    }
+
+    if (const auto* tracksArray = parsed.getProperty("tracks", juce::var()).getArray()) {
+        for (int i = 0; i < tracksArray->size(); ++i) {
+            const juce::var& trackVar = (*tracksArray)[i];
+            const auto trackIndex = static_cast<std::size_t>(i);
+
+            applyStripVar(trackVar.getProperty("strip", juce::var()), mixer.trackStrip(trackIndex), factory, pluginHost);
+
+            const int output = static_cast<int>(trackVar.getProperty("output", -1));
+            mixer.setTrackOutput(trackIndex, output < 0 ? model::Mixer::kMaster : static_cast<std::size_t>(output));
+
+            if (const auto* sendsArray = trackVar.getProperty("sends", juce::var()).getArray()) {
+                for (const auto& sendVar : *sendsArray) {
+                    model::Send send {
+                        static_cast<std::size_t>(static_cast<int>(sendVar.getProperty("bus", 0))),
+                        static_cast<float>(static_cast<double>(sendVar.getProperty("level", 1.0))),
+                        static_cast<bool>(sendVar.getProperty("preFader", false))
+                    };
+                    mixer.addSend(trackIndex, send);
+                }
+            }
+        }
+    }
+
+    applyStripVar(parsed.getProperty("masterStrip", juce::var()), mixer.masterStrip(), factory, pluginHost);
+
+    mixer.updateLatencies();
+
+    return true;
+}
+
+} // namespace howl::project

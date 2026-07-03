@@ -12,6 +12,13 @@ AudioClip::AudioClip(std::vector<std::vector<float>> channels, double sourceSamp
 {
 }
 
+// Empty placeholder clip (no samples), used when loading a project before the
+// source file at sourcePath() is re-read and the real samples are filled in
+AudioClip::AudioClip()
+    : AudioClip(std::vector<std::vector<float>> {}, 0.0)
+{
+}
+
 // Returns the number of channels
 int AudioClip::numChannels() const {
     return static_cast<int>(m_channels.size());

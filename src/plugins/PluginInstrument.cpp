@@ -5,10 +5,22 @@
 
 namespace howl::plugins {
 
-// Takes ownership of a loaded instance, displayName comes from the plugin's descriptor
+// Takes ownership of a loaded instance, displayName comes from the plugin's descriptor.
+// pluginFormat()/pluginPath() are empty when constructed this way (not persistable as a
+// real plugin on save/load, prefer the PluginDescriptor overload below for new code)
 PluginInstrument::PluginInstrument(std::unique_ptr<IPluginInstance> instance, std::string displayName)
     : m_instance(std::move(instance))
     , m_displayName(std::move(displayName))
+{
+}
+
+// Takes ownership of a loaded instance, remembers the descriptor's name/format/path so
+// this instrument can be re-instantiated by src/project on save/load
+PluginInstrument::PluginInstrument(std::unique_ptr<IPluginInstance> instance, const PluginDescriptor& descriptor)
+    : m_instance(std::move(instance))
+    , m_displayName(descriptor.name)
+    , m_pluginFormat(descriptor.format)
+    , m_pluginPath(descriptor.path)
 {
 }
 
@@ -100,6 +112,16 @@ const char* PluginInstrument::displayName() const noexcept {
 // Returns the wrapped plugin instance, an editor window needs it for the native-editor button
 IPluginInstance& PluginInstrument::instance() noexcept {
     return *m_instance;
+}
+
+// Returns the plugin format ("VST3"/"CLAP"), empty if constructed without a descriptor
+const std::string& PluginInstrument::pluginFormat() const noexcept {
+    return m_pluginFormat;
+}
+
+// Returns the plugin file path, empty if constructed without a descriptor
+const std::string& PluginInstrument::pluginPath() const noexcept {
+    return m_pluginPath;
 }
 
 } // namespace howl::plugins

@@ -300,7 +300,7 @@ void ChannelStripComponent::showAddEffectMenu() {
             if (pluginIndex < pluginList.size()) {
                 auto instance = m_pluginHost->instantiate(pluginList[pluginIndex]);
                 if (instance != nullptr) {
-                    effect = std::make_unique<plugins::PluginEffect>(std::move(instance), pluginList[pluginIndex].name);
+                    effect = std::make_unique<plugins::PluginEffect>(std::move(instance), pluginList[pluginIndex]);
                 }
             }
         }
