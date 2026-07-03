@@ -5,6 +5,7 @@ add_library(HowlDsp STATIC
     Equalizer.cpp
     GainEffect.cpp
     Limiter.cpp
+    OfflineStretcher.cpp
     Reverb.cpp
     SubtractiveSynth.cpp
 )
@@ -19,5 +20,6 @@ target_link_libraries(HowlDsp
     PUBLIC
         HowlEngine
     PRIVATE
+        rubberband
         juce::juce_recommended_warning_flags
 )

@@ -19,11 +19,24 @@ void TrackHeaderPanel::NameLabel::mouseDown(const juce::MouseEvent& event) {
     Label::mouseDown(event);
 }
 
+// Reports right-clicks via onRightClick, otherwise behaves like a normal button
+void TrackHeaderPanel::InstrumentButton::mouseDown(const juce::MouseEvent& event) {
+    if (event.mods.isPopupMenu()) {
+        if (onRightClick) {
+            onRightClick();
+        }
+        return;
+    }
+
+    TextButton::mouseDown(event);
+}
+
 // Stores references, builds the initial rows, starts the 30 Hz mirroring timer
-TrackHeaderPanel::TrackHeaderPanel(model::Arrangement& arrangement, model::Mixer& mixer,
+TrackHeaderPanel::TrackHeaderPanel(model::Arrangement& arrangement, model::Mixer& mixer, model::Session& session,
                                     model::CommandStack& commandStack)
     : m_arrangement(arrangement)
     , m_mixer(mixer)
+    , m_session(session)
     , m_commandStack(commandStack)
 {
     m_addTrackButton.onClick = [this] {
@@ -75,11 +88,22 @@ void TrackHeaderPanel::resized() {
     m_addTrackButton.setBounds(0, getHeight() - kAddButtonHeight, getWidth(), kAddButtonHeight);
 }
 
-// Draws lane separators matching ArrangeView's grid
+// Draws lane separators matching ArrangeView's grid, and a tint over frozen rows
 void TrackHeaderPanel::paint(juce::Graphics& g) {
     g.fillAll(juce::Colours::darkgrey.darker());
 
     const float height = laneHeight();
+
+    if (isTrackFrozen) {
+        g.setColour(juce::Colours::lightblue.withAlpha(0.15f));
+        for (std::size_t i = 0; i < m_rows.size(); ++i) {
+            if (isTrackFrozen(i)) {
+                const auto y = static_cast<float>(i) * height;
+                g.fillRect(0.0f, y, static_cast<float>(getWidth()), height);
+            }
+        }
+    }
+
     g.setColour(juce::Colours::grey.withAlpha(0.4f));
     for (std::size_t i = 1; i < m_rows.size(); ++i) {
         const auto y = static_cast<int>(static_cast<float>(i) * height);
@@ -109,12 +133,15 @@ void TrackHeaderPanel::refreshFromModel() {
         addAndMakeVisible(*row.nameLabel);
 
         if (track.kind == model::TrackKind::Midi) {
-            row.instrumentButton = std::make_unique<juce::TextButton>();
+            row.instrumentButton = std::make_unique<InstrumentButton>();
             row.instrumentButton->setButtonText(instrumentNameFor ? instrumentNameFor(i) : juce::String());
             row.instrumentButton->onClick = [this, i] {
                 if (onInstrumentPickRequested) {
                     onInstrumentPickRequested(i);
                 }
+            };
+            row.instrumentButton->onRightClick = [this, i] {
+                showInstrumentMenu(i);
             };
             addAndMakeVisible(*row.instrumentButton);
         }
@@ -141,6 +168,7 @@ void TrackHeaderPanel::refreshFromModel() {
     }
 
     resized();
+    repaint(); // picks up the frozen-row tint immediately after a freeze/unfreeze
 }
 
 // 30 Hz, mirrors mute/solo toggle state from the mixer
@@ -151,21 +179,45 @@ void TrackHeaderPanel::timerCallback() {
     }
 }
 
-// Opens the Remove Track confirmation menu for the given row
+// Opens the Remove Track confirmation menu for the given row, plus a Freeze/Unfreeze item
 void TrackHeaderPanel::showRemoveTrackMenu(std::size_t trackIndex) {
+    const bool frozen = isTrackFrozen && isTrackFrozen(trackIndex);
+
     juce::PopupMenu menu;
     menu.addItem(1, "Remove Track");
+    menu.addItem(2, frozen ? "Unfreeze Track" : "Freeze Track");
+
+    menu.showMenuAsync(juce::PopupMenu::Options(), [this, trackIndex, frozen](int result) {
+        if (result == 1) {
+            m_commandStack.perform(std::make_unique<model::RemoveTrackCommand>(m_arrangement, m_mixer, m_session, trackIndex));
+            refreshFromModel();
+
+            if (onTracksChanged) {
+                onTracksChanged();
+            }
+        } else if (result == 2) {
+            if (onFreezeRequested) {
+                onFreezeRequested(trackIndex, !frozen);
+            }
+        }
+    });
+}
+
+// Opens the Change Instrument.../Open Editor menu for the given row's instrument button
+void TrackHeaderPanel::showInstrumentMenu(std::size_t trackIndex) {
+    juce::PopupMenu menu;
+    menu.addItem(1, "Change Instrument...");
+    menu.addItem(2, "Open Editor");
 
     menu.showMenuAsync(juce::PopupMenu::Options(), [this, trackIndex](int result) {
-        if (result != 1) {
-            return;
-        }
-
-        m_commandStack.perform(std::make_unique<model::RemoveTrackCommand>(m_arrangement, m_mixer, trackIndex));
-        refreshFromModel();
-
-        if (onTracksChanged) {
-            onTracksChanged();
+        if (result == 1) {
+            if (onInstrumentPickRequested) {
+                onInstrumentPickRequested(trackIndex);
+            }
+        } else if (result == 2) {
+            if (onInstrumentEditRequested) {
+                onInstrumentEditRequested(trackIndex);
+            }
         }
     });
 }
@@ -185,7 +237,7 @@ void TrackHeaderPanel::showAddTrackMenu() {
         const juce::String name = "Track " + juce::String(m_arrangement.numTracks() + 1);
 
         m_commandStack.perform(std::make_unique<model::AddTrackCommand>(
-            m_arrangement, m_mixer, name.toStdString(), kind));
+            m_arrangement, m_mixer, m_session, name.toStdString(), kind));
         refreshFromModel();
 
         if (onTracksChanged) {

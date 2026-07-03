@@ -38,9 +38,27 @@ FetchContent_Declare(
     GIT_TAG        fd5abecb9f79f7051f4397725baddd2fe7d57b7b
 )
 
+FetchContent_Declare(
+    rubberband
+    GIT_REPOSITORY https://github.com/breakfastquay/rubberband.git
+    GIT_TAG        v4.0.0
+    GIT_SHALLOW    TRUE
+)
+
 # clap must be made available before clap-helpers, which looks for the
 # clap target at configure time and errors out if it is not defined yet
-FetchContent_MakeAvailable(JUCE Catch2 clap clap-helpers)
+FetchContent_MakeAvailable(JUCE Catch2 clap clap-helpers rubberband)
+
+# Rubber Band ships no CMakeLists (its own build is Meson), so build the
+# single-file compilation unit directly: built-in FFT and resampler, no
+# external deps, per the comment at the top of RubberBandSingle.cpp
+add_library(rubberband STATIC ${rubberband_SOURCE_DIR}/single/RubberBandSingle.cpp)
+target_include_directories(rubberband PUBLIC ${rubberband_SOURCE_DIR})
+target_compile_features(rubberband PRIVATE cxx_std_17)
+if (APPLE)
+    # The single-file build uses Apple's vDSP FFT instead of the built-in one
+    target_link_libraries(rubberband PUBLIC "-framework Accelerate")
+endif()
 
 # Treat the fetched CLAP headers as system headers so their own warnings
 # stay out of our zero-warning build output (SYSTEM property is CMake 3.25+,

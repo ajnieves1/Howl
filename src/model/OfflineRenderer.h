@@ -7,9 +7,13 @@
 #include "engine/Transport.h"
 #include "model/Arrangement.h"
 
+#include <juce_core/juce_core.h>
+
 #include <string>
 
 namespace howl::model {
+
+class ArrangementNode;
 
 class OfflineRenderer {
 public:
@@ -18,6 +22,11 @@ public:
     // the transport playing and returns false if the file could not be opened
     static bool renderToFile(Arrangement& arrangement, engine::Transport& transport, double sampleRate,
                               int blockSize, int numChannels, SampleCount numFrames, const std::string& path);
+
+    // Renders the prepared node from sample 0 to lengthSamples into a 24-bit WAV, device must be paused
+    static bool renderNodeToFile(ArrangementNode& node, engine::Transport& transport, double sampleRate,
+                                  int blockSize, int numChannels, SampleCount lengthSamples,
+                                  const juce::File& outFile);
 };
 
 } // namespace howl::model

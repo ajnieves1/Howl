@@ -109,6 +109,12 @@ public:
     // Post-fader master meter, filled during process
     engine::Meter& masterMeter();
 
+    // While true the track's FX chain is skipped in process and counts zero in updateLatencies
+    void setTrackEffectsBypassed(std::size_t trackIndex, bool bypassed);
+
+    // Returns whether the track's FX chain is currently bypassed
+    bool trackEffectsBypassed(std::size_t trackIndex) const;
+
     // [RT] Runs track strips, routes main outputs and sends into buses/master, sums buses, applies master
     void process(const std::vector<AudioBlock>& trackBuffers, AudioBlock& output, SampleCount pos) noexcept;
 
@@ -136,6 +142,8 @@ private:
     std::vector<ChannelStrip> m_trackStrips;
     std::vector<std::size_t> m_trackOutputs;
     std::vector<std::vector<Send>> m_trackSends;
+    // While true (from a freeze), the track's FX chain is skipped in process()
+    std::vector<char> m_fxBypassed;
     ChannelStrip m_masterStrip;
 
     std::vector<Bus> m_buses;

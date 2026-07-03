@@ -31,7 +31,7 @@ void AudioTrackRenderer::process(AudioBlock& audio, SampleCount pos) noexcept {
 
     for (const auto& placement : m_track.audioClips) {
         const auto placementStart = static_cast<SampleCount>(static_cast<double>(placement.startTick) * samplesPerTick);
-        const SampleCount clipLength = placement.clip.lengthSamples();
+        const SampleCount clipLength = placement.clip.activeLengthSamples();
         const SampleCount placementEnd = placementStart + clipLength;
 
         if (placementEnd <= pos || placementStart >= blockEnd) {
@@ -45,7 +45,7 @@ void AudioTrackRenderer::process(AudioBlock& audio, SampleCount pos) noexcept {
             ? audio.numChannels : placement.clip.numChannels();
 
         for (int channel = 0; channel < channelsToUse; ++channel) {
-            const float* source = placement.clip.channelData(channel);
+            const float* source = placement.clip.activeChannelData(channel);
             for (SampleCount t = overlapStart; t < overlapEnd; ++t) {
                 const auto destFrame = static_cast<int>(t - pos);
                 const auto sourceIndex = static_cast<int>(t - placementStart);

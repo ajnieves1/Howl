@@ -3,6 +3,7 @@
 
 #include "core/Types.h"
 #include "dsp/BuiltInEffectFactory.h"
+#include "dsp/OfflineStretcher.h"
 #include "dsp/SubtractiveSynth.h"
 #include "engine/Graph.h"
 #include "engine/Instrument.h"
@@ -17,15 +18,20 @@
 #include "model/Commands.h"
 #include "model/MidiClip.h"
 #include "model/Note.h"
+#include "model/OfflineRenderer.h"
+#include "model/Session.h"
+#include "model/TrackFreezer.h"
 #include "plugins/PluginHost.h"
 #include "plugins/PluginInstrument.h"
 #include "project/ProjectSerializer.h"
 #include "ui/MainComponent.h"
+#include "ui/PluginWindow.h"
 
 #include <juce_core/juce_core.h>
 #include <juce_events/juce_events.h>
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include <cmath>
 #include <memory>
 #include <vector>
 
@@ -72,8 +78,8 @@ class MainWindow : public juce::DocumentWindow {
 public:
     // Creates and shows a window hosting the whole app shell (MainComponent)
     MainWindow(model::Arrangement& arrangement, engine::Transport& transport, model::CommandStack& commandStack,
-               model::Mixer& mixer, engine::IEffectFactory& factory, plugins::IPluginHost* pluginHost,
-               double sampleRate, int maxBlockSize)
+               model::Mixer& mixer, model::Session& session, model::ArrangementNode& arrangementNode,
+               engine::IEffectFactory& factory, plugins::IPluginHost* pluginHost, double sampleRate, int maxBlockSize)
         : DocumentWindow(
               "Howl",
               juce::Desktop::getInstance().getDefaultLookAndFeel()
@@ -81,8 +87,8 @@ public:
               DocumentWindow::allButtons)
     {
         setUsingNativeTitleBar(true);
-        m_mainComponent = new ui::MainComponent(arrangement, transport, commandStack, mixer,
-            factory, pluginHost, sampleRate, maxBlockSize);
+        m_mainComponent = new ui::MainComponent(arrangement, transport, commandStack, mixer, session,
+            arrangementNode, factory, pluginHost, sampleRate, maxBlockSize);
         setContentOwned(m_mainComponent, true);
         setMenuBar(m_mainComponent);
         setResizable(true, true);
@@ -141,11 +147,13 @@ public:
         m_pluginHost.rescan();
 
         const std::size_t midiTrackIndex = m_arrangement.addTrack("Lead", model::TrackKind::Midi);
+        m_session.addTrackColumn(); // keeps the session grid's columns aligned with arrangement tracks
         model::MidiClip clip;
         clip.setLengthTicks(model::kTicksPerQuarter * 16); // 4 bars, so it is a clickable block before any notes exist
         m_arrangement.addMidiClipPlacement(midiTrackIndex, model::MidiClipPlacement { 0, clip });
 
         auto arrangementNode = std::make_unique<model::ArrangementNode>(m_transport, m_arrangement);
+        arrangementNode->setSession(&m_session);
         arrangementNode->prepare(m_sampleRate, m_bufferSize, 2);
         m_arrangementNode = arrangementNode.get();
         m_graph.addNode(std::move(arrangementNode));
@@ -158,7 +166,8 @@ public:
         applyTrackInstruments();
 
         m_mainWindow = std::make_unique<MainWindow>(m_arrangement, m_transport, m_commandStack,
-            m_arrangementNode->mixer(), m_effectFactory, &m_pluginHost, m_sampleRate, m_bufferSize);
+            m_arrangementNode->mixer(), m_session, *m_arrangementNode, m_effectFactory, &m_pluginHost,
+            m_sampleRate, m_bufferSize);
 
         ui::MainComponent* mainComponent = m_mainWindow->mainComponent();
         mainComponent->onTracksChanged = [this] {
@@ -168,6 +177,9 @@ public:
         };
         mainComponent->onInstrumentPickRequested = [this](std::size_t trackIndex) {
             showInstrumentPicker(trackIndex);
+        };
+        mainComponent->onInstrumentEditRequested = [this](std::size_t trackIndex) {
+            openInstrumentEditor(trackIndex);
         };
         mainComponent->instrumentNameFor = [this](std::size_t trackIndex) -> juce::String {
             if (trackIndex < m_instrumentNames.size()) {
@@ -197,6 +209,22 @@ public:
         };
         mainComponent->onSaveAsProjectRequested = [this] {
             showSaveProjectFileChooser();
+        };
+        mainComponent->onExportAudioRequested = [this] {
+            exportAudio();
+        };
+        mainComponent->onRewarpRequested = [this] {
+            rewarpAllClips();
+        };
+        mainComponent->isTrackFrozen = [this](std::size_t trackIndex) {
+            return m_arrangementNode->isFrozen(trackIndex);
+        };
+        mainComponent->onFreezeRequested = [this](std::size_t trackIndex, bool freeze) {
+            if (freeze) {
+                freezeTrack(trackIndex);
+            } else {
+                unfreezeTrack(trackIndex);
+            }
         };
         // Re-renders the initial track's instrument label, now that instrumentNameFor is wired
         mainComponent->refreshAllViews();
@@ -230,6 +258,9 @@ private:
     // place, preserving gain/pan/routing/sends), re-applies every track's instrument, resumes
     void rebuildAudioGraph()
     {
+        // Any open instrument editor may hold a dangling reference once instruments are reassigned
+        m_instrumentEditorWindow.reset();
+
         m_audioDevice.stop();
         m_arrangementNode->prepare(m_sampleRate, m_bufferSize, 2);
         applyTrackInstruments();
@@ -329,6 +360,24 @@ private:
         });
     }
 
+    // Opens the native editor for a plugin instrument assigned to trackIndex, no-op for the
+    // built-in synth or a plugin that reports no editor
+    void openInstrumentEditor(std::size_t trackIndex)
+    {
+        if (trackIndex >= m_trackInstruments.size()) {
+            return;
+        }
+
+        auto* pluginInstrument = dynamic_cast<plugins::PluginInstrument*>(m_trackInstruments[trackIndex].get());
+        if (pluginInstrument == nullptr || !pluginInstrument->instance().hasEditor()) {
+            return;
+        }
+
+        m_instrumentEditorWindow = std::make_unique<ui::PluginWindow>(
+            pluginInstrument->instance(), pluginInstrument->displayName());
+        m_instrumentEditorWindow->open();
+    }
+
     // Returns the index of the first audio track, creating one (always at the current end,
     // since addTrack always appends) if the arrangement has none yet
     std::size_t ensureFirstAudioTrack()
@@ -341,7 +390,7 @@ private:
 
         const std::size_t newIndex = m_arrangement.numTracks();
         m_commandStack.perform(std::make_unique<model::AddTrackCommand>(
-            m_arrangement, m_arrangementNode->mixer(), "Audio 1", model::TrackKind::Audio));
+            m_arrangement, m_arrangementNode->mixer(), m_session, "Audio 1", model::TrackKind::Audio));
         reconcileTrackInstruments();
         return newIndex;
     }
@@ -370,12 +419,221 @@ private:
 
         model::AudioClip audioClip(std::move(channelData), reader.sampleRate());
         audioClip.setSourcePath(file.getFullPathName().toStdString());
+        audioClip.setOriginalBpm(m_transport.tempo()); // warp stays off until the user opts in
 
         m_commandStack.perform(std::make_unique<model::AddAudioClipCommand>(
             m_arrangement, trackIndex, model::AudioClipPlacement { startTick, std::move(audioClip) }));
 
         rebuildAudioGraph();
         m_mainWindow->mainComponent()->refreshAllViews();
+    }
+
+    // Re-reads one audio clip's source file in place, preserving sourcePath/originalBpm/
+    // warpEnabled; a missing or empty sourcePath logs and leaves the clip as an empty
+    // placeholder (used right after a project load, where placements only carry metadata)
+    void reReadAudioClip(model::AudioClip& clip)
+    {
+        const std::string path = clip.sourcePath();
+        if (path.empty()) {
+            return;
+        }
+
+        io::AudioFileReader reader;
+        if (!reader.open(path)) {
+            juce::Logger::writeToLog("Howl: missing audio file on load: " + juce::String(path));
+            return;
+        }
+
+        const int numChannels = reader.numChannels();
+        const auto lengthSamples = static_cast<int>(reader.lengthInSamples());
+
+        std::vector<std::vector<float>> channelData(static_cast<std::size_t>(numChannels),
+            std::vector<float>(static_cast<std::size_t>(lengthSamples), 0.0f));
+        std::vector<float*> channelPointers(static_cast<std::size_t>(numChannels));
+        for (int channel = 0; channel < numChannels; ++channel) {
+            channelPointers[static_cast<std::size_t>(channel)] = channelData[static_cast<std::size_t>(channel)].data();
+        }
+
+        AudioBlock block { channelPointers.data(), numChannels, lengthSamples };
+        reader.read(block, 0);
+
+        model::AudioClip realClip(std::move(channelData), reader.sampleRate());
+        realClip.setSourcePath(path);
+        realClip.setOriginalBpm(clip.originalBpm());
+        realClip.setWarpEnabled(clip.warpEnabled());
+        clip = realClip;
+    }
+
+    // Rewarps one clip in place: stretches its source to match tempo when warp is enabled and
+    // the ratio isn't ~1, otherwise drops any warped buffer so playback falls back to source
+    void rewarpClip(model::AudioClip& clip, double tempo)
+    {
+        if (!clip.warpEnabled() || clip.originalBpm() <= 0.0 || std::abs(clip.originalBpm() - tempo) < 0.01) {
+            clip.clearWarpedChannels();
+            return;
+        }
+
+        if (std::abs(clip.warpedTempo() - tempo) < 0.01) {
+            return; // already rendered for this tempo
+        }
+
+        const int numChannels = clip.numChannels();
+        const auto length = static_cast<std::size_t>(clip.lengthSamples());
+        if (numChannels <= 0 || length == 0) {
+            return;
+        }
+
+        std::vector<std::vector<float>> sourceChannels(static_cast<std::size_t>(numChannels));
+        for (int channel = 0; channel < numChannels; ++channel) {
+            const float* data = clip.channelData(channel);
+            sourceChannels[static_cast<std::size_t>(channel)].assign(data, data + length);
+        }
+
+        const double ratio = clip.originalBpm() / tempo;
+        auto stretched = dsp::OfflineStretcher::stretch(sourceChannels, clip.sourceSampleRate(), ratio);
+        if (!stretched.empty()) {
+            clip.setWarpedChannels(std::move(stretched), tempo);
+        }
+    }
+
+    // Pauses the device, rewarps every audio clip (arrangement and session) for the current
+    // tempo, resumes, and refreshes the views
+    void rewarpAllClips()
+    {
+        const double tempo = m_transport.tempo();
+        m_audioDevice.stop();
+
+        for (std::size_t i = 0; i < m_arrangement.numTracks(); ++i) {
+            model::Track& track = m_arrangement.track(i);
+            for (auto& placement : track.audioClips) {
+                rewarpClip(placement.clip, tempo);
+            }
+        }
+
+        for (std::size_t trackIndex = 0; trackIndex < m_session.numTracks(); ++trackIndex) {
+            for (std::size_t scene = 0; scene < m_session.numScenes(); ++scene) {
+                model::ClipSlot& slot = m_session.slot(trackIndex, scene);
+                if (slot.content == model::SlotContent::Audio) {
+                    rewarpClip(slot.audioClip, tempo);
+                }
+            }
+        }
+
+        m_audioDevice.start([this](AudioBlock& block) {
+            const SampleCount pos = m_transport.advance(block.numFrames);
+            m_graph.process(block, pos);
+        });
+
+        m_mainWindow->mainComponent()->refreshAllViews();
+    }
+
+    // Pauses the device, offline-renders the track through its instrument and strip FX, installs
+    // the render so playback reads it and the strip's FX chain is bypassed, resumes
+    void freezeTrack(std::size_t trackIndex)
+    {
+        m_audioDevice.stop();
+
+        engine::Instrument* instrument = trackIndex < m_trackInstruments.size()
+            ? m_trackInstruments[trackIndex].get() : nullptr;
+
+        auto rendered = model::TrackFreezer::renderTrack(m_arrangement, m_arrangementNode->mixer(), m_transport,
+            trackIndex, instrument, m_sampleRate, m_bufferSize, 2);
+
+        if (!rendered.empty()) {
+            m_arrangementNode->setFrozen(trackIndex, std::move(rendered));
+        }
+
+        m_audioDevice.start([this](AudioBlock& block) {
+            const SampleCount pos = m_transport.advance(block.numFrames);
+            m_graph.process(block, pos);
+        });
+
+        m_mainWindow->mainComponent()->refreshAllViews();
+    }
+
+    // Pauses the device, drops the track's frozen render so live rendering and its FX chain
+    // resume, resumes
+    void unfreezeTrack(std::size_t trackIndex)
+    {
+        m_audioDevice.stop();
+        m_arrangementNode->clearFrozen(trackIndex);
+
+        m_audioDevice.start([this](AudioBlock& block) {
+            const SampleCount pos = m_transport.advance(block.numFrames);
+            m_graph.process(block, pos);
+        });
+
+        m_mainWindow->mainComponent()->refreshAllViews();
+    }
+
+    // Returns the whole-song last clip end in samples across every track, both clip kinds,
+    // using activeLengthSamples() so warped audio clips report their warped length
+    SampleCount lastClipEndAcrossArrangement()
+    {
+        const double tempo = m_transport.tempo();
+        const double samplesPerTick = (60.0 / tempo) * m_sampleRate / static_cast<double>(model::kTicksPerQuarter);
+
+        SampleCount lastEnd = 0;
+        for (std::size_t i = 0; i < m_arrangement.numTracks(); ++i) {
+            const model::Track& track = m_arrangement.track(i);
+
+            for (const auto& placement : track.midiClips) {
+                const int64_t endTick = placement.startTick + placement.clip.lengthTicks();
+                const auto endSample = static_cast<SampleCount>(static_cast<double>(endTick) * samplesPerTick);
+                lastEnd = endSample > lastEnd ? endSample : lastEnd;
+            }
+
+            for (const auto& placement : track.audioClips) {
+                const auto startSample = static_cast<SampleCount>(static_cast<double>(placement.startTick) * samplesPerTick);
+                const SampleCount endSample = startSample + placement.clip.activeLengthSamples();
+                lastEnd = endSample > lastEnd ? endSample : lastEnd;
+            }
+        }
+
+        return lastEnd;
+    }
+
+    // Bounces the whole arrangement to a WAV: an empty arrangement shows an info box, otherwise
+    // an async save-file chooser followed by a synchronous, device-paused render of the last
+    // clip end plus a one second tail, rounded up to whole blocks
+    void exportAudio()
+    {
+        const SampleCount lastEnd = lastClipEndAcrossArrangement();
+        if (lastEnd <= 0) {
+            juce::NativeMessageBox::showMessageBoxAsync(juce::MessageBoxIconType::InfoIcon,
+                "Export Audio", "The arrangement has no clips to export.");
+            return;
+        }
+
+        const auto tailSamples = static_cast<SampleCount>(m_sampleRate);
+        const SampleCount rawLength = lastEnd + tailSamples;
+        const SampleCount numBlocks = (rawLength + m_bufferSize - 1) / m_bufferSize;
+        const SampleCount lengthSamples = numBlocks * m_bufferSize;
+
+        auto chooser = std::make_shared<juce::FileChooser>("Export Audio", juce::File(), "*.wav");
+        constexpr int flags = juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::warnAboutOverwriting;
+
+        chooser->launchAsync(flags, [this, chooser, lengthSamples](const juce::FileChooser& fc) {
+            const juce::File file = fc.getResult();
+            if (file == juce::File()) {
+                return;
+            }
+
+            m_audioDevice.stop();
+            m_arrangementNode->resetSessionPlayback();
+
+            const bool ok = model::OfflineRenderer::renderNodeToFile(*m_arrangementNode, m_transport, m_sampleRate,
+                m_bufferSize, 2, lengthSamples, file.withFileExtension(".wav"));
+
+            if (!ok) {
+                juce::Logger::writeToLog("Howl: failed to export audio to " + file.getFullPathName());
+            }
+
+            m_audioDevice.start([this](AudioBlock& block) {
+                const SampleCount pos = m_transport.advance(block.numFrames);
+                m_graph.process(block, pos);
+            });
+        });
     }
 
     // Opens an async file chooser filtered to .wav, imports onto the first audio track at tick 0
@@ -439,7 +697,7 @@ private:
     void saveProject(const juce::File& file)
     {
         const juce::String json = project::ProjectSerializer::save(m_arrangement, m_arrangementNode->mixer(),
-            buildInstrumentsVar(), m_transport.tempo());
+            m_session, buildInstrumentsVar(), m_transport.tempo());
 
         if (!file.replaceWithText(json)) {
             juce::Logger::writeToLog("Howl: failed to write project file " + file.getFullPathName());
@@ -497,6 +755,9 @@ private:
     // their sourcePath, rebuilds instruments, rebuilds the audio graph, and resumes
     void loadProjectFromJson(const juce::String& json, const juce::File& sourceFile)
     {
+        // Every instrument is about to be replaced, an open editor would dangle
+        m_instrumentEditorWindow.reset();
+
         m_transport.stop();
         m_audioDevice.stop();
         m_commandStack.clear();
@@ -505,7 +766,7 @@ private:
         double tempo = 120.0;
 
         const bool ok = project::ProjectSerializer::load(json, m_arrangement, m_arrangementNode->mixer(),
-            m_effectFactory, &m_pluginHost, instrumentsVar, tempo);
+            m_session, m_effectFactory, &m_pluginHost, instrumentsVar, tempo);
 
         if (!ok) {
             juce::Logger::writeToLog("Howl: failed to parse project file");
@@ -518,38 +779,21 @@ private:
 
         m_transport.setTempo(tempo);
 
-        // Re-read every audio clip's source file now that placements only carry sourcePath
+        // Re-read every audio clip's source file now that placements only carry sourcePath,
+        // both in the arrangement and in the session grid
         for (std::size_t i = 0; i < m_arrangement.numTracks(); ++i) {
             model::Track& track = m_arrangement.track(i);
-
             for (auto& placement : track.audioClips) {
-                const std::string path = placement.clip.sourcePath();
-                if (path.empty()) {
-                    continue;
+                reReadAudioClip(placement.clip);
+            }
+        }
+
+        for (std::size_t trackIndex = 0; trackIndex < m_session.numTracks(); ++trackIndex) {
+            for (std::size_t scene = 0; scene < m_session.numScenes(); ++scene) {
+                model::ClipSlot& slot = m_session.slot(trackIndex, scene);
+                if (slot.content == model::SlotContent::Audio) {
+                    reReadAudioClip(slot.audioClip);
                 }
-
-                io::AudioFileReader reader;
-                if (!reader.open(path)) {
-                    juce::Logger::writeToLog("Howl: missing audio file on load: " + juce::String(path));
-                    continue;
-                }
-
-                const int numChannels = reader.numChannels();
-                const auto lengthSamples = static_cast<int>(reader.lengthInSamples());
-
-                std::vector<std::vector<float>> channelData(static_cast<std::size_t>(numChannels),
-                    std::vector<float>(static_cast<std::size_t>(lengthSamples), 0.0f));
-                std::vector<float*> channelPointers(static_cast<std::size_t>(numChannels));
-                for (int channel = 0; channel < numChannels; ++channel) {
-                    channelPointers[static_cast<std::size_t>(channel)] = channelData[static_cast<std::size_t>(channel)].data();
-                }
-
-                AudioBlock block { channelPointers.data(), numChannels, lengthSamples };
-                reader.read(block, 0);
-
-                model::AudioClip realClip(std::move(channelData), reader.sampleRate());
-                realClip.setSourcePath(path);
-                placement.clip = realClip;
             }
         }
 
@@ -558,14 +802,10 @@ private:
         m_arrangementNode->prepare(m_sampleRate, m_bufferSize, 2);
         applyTrackInstruments();
 
-        m_audioDevice.start([this](AudioBlock& block) {
-            const SampleCount pos = m_transport.advance(block.numFrames);
-            m_graph.process(block, pos);
-        });
-
         m_currentProjectFile = sourceFile;
         m_mainWindow->setProjectTitle(sourceFile == juce::File() ? juce::String() : sourceFile.getFileName());
-        m_mainWindow->mainComponent()->refreshAllViews();
+
+        rewarpAllClips(); // stops/starts the device, rewarps every clip, refreshes all views
     }
 
     // Rebuilds m_trackInstruments/m_instrumentNames from a loaded instruments var, falling back
@@ -679,6 +919,7 @@ private:
 
     engine::Transport m_transport;
     model::Arrangement m_arrangement;
+    model::Session m_session;
     model::CommandStack m_commandStack;
     dsp::BuiltInEffectFactory m_effectFactory;
     plugins::PluginHost m_pluginHost;
@@ -690,6 +931,7 @@ private:
     std::vector<std::unique_ptr<engine::Instrument>> m_trackInstruments;
     std::vector<juce::String> m_instrumentNames;
     juce::File m_currentProjectFile;
+    std::unique_ptr<ui::PluginWindow> m_instrumentEditorWindow;
     std::unique_ptr<MainWindow> m_mainWindow;
     std::unique_ptr<XrunWatcher> m_xrunWatcher;
 };

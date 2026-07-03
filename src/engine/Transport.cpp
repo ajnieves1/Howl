@@ -41,6 +41,26 @@ void Transport::setLoop(SampleCount start, SampleCount end, bool enabled) {
     m_loopRegion.store(new LoopRegion { start, end, enabled }, std::memory_order_release);
 }
 
+// Jumps the playhead to pos, callable from the message thread while stopped or playing
+void Transport::setPosition(SampleCount pos) {
+    m_position.store(pos, std::memory_order_relaxed);
+}
+
+// Reads the loop start of the current loop region snapshot
+SampleCount Transport::loopStart() const noexcept {
+    return m_loopRegion.load(std::memory_order_acquire)->start;
+}
+
+// Reads the loop end of the current loop region snapshot
+SampleCount Transport::loopEnd() const noexcept {
+    return m_loopRegion.load(std::memory_order_acquire)->end;
+}
+
+// Returns true when looping is enabled
+bool Transport::loopEnabled() const noexcept {
+    return m_loopRegion.load(std::memory_order_acquire)->enabled;
+}
+
 // [RT] Advances the playhead by numFrames, returns the playhead at block start
 SampleCount Transport::advance(int numFrames) noexcept {
     const SampleCount blockStart = m_position.load(std::memory_order_relaxed);

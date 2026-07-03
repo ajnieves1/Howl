@@ -4,6 +4,7 @@
 #pragma once
 
 #include "model/AudioClip.h"
+#include "model/AutomationLane.h"
 #include "model/MidiClip.h"
 
 #include <cstddef>
@@ -30,12 +31,19 @@ enum class TrackKind {
     Audio
 };
 
+// One automated instrument parameter and its lane
+struct AutomationLaneSlot {
+    int paramIndex;
+    AutomationLane lane;
+};
+
 // A track holds placements matching its own kind, the other kind's vector stays empty
 struct Track {
     std::string name;
     TrackKind kind;
     std::vector<MidiClipPlacement> midiClips;
     std::vector<AudioClipPlacement> audioClips;
+    std::vector<AutomationLaneSlot> automation;
 };
 
 class Arrangement {

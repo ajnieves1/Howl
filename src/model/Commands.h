@@ -5,15 +5,19 @@
 
 #include "engine/Effect.h"
 #include "model/Arrangement.h"
+#include "model/AudioClip.h"
+#include "model/AutomationLane.h"
 #include "model/Command.h"
 #include "model/MidiClip.h"
 #include "model/Mixer.h"
 #include "model/Note.h"
+#include "model/Session.h"
 
 #include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace howl::model {
 
@@ -190,44 +194,49 @@ private:
     Send m_removedSend {};
 };
 
-// Adds a track to the arrangement and a default strip to the mixer, undo removes both
+// Adds a track to the arrangement, a default strip to the mixer, and a session column,
+// undo removes all three
 class AddTrackCommand : public Command {
 public:
-    // Stores the arrangement, mixer, and the new track's name and kind
-    AddTrackCommand(Arrangement& arrangement, Mixer& mixer, std::string name, TrackKind kind);
+    // Stores the arrangement, mixer, session, and the new track's name and kind
+    AddTrackCommand(Arrangement& arrangement, Mixer& mixer, Session& session, std::string name, TrackKind kind);
 
-    // arrangement.addTrack + mixer.insertTrackStrip at the new index
+    // arrangement.addTrack + mixer.insertTrackStrip + session.addTrackColumn, all at the new index
     void execute() override;
 
-    // arrangement.removeTrack + mixer.removeTrackStrip
+    // arrangement.removeTrack + mixer.removeTrackStrip + session.removeTrackColumn
     void undo() override;
 
 private:
     Arrangement& m_arrangement;
     Mixer& m_mixer;
+    Session& m_session;
     std::string m_name;
     TrackKind m_kind;
     std::size_t m_index = 0;
 };
 
-// Removes a track and its strip, undo restores the track copy and a DEFAULT strip
-// (strip contents - FX, gain, sends - are not preserved across remove/undo in v1, documented)
+// Removes a track, its strip, and its session column; undo restores the track copy and
+// session column, and a DEFAULT strip (strip contents - FX, gain, sends - are not preserved
+// across remove/undo in v1, documented)
 class RemoveTrackCommand : public Command {
 public:
-    // Stores the arrangement, mixer, and the track index to remove on execute()
-    RemoveTrackCommand(Arrangement& arrangement, Mixer& mixer, std::size_t trackIndex);
+    // Stores the arrangement, mixer, session, and the track index to remove on execute()
+    RemoveTrackCommand(Arrangement& arrangement, Mixer& mixer, Session& session, std::size_t trackIndex);
 
-    // Copies the Track (Track is copyable by design), then removes both
+    // Copies the Track (Track is copyable by design) and session column, then removes all three
     void execute() override;
 
-    // arrangement.insertTrack(index, copy) + mixer.insertTrackStrip(index)
+    // arrangement.insertTrack(index, copy) + mixer.insertTrackStrip(index) + session.insertTrackColumn(index, copy)
     void undo() override;
 
 private:
     Arrangement& m_arrangement;
     Mixer& m_mixer;
+    Session& m_session;
     std::size_t m_index;
     Track m_removedTrack {};
+    std::vector<ClipSlot> m_removedColumn;
 };
 
 // Adds an audio clip placement to a track, undo removes it
@@ -266,6 +275,142 @@ private:
     std::size_t m_trackIndex;
     std::size_t m_placementIndex;
     AudioClipPlacement m_removedPlacement;
+};
+
+// Puts a fresh MIDI clip into an empty slot, undo empties it again. No-ops if the slot is
+// not empty when executed
+class AddSessionMidiClipCommand : public Command {
+public:
+    // Stores the session, slot address, and clip to add on execute()
+    AddSessionMidiClipCommand(Session& session, std::size_t trackIndex, std::size_t sceneIndex, MidiClip clip);
+
+    void execute() override;
+    void undo() override;
+
+private:
+    Session& m_session;
+    std::size_t m_trackIndex;
+    std::size_t m_sceneIndex;
+    MidiClip m_clip;
+    bool m_applied = false;
+};
+
+// Puts an audio clip into an empty slot, undo empties it again. No-ops if the slot is not
+// empty when executed
+class AddSessionAudioClipCommand : public Command {
+public:
+    // Stores the session, slot address, and clip to add on execute()
+    AddSessionAudioClipCommand(Session& session, std::size_t trackIndex, std::size_t sceneIndex, AudioClip clip);
+
+    void execute() override;
+    void undo() override;
+
+private:
+    Session& m_session;
+    std::size_t m_trackIndex;
+    std::size_t m_sceneIndex;
+    AudioClip m_clip;
+    bool m_applied = false;
+};
+
+// Empties a slot, undo restores the stored slot copy
+class ClearSessionSlotCommand : public Command {
+public:
+    // Stores the session and slot address to clear on execute()
+    ClearSessionSlotCommand(Session& session, std::size_t trackIndex, std::size_t sceneIndex);
+
+    void execute() override;
+    void undo() override;
+
+private:
+    Session& m_session;
+    std::size_t m_trackIndex;
+    std::size_t m_sceneIndex;
+    ClipSlot m_removedSlot;
+};
+
+// Appends an empty automation lane for a parameter to a track, undo pops it
+class AddAutomationLaneCommand : public Command {
+public:
+    // Stores the arrangement, track, and parameter index of the lane to add on execute()
+    AddAutomationLaneCommand(Arrangement& arrangement, std::size_t trackIndex, int paramIndex);
+
+    void execute() override;
+    void undo() override;
+
+private:
+    Arrangement& m_arrangement;
+    std::size_t m_trackIndex;
+    int m_paramIndex;
+};
+
+// Removes the automation lane at laneIndex from a track, undo restores it at the same index
+class RemoveAutomationLaneCommand : public Command {
+public:
+    // Stores the arrangement, track, and lane index to remove on execute()
+    RemoveAutomationLaneCommand(Arrangement& arrangement, std::size_t trackIndex, std::size_t laneIndex);
+
+    void execute() override;
+    void undo() override;
+
+private:
+    Arrangement& m_arrangement;
+    std::size_t m_trackIndex;
+    std::size_t m_laneIndex;
+    AutomationLaneSlot m_removedSlot {};
+};
+
+// Adds a point to an automation lane, undo removes it by exact tick+value match
+class AddAutomationPointCommand : public Command {
+public:
+    // Stores the arrangement, track, lane index, and point to add on execute()
+    AddAutomationPointCommand(Arrangement& arrangement, std::size_t trackIndex, std::size_t laneIndex,
+                               AutomationPoint point);
+
+    void execute() override;
+    void undo() override;
+
+private:
+    Arrangement& m_arrangement;
+    std::size_t m_trackIndex;
+    std::size_t m_laneIndex;
+    AutomationPoint m_point;
+};
+
+// Removes the point at pointIndex from an automation lane, undo re-adds it
+class RemoveAutomationPointCommand : public Command {
+public:
+    // Stores the arrangement, track, lane index, and point index to remove on execute()
+    RemoveAutomationPointCommand(Arrangement& arrangement, std::size_t trackIndex, std::size_t laneIndex,
+                                  std::size_t pointIndex);
+
+    void execute() override;
+    void undo() override;
+
+private:
+    Arrangement& m_arrangement;
+    std::size_t m_trackIndex;
+    std::size_t m_laneIndex;
+    std::size_t m_pointIndex;
+    AutomationPoint m_removedPoint {};
+};
+
+// Moves an automation point from oldPoint to newPoint (matched by exact tick+value), undo symmetric
+class MoveAutomationPointCommand : public Command {
+public:
+    // Stores the arrangement, track, lane index, and both endpoints of the move
+    MoveAutomationPointCommand(Arrangement& arrangement, std::size_t trackIndex, std::size_t laneIndex,
+                                AutomationPoint oldPoint, AutomationPoint newPoint);
+
+    void execute() override;
+    void undo() override;
+
+private:
+    Arrangement& m_arrangement;
+    std::size_t m_trackIndex;
+    std::size_t m_laneIndex;
+    AutomationPoint m_oldPoint;
+    AutomationPoint m_newPoint;
 };
 
 } // namespace howl::model

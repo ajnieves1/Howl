@@ -9,6 +9,7 @@
 #include "model/MidiClip.h"
 #include "model/Mixer.h"
 #include "model/Note.h"
+#include "model/Session.h"
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
@@ -25,6 +26,8 @@ using howl::model::MidiClipPlacement;
 using howl::model::Mixer;
 using howl::model::Note;
 using howl::model::Send;
+using howl::model::Session;
+using howl::model::SlotContent;
 using howl::model::TrackKind;
 using howl::project::ProjectSerializer;
 
@@ -43,7 +46,29 @@ TEST_CASE("ProjectSerializer round-trips tracks, clips, mixer state, effects, se
     const std::size_t audioTrack = arrangement.addTrack("Audio 1", TrackKind::Audio);
     AudioClip audioClip;
     audioClip.setSourcePath("/fake/path.wav");
+    audioClip.setOriginalBpm(140.0);
+    audioClip.setWarpEnabled(true);
     arrangement.addAudioClipPlacement(audioTrack, AudioClipPlacement { 960, audioClip });
+
+    Session session;
+    session.addScene();
+    session.addScene();
+    session.addTrackColumn(); // midiTrack's column
+    session.addTrackColumn(); // audioTrack's column
+
+    MidiClip sessionMidiClip;
+    sessionMidiClip.setLengthTicks(1920);
+    sessionMidiClip.addNote(Note { 62, 0.7f, 0, 480 });
+    sessionMidiClip.addNote(Note { 65, 0.6f, 480, 480 });
+    session.slot(midiTrack, 0).content = SlotContent::Midi;
+    session.slot(midiTrack, 0).midiClip = sessionMidiClip;
+
+    AudioClip sessionAudioClip;
+    sessionAudioClip.setSourcePath("/fake/session.wav");
+    sessionAudioClip.setOriginalBpm(98.0);
+    sessionAudioClip.setWarpEnabled(true);
+    session.slot(audioTrack, 1).content = SlotContent::Audio;
+    session.slot(audioTrack, 1).audioClip = sessionAudioClip;
 
     mixer.prepare(arrangement.numTracks(), 44100.0, 512, 2);
     const std::size_t bus = mixer.addBus("Bus A");
@@ -69,7 +94,7 @@ TEST_CASE("ProjectSerializer round-trips tracks, clips, mixer state, effects, se
     const double tempo = 98.5;
     const juce::var instruments; // not this test's concern
 
-    const juce::String json = ProjectSerializer::save(arrangement, mixer, instruments, tempo);
+    const juce::String json = ProjectSerializer::save(arrangement, mixer, session, instruments, tempo);
     REQUIRE(json.contains("\"version\""));
 
     juce::var parsed;
@@ -78,10 +103,11 @@ TEST_CASE("ProjectSerializer round-trips tracks, clips, mixer state, effects, se
 
     Arrangement loadedArrangement;
     Mixer loadedMixer;
+    Session loadedSession;
     juce::var loadedInstruments;
     double loadedTempo = 0.0;
 
-    const bool ok = ProjectSerializer::load(json, loadedArrangement, loadedMixer, factory, nullptr,
+    const bool ok = ProjectSerializer::load(json, loadedArrangement, loadedMixer, loadedSession, factory, nullptr,
         loadedInstruments, loadedTempo);
     REQUIRE(ok);
     REQUIRE(loadedTempo == Catch::Approx(98.5));
@@ -99,6 +125,20 @@ TEST_CASE("ProjectSerializer round-trips tracks, clips, mixer state, effects, se
     REQUIRE(loadedArrangement.track(audioTrack).audioClips.size() == 1);
     REQUIRE(loadedArrangement.track(audioTrack).audioClips[0].startTick == 960);
     REQUIRE(loadedArrangement.track(audioTrack).audioClips[0].clip.sourcePath() == "/fake/path.wav");
+    REQUIRE(loadedArrangement.track(audioTrack).audioClips[0].clip.originalBpm() == Catch::Approx(140.0));
+    REQUIRE(loadedArrangement.track(audioTrack).audioClips[0].clip.warpEnabled());
+
+    REQUIRE(loadedSession.numTracks() == 2);
+    REQUIRE(loadedSession.numScenes() == 2);
+    REQUIRE(loadedSession.slot(midiTrack, 0).content == SlotContent::Midi);
+    REQUIRE(loadedSession.slot(midiTrack, 0).midiClip.lengthTicks() == 1920);
+    REQUIRE(loadedSession.slot(midiTrack, 0).midiClip.notes().size() == 2);
+    REQUIRE(loadedSession.slot(midiTrack, 0).midiClip.notes()[0].key == 62);
+    REQUIRE(loadedSession.slot(midiTrack, 1).content == SlotContent::Empty);
+    REQUIRE(loadedSession.slot(audioTrack, 1).content == SlotContent::Audio);
+    REQUIRE(loadedSession.slot(audioTrack, 1).audioClip.sourcePath() == "/fake/session.wav");
+    REQUIRE(loadedSession.slot(audioTrack, 1).audioClip.originalBpm() == Catch::Approx(98.0));
+    REQUIRE(loadedSession.slot(audioTrack, 1).audioClip.warpEnabled());
 
     REQUIRE(loadedMixer.trackStrip(midiTrack).gainDb() == Catch::Approx(-6.0f));
     REQUIRE(loadedMixer.trackStrip(midiTrack).pan() == Catch::Approx(0.3f));
@@ -140,13 +180,18 @@ TEST_CASE("ProjectSerializer.load is forward-tolerant of an unrecognized version
     BuiltInEffectFactory factory;
     Arrangement arrangement;
     Mixer mixer;
+    Session session;
     juce::var instruments;
     double tempo = 0.0;
 
-    const bool ok = ProjectSerializer::load(json, arrangement, mixer, factory, nullptr, instruments, tempo);
+    const bool ok = ProjectSerializer::load(json, arrangement, mixer, session, factory, nullptr, instruments, tempo);
     REQUIRE(ok);
     REQUIRE(tempo == Catch::Approx(140.0));
     REQUIRE(arrangement.numTracks() == 1);
     REQUIRE(arrangement.track(0).name == "Lead");
     REQUIRE(mixer.trackStrip(0).gainDb() == Catch::Approx(-1.0f));
+
+    // No "session" key in this older-era JSON: still loads as an empty grid sized to the track count
+    REQUIRE(session.numTracks() == 1);
+    REQUIRE(session.numScenes() == 0);
 }

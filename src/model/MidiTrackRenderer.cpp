@@ -82,6 +82,22 @@ void MidiTrackRenderer::process(AudioBlock& audio, SampleCount pos) noexcept {
         return;
     }
 
+    if (m_transport.isPlaying()) {
+        const double tempo = m_transport.tempo();
+        const double samplesPerTick = (60.0 / tempo) * m_sampleRate / static_cast<double>(kTicksPerQuarter);
+        const auto blockStartTick = static_cast<int64_t>(static_cast<double>(pos) / samplesPerTick);
+
+        for (const auto& slot : m_track.automation) {
+            if (slot.paramIndex < 0 || slot.paramIndex >= m_instrument->numParameters()) {
+                continue;
+            }
+            if (slot.lane.points().empty()) {
+                continue;
+            }
+            m_instrument->setParameter(slot.paramIndex, slot.lane.valueAtTick(blockStartTick));
+        }
+    }
+
     Event events[kMaxEventsPerBlock];
     const int numEvents = collectEvents(pos, audio.numFrames, events);
 

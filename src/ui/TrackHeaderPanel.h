@@ -6,6 +6,7 @@
 #include "model/Arrangement.h"
 #include "model/CommandStack.h"
 #include "model/Mixer.h"
+#include "model/Session.h"
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
@@ -22,7 +23,8 @@ public:
     static constexpr int kWidth = 150;
 
     // Stores references, starts the 30 Hz mute/solo mirroring timer
-    TrackHeaderPanel(model::Arrangement& arrangement, model::Mixer& mixer, model::CommandStack& commandStack);
+    TrackHeaderPanel(model::Arrangement& arrangement, model::Mixer& mixer, model::Session& session,
+                      model::CommandStack& commandStack);
 
     // Stops the timer
     ~TrackHeaderPanel() override;
@@ -33,8 +35,17 @@ public:
     // Fired when a MIDI track's instrument button is clicked, the app shows the picker
     std::function<void(std::size_t)> onInstrumentPickRequested;
 
+    // Fired when a MIDI track's instrument button's "Open Editor" menu item is picked
+    std::function<void(std::size_t)> onInstrumentEditRequested;
+
     // App-provided display name for a track's current instrument
     std::function<juce::String(std::size_t)> instrumentNameFor;
+
+    // App-provided frozen state for a track, used for the row menu label and the row tint
+    std::function<bool(std::size_t)> isTrackFrozen;
+
+    // Fired when a row's Freeze/Unfreeze Track menu item is picked, with the requested new state
+    std::function<void(std::size_t, bool)> onFreezeRequested;
 
     void resized() override;
     void paint(juce::Graphics& g) override;
@@ -52,10 +63,17 @@ private:
         void mouseDown(const juce::MouseEvent& event) override;
     };
 
+    // A text button that reports right-clicks instead of only handling left-click actions
+    class InstrumentButton : public juce::TextButton {
+    public:
+        std::function<void()> onRightClick;
+        void mouseDown(const juce::MouseEvent& event) override;
+    };
+
     // One track's header controls
     struct Row {
         std::unique_ptr<NameLabel> nameLabel;
-        std::unique_ptr<juce::TextButton> instrumentButton; // MIDI tracks only
+        std::unique_ptr<InstrumentButton> instrumentButton; // MIDI tracks only
         std::unique_ptr<juce::TextButton> muteButton;
         std::unique_ptr<juce::TextButton> soloButton;
     };
@@ -66,6 +84,9 @@ private:
     // Opens the Remove Track confirmation menu for the given row
     void showRemoveTrackMenu(std::size_t trackIndex);
 
+    // Opens the Change Instrument.../Open Editor menu for the given row's instrument button
+    void showInstrumentMenu(std::size_t trackIndex);
+
     // Opens the MIDI/Audio track-kind menu for the add-track button
     void showAddTrackMenu();
 
@@ -74,6 +95,7 @@ private:
 
     model::Arrangement& m_arrangement;
     model::Mixer& m_mixer;
+    model::Session& m_session;
     model::CommandStack& m_commandStack;
 
     std::vector<Row> m_rows;

@@ -6,6 +6,7 @@
 #include "model/AudioClip.h"
 #include "model/MidiClip.h"
 #include "model/Note.h"
+#include "model/Session.h"
 #include "plugins/PluginEffect.h"
 
 #include <cstdint>
@@ -92,11 +93,58 @@ juce::var midiClipToVar(const model::MidiClipPlacement& placement) {
     return juce::var(obj);
 }
 
-// Writes one audio clip placement's JSON entry, sourcePath only, never samples
+// Writes one audio clip placement's JSON entry, sourcePath and warp fields, never samples
 juce::var audioClipToVar(const model::AudioClipPlacement& placement) {
     auto* obj = new juce::DynamicObject();
     obj->setProperty("startTick", static_cast<juce::int64>(placement.startTick));
     obj->setProperty("sourcePath", juce::String(placement.clip.sourcePath()));
+    obj->setProperty("originalBpm", placement.clip.originalBpm());
+    obj->setProperty("warpEnabled", placement.clip.warpEnabled());
+    return juce::var(obj);
+}
+
+// Writes one session slot's JSON entry, null when empty
+juce::var slotToVar(const model::ClipSlot& slot) {
+    if (slot.content == model::SlotContent::Empty) {
+        return juce::var();
+    }
+
+    auto* obj = new juce::DynamicObject();
+
+    if (slot.content == model::SlotContent::Midi) {
+        obj->setProperty("kind", "midi");
+        obj->setProperty("lengthTicks", static_cast<juce::int64>(slot.midiClip.lengthTicks()));
+
+        juce::Array<juce::var> notes;
+        for (const auto& note : slot.midiClip.notes()) {
+            notes.add(noteToVar(note));
+        }
+        obj->setProperty("notes", notes);
+    } else {
+        obj->setProperty("kind", "audio");
+        obj->setProperty("sourcePath", juce::String(slot.audioClip.sourcePath()));
+        obj->setProperty("originalBpm", slot.audioClip.originalBpm());
+        obj->setProperty("warpEnabled", slot.audioClip.warpEnabled());
+    }
+
+    return juce::var(obj);
+}
+
+// Writes the session grid's JSON entry: scene count and one column array per track
+juce::var sessionToVar(const model::Session& session) {
+    auto* obj = new juce::DynamicObject();
+    obj->setProperty("numScenes", static_cast<int>(session.numScenes()));
+
+    juce::Array<juce::var> tracks;
+    for (std::size_t t = 0; t < session.numTracks(); ++t) {
+        juce::Array<juce::var> column;
+        for (std::size_t s = 0; s < session.numScenes(); ++s) {
+            column.add(slotToVar(session.slot(t, s)));
+        }
+        tracks.add(column);
+    }
+    obj->setProperty("tracks", tracks);
+
     return juce::var(obj);
 }
 
@@ -231,7 +279,7 @@ void applyStripVar(const juce::var& stripVar, model::ChannelStrip& strip, engine
 // Serializes the session to .howl JSON text; instruments is a juce::var array, one entry
 // per track (in track order), built by the app
 juce::String ProjectSerializer::save(const model::Arrangement& arrangement, model::Mixer& mixer,
-                                     const juce::var& instruments, double tempo) {
+                                     const model::Session& session, const juce::var& instruments, double tempo) {
     auto* root = new juce::DynamicObject();
     root->setProperty("version", 1);
     root->setProperty("tempo", tempo);
@@ -253,6 +301,7 @@ juce::String ProjectSerializer::save(const model::Arrangement& arrangement, mode
 
     root->setProperty("masterStrip", stripToVar(mixer.masterStrip()));
     root->setProperty("instruments", instruments);
+    root->setProperty("session", sessionToVar(session));
 
     return juce::JSON::toString(juce::var(root));
 }
@@ -262,7 +311,7 @@ juce::String ProjectSerializer::save(const model::Arrangement& arrangement, mode
 // (with a log line) when pluginHost is null or the plugin cannot be found. Returns false
 // only on JSON parse failure
 bool ProjectSerializer::load(const juce::String& json, model::Arrangement& arrangement,
-                             model::Mixer& mixer, engine::IEffectFactory& factory,
+                             model::Mixer& mixer, model::Session& session, engine::IEffectFactory& factory,
                              plugins::IPluginHost* pluginHost, juce::var& instrumentsOut,
                              double& tempoOut) {
     juce::var parsed;
@@ -316,8 +365,73 @@ bool ProjectSerializer::load(const juce::String& json, model::Arrangement& arran
 
                     model::AudioClip clip;
                     clip.setSourcePath(sourcePath);
+                    clip.setOriginalBpm(static_cast<double>(clipVar.getProperty("originalBpm", 0.0)));
+                    clip.setWarpEnabled(static_cast<bool>(clipVar.getProperty("warpEnabled", false)));
                     arrangement.addAudioClipPlacement(trackIndex, model::AudioClipPlacement { startTick, clip });
                 }
+            }
+        }
+    }
+
+    session = model::Session();
+
+    const juce::var sessionVar = parsed.getProperty("session", juce::var());
+    const int numScenes = static_cast<int>(sessionVar.getProperty("numScenes", 0));
+
+    for (int s = 0; s < numScenes; ++s) {
+        session.addScene();
+    }
+
+    const auto* sessionTracksArray = sessionVar.getProperty("tracks", juce::var()).getArray();
+
+    for (std::size_t t = 0; t < arrangement.numTracks(); ++t) {
+        session.addTrackColumn();
+
+        if (sessionTracksArray == nullptr || static_cast<int>(t) >= sessionTracksArray->size()) {
+            continue;
+        }
+
+        const auto* columnArray = (*sessionTracksArray)[static_cast<int>(t)].getArray();
+        if (columnArray == nullptr) {
+            continue;
+        }
+
+        for (std::size_t s = 0; s < session.numScenes() && static_cast<int>(s) < columnArray->size(); ++s) {
+            const juce::var& slotVar = (*columnArray)[static_cast<int>(s)];
+            if (slotVar.isVoid() || slotVar.isUndefined()) {
+                continue;
+            }
+
+            const juce::String kind = slotVar.getProperty("kind", juce::var()).toString();
+            model::ClipSlot& slot = session.slot(t, s);
+
+            if (kind == "midi") {
+                model::MidiClip clip;
+                clip.setLengthTicks(static_cast<int64_t>(
+                    static_cast<juce::int64>(slotVar.getProperty("lengthTicks", 0))));
+
+                if (const auto* notesArray = slotVar.getProperty("notes", juce::var()).getArray()) {
+                    for (const auto& noteVar : *notesArray) {
+                        model::Note note {
+                            static_cast<int>(noteVar.getProperty("key", 60)),
+                            static_cast<float>(static_cast<double>(noteVar.getProperty("velocity", 1.0))),
+                            static_cast<int64_t>(static_cast<juce::int64>(noteVar.getProperty("startTick", 0))),
+                            static_cast<int64_t>(static_cast<juce::int64>(noteVar.getProperty("lengthTicks", 0)))
+                        };
+                        clip.addNote(note);
+                    }
+                }
+
+                slot.content = model::SlotContent::Midi;
+                slot.midiClip = clip;
+            } else if (kind == "audio") {
+                model::AudioClip clip;
+                clip.setSourcePath(slotVar.getProperty("sourcePath", juce::var()).toString().toStdString());
+                clip.setOriginalBpm(static_cast<double>(slotVar.getProperty("originalBpm", 0.0)));
+                clip.setWarpEnabled(static_cast<bool>(slotVar.getProperty("warpEnabled", false)));
+
+                slot.content = model::SlotContent::Audio;
+                slot.audioClip = clip;
             }
         }
     }

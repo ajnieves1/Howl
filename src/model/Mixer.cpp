@@ -50,6 +50,7 @@ void Mixer::reset() {
     m_trackStrips.clear();
     m_trackOutputs.clear();
     m_trackSends.clear();
+    m_fxBypassed.clear();
     m_masterStrip = ChannelStrip();
 
     m_buses.clear();
@@ -83,6 +84,9 @@ void Mixer::prepare(std::size_t numTracks, double sampleRate, int maxBlockSize, 
     m_trackStrips.resize(numTracks);
     m_trackOutputs.resize(numTracks, kMaster);
     m_trackSends.resize(numTracks);
+    // A full prepare() rebuild invalidates any frozen state (ArrangementNode drops its cached
+    // buffers on prepare too), so every track's bypass is reset rather than preserved
+    m_fxBypassed.assign(numTracks, static_cast<char>(false));
 
     m_preFaderBuffers.assign(numTracks, std::vector<std::vector<float>>(
         static_cast<std::size_t>(numChannels), std::vector<float>(static_cast<std::size_t>(maxBlockSize), 0.0f)));
@@ -149,6 +153,7 @@ void Mixer::insertTrackStrip(std::size_t trackIndex) {
 
     m_trackOutputs.insert(m_trackOutputs.begin() + pos, kMaster);
     m_trackSends.insert(m_trackSends.begin() + pos, std::vector<Send>());
+    m_fxBypassed.insert(m_fxBypassed.begin() + pos, static_cast<char>(false));
 
     m_preFaderBuffers.insert(m_preFaderBuffers.begin() + pos, std::vector<std::vector<float>>(
         static_cast<std::size_t>(m_numChannels), std::vector<float>(static_cast<std::size_t>(m_maxBlockSize), 0.0f)));
@@ -174,6 +179,7 @@ void Mixer::removeTrackStrip(std::size_t trackIndex) {
     m_trackStrips.erase(m_trackStrips.begin() + pos);
     m_trackOutputs.erase(m_trackOutputs.begin() + pos);
     m_trackSends.erase(m_trackSends.begin() + pos);
+    m_fxBypassed.erase(m_fxBypassed.begin() + pos);
 
     m_preFaderBuffers.erase(m_preFaderBuffers.begin() + pos);
     m_preFaderPointers.erase(m_preFaderPointers.begin() + pos);
@@ -239,7 +245,7 @@ void Mixer::updateLatencies() {
     std::vector<int> pathLatency(m_trackStrips.size(), 0);
 
     for (std::size_t i = 0; i < m_trackStrips.size(); ++i) {
-        int latency = m_trackStrips[i].effects().latencySamples();
+        int latency = m_fxBypassed[i] ? 0 : m_trackStrips[i].effects().latencySamples();
         const std::size_t destination = m_trackOutputs[i];
 
         if (destination != kMaster && destination < m_buses.size()) {
@@ -318,6 +324,16 @@ engine::Meter& Mixer::masterMeter() {
     return m_masterMeter;
 }
 
+// While true the track's FX chain is skipped in process and counts zero in updateLatencies
+void Mixer::setTrackEffectsBypassed(std::size_t trackIndex, bool bypassed) {
+    m_fxBypassed[trackIndex] = static_cast<char>(bypassed);
+}
+
+// Returns whether the track's FX chain is currently bypassed
+bool Mixer::trackEffectsBypassed(std::size_t trackIndex) const {
+    return m_fxBypassed[trackIndex] != 0;
+}
+
 // [RT] Runs a track's buffer through its PDC compensation ring, in place
 void Mixer::applyPdcRing(std::size_t trackIndex, AudioBlock& block) noexcept {
     const int comp = m_pdcSamples[trackIndex];
@@ -379,7 +395,9 @@ void Mixer::process(const std::vector<AudioBlock>& trackBuffers, AudioBlock& out
             continue;
         }
 
-        strip.processEffects(trackBlock);
+        if (!m_fxBypassed[i]) {
+            strip.processEffects(trackBlock);
+        }
 
         AudioBlock& preFaderBlock = m_preFaderBlocks[i];
         copyBlock(trackBlock, preFaderBlock);

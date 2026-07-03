@@ -27,6 +27,9 @@ public:
     // Fired after an undo or redo so the owner refreshes every view
     std::function<void()> onEditPerformed;
 
+    // Fired after a tempo edit commits, so the owner can rewarp audio clips
+    std::function<void()> onTempoCommitted;
+
     void resized() override;
     void paint(juce::Graphics& g) override;
 

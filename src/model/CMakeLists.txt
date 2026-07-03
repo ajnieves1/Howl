@@ -12,6 +12,9 @@ add_library(HowlModel STATIC
     Mixer.cpp
     OfflineRenderer.cpp
     SequencerNode.cpp
+    Session.cpp
+    SessionTrackPlayer.cpp
+    TrackFreezer.cpp
 )
 
 target_include_directories(HowlModel PUBLIC

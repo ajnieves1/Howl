@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "core/LockFreeQueue.h"
 #include "core/Types.h"
 #include "engine/Instrument.h"
 #include "engine/Node.h"
@@ -11,12 +12,20 @@
 #include "model/AudioTrackRenderer.h"
 #include "model/MidiTrackRenderer.h"
 #include "model/Mixer.h"
+#include "model/Session.h"
+#include "model/SessionTrackPlayer.h"
 
 #include <cstddef>
 #include <memory>
 #include <vector>
 
 namespace howl::model {
+
+// UI to RT session request, sceneIndex -1 means stop the track
+struct LaunchRequest {
+    std::size_t trackIndex;
+    int sceneIndex;
+};
 
 class ArrangementNode : public engine::Node {
 public:
@@ -32,16 +41,51 @@ public:
     // Returns the mixer driving every track's gain, pan, mute, solo, and effects
     Mixer& mixer();
 
+    // Points session playback at the grid, off the audio thread, set before prepare
+    void setSession(const Session* session);
+
+    // Clears active and pending session playback so a render starts from pure arrangement state
+    void resetSessionPlayback();
+
+    // Queues a quantized launch from the UI thread, false when the queue is full
+    bool requestLaunch(std::size_t trackIndex, int sceneIndex);
+
+    // Queues a quantized stop from the UI thread, false when the queue is full
+    bool requestStop(std::size_t trackIndex);
+
+    // Scene a track is playing, -1 when it follows the arrangement, UI polling
+    int activeScene(std::size_t trackIndex) const noexcept;
+
+    // Scene a track has queued, -1 when none, UI polling
+    int pendingScene(std::size_t trackIndex) const noexcept;
+
+    // Installs a frozen render, playback reads it and skips live rendering, off thread, device paused
+    void setFrozen(std::size_t trackIndex, std::vector<std::vector<float>> channels);
+
+    // Drops a track's frozen render, live rendering resumes
+    void clearFrozen(std::size_t trackIndex);
+
+    // True when the track plays a frozen render
+    bool isFrozen(std::size_t trackIndex) const;
+
     // [RT] Renders every track into its own buffer, then mixes them into audio
     void process(AudioBlock& audio, SampleCount pos) noexcept override;
 
 private:
     engine::Transport& m_transport;
     Arrangement& m_arrangement;
+    const Session* m_session = nullptr;
+
+    // Indexed by track, empty vector means not frozen
+    std::vector<std::vector<std::vector<float>>> m_frozenChannels;
 
     // Indexed by track, exactly one of the pair is non-null per index
     std::vector<std::unique_ptr<MidiTrackRenderer>> m_midiRenderers;
     std::vector<std::unique_ptr<AudioTrackRenderer>> m_audioRenderers;
+
+    // Indexed by track, built only when m_session is non-null
+    std::vector<std::unique_ptr<SessionTrackPlayer>> m_sessionPlayers;
+    LockFreeQueue<LaunchRequest, 64> m_launchQueue;
 
     // Per-track scratch buffers, allocated in prepare(), never resized in process()
     std::vector<std::vector<std::vector<float>>> m_trackChannelBuffers;
@@ -51,6 +95,7 @@ private:
     Mixer m_mixer;
     int m_maxFrames = 0;
     int m_numChannels = 0;
+    double m_sampleRate = 44100.0;
 };
 
 } // namespace howl::model

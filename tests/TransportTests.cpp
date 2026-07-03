@@ -62,3 +62,31 @@ TEST_CASE("Transport.isPlaying reflects play and stop", "[transport]") {
     transport.stop();
     REQUIRE_FALSE(transport.isPlaying());
 }
+
+TEST_CASE("Transport.setPosition relocates the playhead", "[transport]") {
+    Transport transport;
+    transport.advance(500); // position stays 0 while stopped
+
+    transport.setPosition(1000);
+    REQUIRE(transport.position() == 1000);
+
+    transport.play();
+    const SampleCount blockStart = transport.advance(256);
+    REQUIRE(blockStart == 1000);
+    REQUIRE(transport.position() == 1256);
+}
+
+TEST_CASE("Transport loop getters echo setLoop", "[transport]") {
+    Transport transport;
+    REQUIRE(transport.loopStart() == 0);
+    REQUIRE(transport.loopEnd() == 0);
+    REQUIRE_FALSE(transport.loopEnabled());
+
+    transport.setLoop(100, 200, true);
+    REQUIRE(transport.loopStart() == 100);
+    REQUIRE(transport.loopEnd() == 200);
+    REQUIRE(transport.loopEnabled());
+
+    transport.setLoop(100, 200, false);
+    REQUIRE_FALSE(transport.loopEnabled());
+}

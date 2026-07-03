@@ -108,6 +108,10 @@ void TransportBar::commitTempo() {
     const double clamped = juce::jlimit(20.0, 300.0, parsed);
     m_transport.setTempo(clamped);
     m_tempoLabel.setText(juce::String(clamped, 1), juce::dontSendNotification);
+
+    if (onTempoCommitted) {
+        onTempoCommitted();
+    }
 }
 
 } // namespace howl::ui

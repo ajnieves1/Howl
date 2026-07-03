@@ -10,7 +10,7 @@ namespace howl::model {
 
 // Adds an empty track of the given kind, returns its index
 std::size_t Arrangement::addTrack(const std::string& name, TrackKind kind) {
-    m_tracks.push_back(Track { name, kind, {}, {} });
+    m_tracks.push_back(Track { name, kind, {}, {}, {} });
     return m_tracks.size() - 1;
 }
 

@@ -47,7 +47,8 @@ public:
     // Ctrl+wheel zooms around the cursor, plain wheel scrolls horizontally
     void mouseWheelMove(const juce::MouseEvent& event, const juce::MouseWheelDetails& wheel) override;
 
-    // Toggles the transport between play and stop on space, fires onMixerRequested on M
+    // Toggles the transport between play and stop on space, fires onMixerRequested on M,
+    // rewinds to 0 on Home
     bool keyPressed(const juce::KeyPress& key) override;
 
     // Accepts a drag hovering any .wav file
@@ -64,6 +65,9 @@ public:
 
     // Called with (path, trackIndex, tick) when a .wav file is dropped onto a lane
     std::function<void(juce::String, std::size_t, int64_t)> onAudioFileDropped;
+
+    // Called after an audio clip's warp toggle or original BPM changes
+    std::function<void()> onWarpChanged;
 
 private:
     static constexpr int64_t kMinimumVisibleTicks = model::kTicksPerQuarter * 16; // 4 bars at 4/4
@@ -117,8 +121,14 @@ private:
     // Finds the clip under (trackIndex, tick), fills found and returns true on a hit
     bool hitTestClip(std::size_t trackIndex, int64_t tick, DraggedClip& found) const;
 
-    // Opens a "Delete Clip" popup for the given clip
+    // Opens a "Delete Clip" popup for the given clip, with warp toggle and BPM entry for audio clips
     void showDeleteClipMenu(const DraggedClip& target);
+
+    // Opens an async "Set Original BPM..." dialog for the given audio clip
+    void showSetOriginalBpmDialog(const DraggedClip& target);
+
+    // Opens a one-item "Loop: On/Off" menu for the ruler, toggles looping without moving the region
+    void showRulerMenu();
 
     model::Arrangement& m_arrangement;
     engine::Transport& m_transport;
@@ -133,6 +143,11 @@ private:
     int64_t m_dragCurrentTick = 0;
     juce::Point<int> m_mouseDownPosition;
     bool m_hasDraggedBeyondThreshold = false;
+
+    // True while a mouse gesture is sweeping a loop region across the ruler
+    bool m_rulerDragging = false;
+    int64_t m_rulerAnchorTick = 0;
+    int64_t m_rulerCurrentTick = 0;
 };
 
 } // namespace howl::ui

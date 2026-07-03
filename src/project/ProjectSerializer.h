@@ -6,6 +6,7 @@
 #include "engine/EffectFactory.h"
 #include "model/Arrangement.h"
 #include "model/Mixer.h"
+#include "model/Session.h"
 #include "plugins/IPluginInstance.h"
 
 #include <juce_core/juce_core.h>
@@ -22,18 +23,21 @@ public:
     // Serializes the session to .howl JSON text; instruments is a juce::var array, one entry
     // per track (in track order), built by the app: null for audio tracks,
     // { "kind": "subtractive", "params": [...] } or
-    // { "kind": "plugin", "name", "format", "path", "state": "<Base64>" } for MIDI tracks
+    // { "kind": "plugin", "name", "format", "path", "state": "<Base64>" } for MIDI tracks.
+    // Session slots and audio clips also carry originalBpm/warpEnabled, additive fields under
+    // the same "version": 1
     static juce::String save(const model::Arrangement& arrangement, model::Mixer& mixer,
-                             const juce::var& instruments, double tempo);
+                             const model::Session& session, const juce::var& instruments, double tempo);
 
-    // Parses json and rebuilds into arrangement/mixer (mixer is reset() then rebuilt in
-    // place, ArrangementNode owns it and cannot be replaced). Built-in effects are created
-    // via factory; plugin effects are instantiated via pluginHost and skipped (with a
-    // juce::Logger line) when pluginHost is null or the plugin cannot be found. Returns
-    // false only on JSON parse failure. instrumentsOut/tempoOut are filled for the app to
-    // rebuild instruments the same way save()'s instruments parameter was built
+    // Parses json and rebuilds into arrangement/mixer/session (mixer is reset() then rebuilt
+    // in place, ArrangementNode owns it and cannot be replaced; session is replaced outright).
+    // Built-in effects are created via factory; plugin effects are instantiated via pluginHost
+    // and skipped (with a juce::Logger line) when pluginHost is null or the plugin cannot be
+    // found. Returns false only on JSON parse failure. instrumentsOut/tempoOut are filled for
+    // the app to rebuild instruments the same way save()'s instruments parameter was built.
+    // An absent "session" key (older files) loads as an empty grid sized to the track count
     static bool load(const juce::String& json, model::Arrangement& arrangement,
-                     model::Mixer& mixer, engine::IEffectFactory& factory,
+                     model::Mixer& mixer, model::Session& session, engine::IEffectFactory& factory,
                      plugins::IPluginHost* pluginHost, juce::var& instrumentsOut,
                      double& tempoOut);
 };

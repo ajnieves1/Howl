@@ -32,6 +32,18 @@ public:
     // Sets the loop region in samples, applied the next time advance() reaches loopEnd
     void setLoop(SampleCount start, SampleCount end, bool enabled);
 
+    // Jumps the playhead to pos, callable from the message thread while stopped or playing
+    void setPosition(SampleCount pos);
+
+    // Reads the loop start of the current loop region snapshot
+    SampleCount loopStart() const noexcept;
+
+    // Reads the loop end of the current loop region snapshot
+    SampleCount loopEnd() const noexcept;
+
+    // Returns true when looping is enabled
+    bool loopEnabled() const noexcept;
+
     // [RT] Advances the playhead by numFrames, returns the playhead at block start
     SampleCount advance(int numFrames) noexcept;
 

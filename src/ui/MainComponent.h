@@ -6,13 +6,16 @@
 #include "engine/EffectFactory.h"
 #include "engine/Transport.h"
 #include "model/Arrangement.h"
+#include "model/ArrangementNode.h"
 #include "model/CommandStack.h"
 #include "model/MidiClip.h"
 #include "model/Mixer.h"
+#include "model/Session.h"
 #include "plugins/IPluginInstance.h"
 #include "ui/ArrangeView.h"
 #include "ui/MixerView.h"
 #include "ui/PianoRoll.h"
+#include "ui/SessionView.h"
 #include "ui/TrackHeaderPanel.h"
 #include "ui/TransportBar.h"
 
@@ -28,22 +31,30 @@ namespace howl::ui {
 class MainComponent : public juce::Component, public juce::MenuBarModel {
 public:
     MainComponent(model::Arrangement& arrangement, engine::Transport& transport,
-                  model::CommandStack& commandStack, model::Mixer& mixer,
-                  engine::IEffectFactory& factory, plugins::IPluginHost* pluginHost,
-                  double sampleRate, int maxBlockSize);
+                  model::CommandStack& commandStack, model::Mixer& mixer, model::Session& session,
+                  model::ArrangementNode& arrangementNode, engine::IEffectFactory& factory,
+                  plugins::IPluginHost* pluginHost, double sampleRate, int maxBlockSize);
 
     void resized() override;
 
-    // Space toggles play/stop, M toggles the mixer panel, Ctrl+Z / Ctrl+Shift+Z undo/redo
+    // Space toggles play/stop, M toggles the mixer panel, Tab toggles arrange/session view,
+    // Ctrl+Z / Ctrl+Shift+Z undo/redo
     bool keyPressed(const juce::KeyPress& key) override;
 
     // Shows the piano roll for a clip in the bottom panel (replaces whatever is there)
     void showPianoRollFor(std::size_t trackIndex, std::size_t placementIndex);
 
+    // Shows the piano roll for a session slot's MIDI clip in the bottom panel
+    void showPianoRollForSession(std::size_t trackIndex, std::size_t sceneIndex);
+
     // Shows the mixer in the bottom panel, or hides the panel if the mixer is already shown
     void toggleMixer();
 
-    // Repaints the arrange view, refreshes mixer strips and track headers, closes any open effect editors
+    // Flips the center view between the arrange view and the session view
+    void toggleCenterView();
+
+    // Repaints the arrange view, refreshes mixer strips, track headers, and the session view,
+    // closes any open effect editors
     void refreshAllViews();
 
     // juce::MenuBarModel: File, Edit, View
@@ -57,8 +68,17 @@ public:
     // Fired when a MIDI track's instrument button is clicked, the app shows the picker
     std::function<void(std::size_t)> onInstrumentPickRequested;
 
+    // Fired when a MIDI track's instrument button's "Open Editor" menu item is picked
+    std::function<void(std::size_t)> onInstrumentEditRequested;
+
     // App-provided display name for a track's current instrument
     std::function<juce::String(std::size_t)> instrumentNameFor;
+
+    // App-provided frozen state for a track
+    std::function<bool(std::size_t)> isTrackFrozen;
+
+    // Fired when a row's Freeze/Unfreeze Track menu item is picked, with the requested new state
+    std::function<void(std::size_t, bool)> onFreezeRequested;
 
     // Fired when "Import Audio..." is picked, the app shows a FileChooser
     std::function<void()> onImportAudioRequested;
@@ -72,6 +92,12 @@ public:
     std::function<void()> onSaveProjectRequested;
     std::function<void()> onSaveAsProjectRequested;
 
+    // Fired when File > Export Audio... is picked
+    std::function<void()> onExportAudioRequested;
+
+    // Fired after a tempo commit or an audio clip's warp toggle/BPM edit, the app rewarps clips
+    std::function<void()> onRewarpRequested;
+
 private:
     static constexpr int kTransportHeight = 36;
     static constexpr int kBottomPanelHeight = 300;
@@ -83,20 +109,31 @@ private:
         Mixer
     };
 
+    enum class CenterView {
+        Arrange,
+        Session
+    };
+
     // Shows only the component matching m_bottomPanel, hides the other
     void updateBottomPanelVisibility();
+
+    // Shows only the component matching m_centerView, hides the other
+    void updateCenterViewVisibility();
 
     model::Arrangement& m_arrangement;
     engine::Transport& m_transport;
     model::CommandStack& m_commandStack;
+    model::Session& m_session;
     double m_sampleRate;
 
     TransportBar m_transportBar;
     TrackHeaderPanel m_trackHeaderPanel;
     ArrangeView m_arrangeView;
+    std::unique_ptr<SessionView> m_sessionView; // created once in the ctor
     std::unique_ptr<PianoRoll> m_pianoRoll; // recreated per selected clip
     std::unique_ptr<MixerView> m_mixerView; // created once in the ctor
     BottomPanel m_bottomPanel = BottomPanel::None;
+    CenterView m_centerView = CenterView::Arrange;
 };
 
 } // namespace howl::ui

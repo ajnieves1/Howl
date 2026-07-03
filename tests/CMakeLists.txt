@@ -3,9 +3,11 @@ add_executable(HowlTests
     ArrangementTests.cpp
     AudioClipCommandTests.cpp
     AudioClipTests.cpp
+    AudioClipWarpTests.cpp
     AudioTrackRendererTests.cpp
     AudioTrackTests.cpp
     AutomationLaneTests.cpp
+    AutomationPlaybackTests.cpp
     ChannelStripTests.cpp
     ClapAdapterTests.cpp
     CommandStackTests.cpp
@@ -21,17 +23,22 @@ add_executable(HowlTests
     MeterTests.cpp
     MidiClipTests.cpp
     MidiTrackRendererTests.cpp
+    MixerBypassTests.cpp
     MixerCommandTests.cpp
     MixerPdcTests.cpp
     MixerTests.cpp
+    OfflineStretcherTests.cpp
     PluginEffectTests.cpp
     PluginHostTests.cpp
     PluginInstrumentTests.cpp
     ProjectSerializerTests.cpp
     ReverbTests.cpp
     SequencerNodeTests.cpp
+    SessionPlaybackTests.cpp
+    SessionTests.cpp
     SubtractiveSynthTests.cpp
     TrackCommandTests.cpp
+    TrackFreezerTests.cpp
     TransportTests.cpp
     Vst3AdapterTests.cpp
     Vst3StateTests.cpp

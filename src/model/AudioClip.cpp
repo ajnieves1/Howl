@@ -49,4 +49,57 @@ const std::string& AudioClip::sourcePath() const {
     return m_sourcePath;
 }
 
+// Tempo the source material was recorded at, 0 when unknown
+void AudioClip::setOriginalBpm(double bpm) {
+    m_originalBpm = bpm;
+}
+
+// Returns the tempo the source material was recorded at, 0 when unknown
+double AudioClip::originalBpm() const {
+    return m_originalBpm;
+}
+
+// Whether playback should use warped buffers when they are present
+void AudioClip::setWarpEnabled(bool enabled) {
+    m_warpEnabled = enabled;
+}
+
+// Returns whether playback should use warped buffers when they are present
+bool AudioClip::warpEnabled() const {
+    return m_warpEnabled;
+}
+
+// Installs stretched channels rendered for a project tempo, off the audio thread, device paused
+void AudioClip::setWarpedChannels(std::vector<std::vector<float>> channels, double projectTempo) {
+    m_warpedChannels = std::move(channels);
+    m_warpedTempo = projectTempo;
+}
+
+// Drops the warped buffers, playback falls back to the source samples
+void AudioClip::clearWarpedChannels() {
+    m_warpedChannels.clear();
+    m_warpedTempo = 0.0;
+}
+
+// Returns the tempo the current warped buffers were rendered for, 0 when none
+double AudioClip::warpedTempo() const {
+    return m_warpedTempo;
+}
+
+// [RT] Channel data playback uses: warped when enabled and present, source otherwise
+const float* AudioClip::activeChannelData(int index) const noexcept {
+    if (m_warpEnabled && !m_warpedChannels.empty()) {
+        return m_warpedChannels[static_cast<std::size_t>(index)].data();
+    }
+    return m_channels[static_cast<std::size_t>(index)].data();
+}
+
+// [RT] Length matching activeChannelData
+int64_t AudioClip::activeLengthSamples() const noexcept {
+    if (m_warpEnabled && !m_warpedChannels.empty()) {
+        return static_cast<int64_t>(m_warpedChannels[0].size());
+    }
+    return lengthSamples();
+}
+
 } // namespace howl::model

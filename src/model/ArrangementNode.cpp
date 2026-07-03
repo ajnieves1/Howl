@@ -14,6 +14,7 @@ ArrangementNode::ArrangementNode(engine::Transport& transport, Arrangement& arra
 
 // Sets the sample rate, builds one renderer per track, allocates per-track scratch buffers, and prepares the mixer
 void ArrangementNode::prepare(double sampleRate, int maxBlockSize, int numChannels) {
+    m_sampleRate = sampleRate;
     m_maxFrames = maxBlockSize;
     m_numChannels = numChannels;
 
@@ -34,6 +35,9 @@ void ArrangementNode::prepare(double sampleRate, int maxBlockSize, int numChanne
 
     m_midiRenderers.clear();
     m_audioRenderers.clear();
+    m_sessionPlayers.clear();
+    // A full rebuild invalidates any frozen render, the mixer's bypass flags reset alongside
+    m_frozenChannels.assign(numTracks, std::vector<std::vector<float>> {});
 
     for (std::size_t i = 0; i < numTracks; ++i) {
         Track& track = m_arrangement.track(i);
@@ -49,6 +53,12 @@ void ArrangementNode::prepare(double sampleRate, int maxBlockSize, int numChanne
             m_audioRenderers.push_back(std::move(renderer));
             m_midiRenderers.push_back(nullptr);
         }
+
+        if (m_session != nullptr) {
+            auto player = std::make_unique<SessionTrackPlayer>(m_transport, *m_session, i, track.kind);
+            player->prepare(sampleRate);
+            m_sessionPlayers.push_back(std::move(player));
+        }
     }
 
     m_mixer.prepare(numTracks, sampleRate, maxBlockSize, numChannels);
@@ -59,11 +69,94 @@ void ArrangementNode::setInstrumentForTrack(std::size_t trackIndex, engine::Inst
     if (trackIndex < m_midiRenderers.size() && m_midiRenderers[trackIndex] != nullptr) {
         m_midiRenderers[trackIndex]->setInstrument(instrument);
     }
+    if (trackIndex < m_sessionPlayers.size() && m_sessionPlayers[trackIndex] != nullptr) {
+        m_sessionPlayers[trackIndex]->setInstrument(instrument);
+    }
 }
 
 // Returns the mixer driving every track's gain, pan, mute, solo, and effects
 Mixer& ArrangementNode::mixer() {
     return m_mixer;
+}
+
+// Points session playback at the grid, off the audio thread, set before prepare
+void ArrangementNode::setSession(const Session* session) {
+    m_session = session;
+}
+
+// Clears active and pending session playback so a render starts from pure arrangement state
+void ArrangementNode::resetSessionPlayback() {
+    LaunchRequest discard;
+    while (m_launchQueue.pop(discard)) {
+        // drop every queued launch, nothing should apply once the render starts
+    }
+
+    if (m_session == nullptr) {
+        return;
+    }
+
+    for (std::size_t i = 0; i < m_sessionPlayers.size(); ++i) {
+        if (m_sessionPlayers[i] == nullptr) {
+            continue;
+        }
+
+        auto fresh = std::make_unique<SessionTrackPlayer>(m_transport, *m_session, i, m_arrangement.track(i).kind);
+        fresh->prepare(m_sampleRate);
+        m_sessionPlayers[i] = std::move(fresh);
+    }
+}
+
+// Queues a quantized launch from the UI thread, false when the queue is full
+bool ArrangementNode::requestLaunch(std::size_t trackIndex, int sceneIndex) {
+    return m_launchQueue.push(LaunchRequest { trackIndex, sceneIndex });
+}
+
+// Queues a quantized stop from the UI thread, false when the queue is full
+bool ArrangementNode::requestStop(std::size_t trackIndex) {
+    return m_launchQueue.push(LaunchRequest { trackIndex, -1 });
+}
+
+// Scene a track is playing, -1 when it follows the arrangement, UI polling
+int ArrangementNode::activeScene(std::size_t trackIndex) const noexcept {
+    if (trackIndex < m_sessionPlayers.size() && m_sessionPlayers[trackIndex] != nullptr) {
+        return m_sessionPlayers[trackIndex]->activeScene();
+    }
+    return -1;
+}
+
+// Scene a track has queued, -1 when none, UI polling
+int ArrangementNode::pendingScene(std::size_t trackIndex) const noexcept {
+    if (trackIndex < m_sessionPlayers.size() && m_sessionPlayers[trackIndex] != nullptr) {
+        return m_sessionPlayers[trackIndex]->pendingScene();
+    }
+    return -1;
+}
+
+// Installs a frozen render, playback reads it and skips live rendering, off thread, device paused
+void ArrangementNode::setFrozen(std::size_t trackIndex, std::vector<std::vector<float>> channels) {
+    if (trackIndex >= m_frozenChannels.size()) {
+        return;
+    }
+
+    m_frozenChannels[trackIndex] = std::move(channels);
+    m_mixer.setTrackEffectsBypassed(trackIndex, true);
+    m_mixer.updateLatencies();
+}
+
+// Drops a track's frozen render, live rendering resumes
+void ArrangementNode::clearFrozen(std::size_t trackIndex) {
+    if (trackIndex >= m_frozenChannels.size()) {
+        return;
+    }
+
+    m_frozenChannels[trackIndex].clear();
+    m_mixer.setTrackEffectsBypassed(trackIndex, false);
+    m_mixer.updateLatencies();
+}
+
+// True when the track plays a frozen render
+bool ArrangementNode::isFrozen(std::size_t trackIndex) const {
+    return trackIndex < m_frozenChannels.size() && !m_frozenChannels[trackIndex].empty();
 }
 
 // [RT] Renders every track into its own buffer, then mixes them into audio
@@ -73,21 +166,53 @@ void ArrangementNode::process(AudioBlock& audio, SampleCount pos) noexcept {
     const int frames = audio.numFrames > m_maxFrames ? m_maxFrames : audio.numFrames;
     const int channels = m_numChannels < audio.numChannels ? m_numChannels : audio.numChannels;
 
+    LaunchRequest request;
+    while (m_launchQueue.pop(request)) {
+        const bool requestTargetFrozen = request.trackIndex < m_frozenChannels.size()
+            && !m_frozenChannels[request.trackIndex].empty();
+
+        if (!requestTargetFrozen && request.trackIndex < m_sessionPlayers.size()
+            && m_sessionPlayers[request.trackIndex] != nullptr) {
+            m_sessionPlayers[request.trackIndex]->queueScene(request.sceneIndex);
+        }
+    }
+
     for (std::size_t i = 0; i < m_trackBlocks.size(); ++i) {
         AudioBlock& trackBlock = m_trackBlocks[i];
         trackBlock.numChannels = channels;
         trackBlock.numFrames = frames;
 
-        if (i < m_midiRenderers.size() && m_midiRenderers[i] != nullptr) {
-            m_midiRenderers[i]->process(trackBlock, pos);
-        } else if (i < m_audioRenderers.size() && m_audioRenderers[i] != nullptr) {
-            m_audioRenderers[i]->process(trackBlock, pos);
-        } else {
+        if (i < m_frozenChannels.size() && !m_frozenChannels[i].empty()) {
+            const auto& frozenBuffer = m_frozenChannels[i];
             for (int channel = 0; channel < trackBlock.numChannels; ++channel) {
+                const auto& source = frozenBuffer[static_cast<std::size_t>(channel)];
                 for (int frame = 0; frame < trackBlock.numFrames; ++frame) {
-                    trackBlock.channels[channel][frame] = 0.0f;
+                    const auto sampleIndex = static_cast<std::size_t>(pos + frame);
+                    trackBlock.channels[channel][frame] = sampleIndex < source.size() ? source[sampleIndex] : 0.0f;
                 }
             }
+            continue;
+        }
+
+        SessionTrackPlayer* player = i < m_sessionPlayers.size() ? m_sessionPlayers[i].get() : nullptr;
+        const bool playerOwnsBlock = player != nullptr && player->ownsBlock();
+
+        if (!playerOwnsBlock) {
+            if (i < m_midiRenderers.size() && m_midiRenderers[i] != nullptr) {
+                m_midiRenderers[i]->process(trackBlock, pos);
+            } else if (i < m_audioRenderers.size() && m_audioRenderers[i] != nullptr) {
+                m_audioRenderers[i]->process(trackBlock, pos);
+            } else {
+                for (int channel = 0; channel < trackBlock.numChannels; ++channel) {
+                    for (int frame = 0; frame < trackBlock.numFrames; ++frame) {
+                        trackBlock.channels[channel][frame] = 0.0f;
+                    }
+                }
+            }
+        }
+
+        if (player != nullptr) {
+            player->process(trackBlock, pos);
         }
     }
 

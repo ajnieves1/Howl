@@ -52,7 +52,7 @@ int64_t ArrangeView::visibleTickSpan() const {
         }
 
         for (const auto& placement : track.audioClips) {
-            const auto lengthTicks = static_cast<int64_t>(static_cast<double>(placement.clip.lengthSamples()) / spt);
+            const auto lengthTicks = static_cast<int64_t>(static_cast<double>(placement.clip.activeLengthSamples()) / spt);
             const int64_t endTick = placement.startTick + lengthTicks;
             maxEndTick = endTick > maxEndTick ? endTick : maxEndTick;
         }
@@ -128,7 +128,7 @@ bool ArrangeView::hitTestClip(std::size_t trackIndex, int64_t tick, DraggedClip&
 
     for (std::size_t i = 0; i < track.audioClips.size(); ++i) {
         const auto& placement = track.audioClips[i];
-        const auto lengthTicks = static_cast<int64_t>(static_cast<double>(placement.clip.lengthSamples()) / spt);
+        const auto lengthTicks = static_cast<int64_t>(static_cast<double>(placement.clip.activeLengthSamples()) / spt);
         const int64_t endTick = placement.startTick + lengthTicks;
         if (tick >= placement.startTick && tick < endTick) {
             found = DraggedClip { ClipKind::Audio, trackIndex, i, placement.startTick };
@@ -160,13 +160,32 @@ void ArrangeView::paint(juce::Graphics& g) {
         g.drawText(juce::String(barNumber), x + 2, 0, 40, kRulerHeight, juce::Justification::centredLeft);
     }
 
+    const double spt = samplesPerTick();
+
+    if (m_transport.loopEnabled()) {
+        const auto loopStartTick = static_cast<int64_t>(static_cast<double>(m_transport.loopStart()) / spt);
+        const auto loopEndTick = static_cast<int64_t>(static_cast<double>(m_transport.loopEnd()) / spt);
+        const float x1 = tickToX(loopStartTick);
+        const float x2 = tickToX(loopEndTick);
+        g.setColour(juce::Colours::yellow.withAlpha(0.25f));
+        g.fillRect(juce::Rectangle<float> { x1, 0.0f, x2 - x1, static_cast<float>(kRulerHeight) });
+    }
+
+    if (m_rulerDragging && m_rulerAnchorTick != m_rulerCurrentTick) {
+        const int64_t rangeStart = juce::jmin(m_rulerAnchorTick, m_rulerCurrentTick);
+        const int64_t rangeEnd = juce::jmax(m_rulerAnchorTick, m_rulerCurrentTick);
+        const float x1 = tickToX(rangeStart);
+        const float x2 = tickToX(rangeEnd);
+        g.setColour(juce::Colours::yellow.withAlpha(0.35f));
+        g.fillRect(juce::Rectangle<float> { x1, 0.0f, x2 - x1, static_cast<float>(kRulerHeight) });
+    }
+
     const std::size_t numTracks = m_arrangement.numTracks();
     if (numTracks == 0) {
         return;
     }
 
     const float height = laneHeight();
-    const double spt = samplesPerTick();
 
     g.setColour(juce::Colours::grey.withAlpha(0.4f));
     for (std::size_t i = 1; i < numTracks; ++i) {
@@ -203,7 +222,7 @@ void ArrangeView::paint(juce::Graphics& g) {
                 startTick = m_dragCurrentTick;
             }
 
-            const auto lengthTicks = static_cast<int64_t>(static_cast<double>(placement.clip.lengthSamples()) / spt);
+            const auto lengthTicks = static_cast<int64_t>(static_cast<double>(placement.clip.activeLengthSamples()) / spt);
             const float x = tickToX(startTick);
             const float width = tickToX(startTick + lengthTicks) - x;
             juce::Rectangle<float> r { x, y + 2.0f, juce::jmax(2.0f, width), height - 5.0f };
@@ -228,7 +247,21 @@ void ArrangeView::mouseDown(const juce::MouseEvent& event) {
     m_hasDraggedBeyondThreshold = false;
     m_dragging = false;
 
-    if (m_arrangement.numTracks() == 0 || event.y < kRulerHeight) {
+    if (event.y < kRulerHeight) {
+        if (event.mods.isPopupMenu()) {
+            showRulerMenu();
+            return;
+        }
+
+        const int64_t barTicks = model::kTicksPerQuarter * 4;
+        const int64_t tick = xToTick(event.x);
+        m_rulerAnchorTick = tick - (tick % barTicks);
+        m_rulerCurrentTick = m_rulerAnchorTick;
+        m_rulerDragging = true;
+        return;
+    }
+
+    if (m_arrangement.numTracks() == 0) {
         return;
     }
 
@@ -252,6 +285,14 @@ void ArrangeView::mouseDown(const juce::MouseEvent& event) {
 
 // Continues a move drag once the mouse has moved past a small threshold
 void ArrangeView::mouseDrag(const juce::MouseEvent& event) {
+    if (m_rulerDragging) {
+        const int64_t barTicks = model::kTicksPerQuarter * 4;
+        const int64_t tick = xToTick(event.x);
+        m_rulerCurrentTick = tick - (tick % barTicks);
+        repaint();
+        return;
+    }
+
     if (!m_dragging) {
         return;
     }
@@ -270,6 +311,24 @@ void ArrangeView::mouseDrag(const juce::MouseEvent& event) {
 
 // Issues the move-clip command for a completed drag, or fires onMidiClipSelected for a plain click
 void ArrangeView::mouseUp(const juce::MouseEvent&) {
+    if (m_rulerDragging) {
+        m_rulerDragging = false;
+
+        if (m_rulerAnchorTick == m_rulerCurrentTick) {
+            const auto samplePos = static_cast<SampleCount>(static_cast<double>(m_rulerAnchorTick) * samplesPerTick());
+            m_transport.setPosition(samplePos);
+        } else {
+            const int64_t rangeStart = juce::jmin(m_rulerAnchorTick, m_rulerCurrentTick);
+            const int64_t rangeEnd = juce::jmax(m_rulerAnchorTick, m_rulerCurrentTick);
+            const auto sampleStart = static_cast<SampleCount>(static_cast<double>(rangeStart) * samplesPerTick());
+            const auto sampleEnd = static_cast<SampleCount>(static_cast<double>(rangeEnd) * samplesPerTick());
+            m_transport.setLoop(sampleStart, sampleEnd, true);
+        }
+
+        repaint();
+        return;
+    }
+
     if (!m_dragging) {
         return;
     }
@@ -369,29 +428,64 @@ void ArrangeView::filesDropped(const juce::StringArray& files, int x, int y) {
     }
 }
 
-// Opens a "Delete Clip" popup for the given clip
+// Opens a "Delete Clip" popup for the given clip, with warp toggle and BPM entry for audio clips
 void ArrangeView::showDeleteClipMenu(const DraggedClip& target) {
     juce::PopupMenu menu;
     menu.addItem(1, "Delete Clip");
 
+    if (target.kind == ClipKind::Audio) {
+        const model::AudioClip& clip = m_arrangement.track(target.trackIndex).audioClips[target.placementIndex].clip;
+        menu.addItem(2, clip.warpEnabled() ? "Warp: On" : "Warp: Off", true, clip.warpEnabled());
+        menu.addItem(3, "Set Original BPM...");
+    }
+
     menu.showMenuAsync(juce::PopupMenu::Options(), [this, target](int result) {
-        if (result != 1) {
-            return;
+        if (result == 1) {
+            if (target.kind == ClipKind::Midi) {
+                m_commandStack.perform(std::make_unique<model::RemoveMidiClipCommand>(
+                    m_arrangement, target.trackIndex, target.placementIndex));
+            } else {
+                m_commandStack.perform(std::make_unique<model::RemoveAudioClipCommand>(
+                    m_arrangement, target.trackIndex, target.placementIndex));
+            }
+            repaint();
+        } else if (result == 2 && target.kind == ClipKind::Audio) {
+            model::AudioClip& clip = m_arrangement.track(target.trackIndex).audioClips[target.placementIndex].clip;
+            clip.setWarpEnabled(!clip.warpEnabled());
+            if (onWarpChanged) {
+                onWarpChanged();
+            }
+        } else if (result == 3 && target.kind == ClipKind::Audio) {
+            showSetOriginalBpmDialog(target);
         }
-
-        if (target.kind == ClipKind::Midi) {
-            m_commandStack.perform(std::make_unique<model::RemoveMidiClipCommand>(
-                m_arrangement, target.trackIndex, target.placementIndex));
-        } else {
-            m_commandStack.perform(std::make_unique<model::RemoveAudioClipCommand>(
-                m_arrangement, target.trackIndex, target.placementIndex));
-        }
-
-        repaint();
     });
 }
 
-// Toggles the transport between play and stop on space, fires onMixerRequested on M
+// Opens an async "Set Original BPM..." dialog for the given audio clip
+void ArrangeView::showSetOriginalBpmDialog(const DraggedClip& target) {
+    const model::AudioClip& clip = m_arrangement.track(target.trackIndex).audioClips[target.placementIndex].clip;
+
+    auto* window = new juce::AlertWindow("Set Original BPM",
+        "Tempo the source material was recorded at:", juce::AlertWindow::NoIcon);
+    window->addTextEditor("bpm", juce::String(clip.originalBpm(), 1));
+    window->addButton("OK", 1, juce::KeyPress(juce::KeyPress::returnKey));
+    window->addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+
+    window->enterModalState(true, juce::ModalCallbackFunction::create([this, target, window](int result) {
+        if (result == 1) {
+            const double parsed = window->getTextEditorContents("bpm").getDoubleValue();
+            const double clamped = juce::jlimit(20.0, 300.0, parsed);
+            m_arrangement.track(target.trackIndex).audioClips[target.placementIndex].clip.setOriginalBpm(clamped);
+
+            if (onWarpChanged) {
+                onWarpChanged();
+            }
+        }
+    }), true);
+}
+
+// Toggles the transport between play and stop on space, fires onMixerRequested on M,
+// rewinds to 0 on Home
 bool ArrangeView::keyPressed(const juce::KeyPress& key) {
     if (key == juce::KeyPress::spaceKey) {
         if (m_transport.isPlaying()) {
@@ -409,7 +503,26 @@ bool ArrangeView::keyPressed(const juce::KeyPress& key) {
         return true;
     }
 
+    if (key == juce::KeyPress::homeKey) {
+        m_transport.setPosition(0);
+        repaint();
+        return true;
+    }
+
     return false;
+}
+
+// Opens a one-item "Loop: On/Off" menu for the ruler, toggles looping without moving the region
+void ArrangeView::showRulerMenu() {
+    juce::PopupMenu menu;
+    menu.addItem(1, "Loop: On/Off", true, m_transport.loopEnabled());
+
+    menu.showMenuAsync(juce::PopupMenu::Options(), [this](int result) {
+        if (result == 1) {
+            m_transport.setLoop(m_transport.loopStart(), m_transport.loopEnd(), !m_transport.loopEnabled());
+            repaint();
+        }
+    });
 }
 
 } // namespace howl::ui

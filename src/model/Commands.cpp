@@ -3,9 +3,19 @@
 
 #include "model/Commands.h"
 
+#include <cstring>
 #include <utility>
 
 namespace howl::model {
+
+namespace {
+
+// Bit-exact match for a stored automation value, structured to avoid -Wfloat-equal on ==
+bool sameValue(float a, float b) {
+    return std::memcmp(&a, &b, sizeof(float)) == 0;
+}
+
+} // namespace
 
 // Stores the arrangement, track, and placement to add on execute()
 AddMidiClipCommand::AddMidiClipCommand(Arrangement& arrangement, std::size_t trackIndex, MidiClipPlacement placement)
@@ -213,46 +223,53 @@ void RemoveSendCommand::undo() {
     m_mixer.addSend(m_trackIndex, m_removedSend);
 }
 
-// Stores the arrangement, mixer, and the new track's name and kind
-AddTrackCommand::AddTrackCommand(Arrangement& arrangement, Mixer& mixer, std::string name, TrackKind kind)
+// Stores the arrangement, mixer, session, and the new track's name and kind
+AddTrackCommand::AddTrackCommand(Arrangement& arrangement, Mixer& mixer, Session& session, std::string name,
+                                  TrackKind kind)
     : m_arrangement(arrangement)
     , m_mixer(mixer)
+    , m_session(session)
     , m_name(std::move(name))
     , m_kind(kind)
 {
 }
 
-// arrangement.addTrack + mixer.insertTrackStrip at the new index
+// arrangement.addTrack + mixer.insertTrackStrip + session.addTrackColumn, all at the new index
 void AddTrackCommand::execute() {
     m_index = m_arrangement.addTrack(m_name, m_kind);
     m_mixer.insertTrackStrip(m_index);
+    m_session.addTrackColumn();
 }
 
-// arrangement.removeTrack + mixer.removeTrackStrip
+// arrangement.removeTrack + mixer.removeTrackStrip + session.removeTrackColumn
 void AddTrackCommand::undo() {
     m_arrangement.removeTrack(m_index);
     m_mixer.removeTrackStrip(m_index);
+    m_session.removeTrackColumn(m_index);
 }
 
-// Stores the arrangement, mixer, and the track index to remove on execute()
-RemoveTrackCommand::RemoveTrackCommand(Arrangement& arrangement, Mixer& mixer, std::size_t trackIndex)
+// Stores the arrangement, mixer, session, and the track index to remove on execute()
+RemoveTrackCommand::RemoveTrackCommand(Arrangement& arrangement, Mixer& mixer, Session& session, std::size_t trackIndex)
     : m_arrangement(arrangement)
     , m_mixer(mixer)
+    , m_session(session)
     , m_index(trackIndex)
 {
 }
 
-// Copies the Track (Track is copyable by design), then removes both
+// Copies the Track (Track is copyable by design) and session column, then removes all three
 void RemoveTrackCommand::execute() {
     m_removedTrack = m_arrangement.track(m_index);
+    m_removedColumn = m_session.removeTrackColumn(m_index);
     m_arrangement.removeTrack(m_index);
     m_mixer.removeTrackStrip(m_index);
 }
 
-// arrangement.insertTrack(index, copy) + mixer.insertTrackStrip(index)
+// arrangement.insertTrack(index, copy) + mixer.insertTrackStrip(index) + session.insertTrackColumn(index, copy)
 void RemoveTrackCommand::undo() {
     m_arrangement.insertTrack(m_index, m_removedTrack);
     m_mixer.insertTrackStrip(m_index);
+    m_session.insertTrackColumn(m_index, m_removedColumn);
 }
 
 // Stores the arrangement, track, and placement to add on execute()
@@ -291,6 +308,222 @@ void RemoveAudioClipCommand::execute() {
 // Re-adds the removed placement, remembers its new index
 void RemoveAudioClipCommand::undo() {
     m_placementIndex = m_arrangement.addAudioClipPlacement(m_trackIndex, m_removedPlacement);
+}
+
+// Stores the session, slot address, and clip to add on execute()
+AddSessionMidiClipCommand::AddSessionMidiClipCommand(Session& session, std::size_t trackIndex,
+                                                      std::size_t sceneIndex, MidiClip clip)
+    : m_session(session)
+    , m_trackIndex(trackIndex)
+    , m_sceneIndex(sceneIndex)
+    , m_clip(std::move(clip))
+{
+}
+
+// Fills the slot when it is empty, no-ops otherwise
+void AddSessionMidiClipCommand::execute() {
+    ClipSlot& slot = m_session.slot(m_trackIndex, m_sceneIndex);
+    if (slot.content != SlotContent::Empty) {
+        m_applied = false;
+        return;
+    }
+
+    slot.content = SlotContent::Midi;
+    slot.midiClip = m_clip;
+    m_applied = true;
+}
+
+// Empties the slot again, only if this command actually filled it
+void AddSessionMidiClipCommand::undo() {
+    if (!m_applied) {
+        return;
+    }
+
+    ClipSlot& slot = m_session.slot(m_trackIndex, m_sceneIndex);
+    slot.content = SlotContent::Empty;
+    slot.midiClip = MidiClip();
+    m_applied = false;
+}
+
+// Stores the session, slot address, and clip to add on execute()
+AddSessionAudioClipCommand::AddSessionAudioClipCommand(Session& session, std::size_t trackIndex,
+                                                        std::size_t sceneIndex, AudioClip clip)
+    : m_session(session)
+    , m_trackIndex(trackIndex)
+    , m_sceneIndex(sceneIndex)
+    , m_clip(std::move(clip))
+{
+}
+
+// Fills the slot when it is empty, no-ops otherwise
+void AddSessionAudioClipCommand::execute() {
+    ClipSlot& slot = m_session.slot(m_trackIndex, m_sceneIndex);
+    if (slot.content != SlotContent::Empty) {
+        m_applied = false;
+        return;
+    }
+
+    slot.content = SlotContent::Audio;
+    slot.audioClip = m_clip;
+    m_applied = true;
+}
+
+// Empties the slot again, only if this command actually filled it
+void AddSessionAudioClipCommand::undo() {
+    if (!m_applied) {
+        return;
+    }
+
+    ClipSlot& slot = m_session.slot(m_trackIndex, m_sceneIndex);
+    slot.content = SlotContent::Empty;
+    slot.audioClip = AudioClip();
+    m_applied = false;
+}
+
+// Stores the session and slot address to clear on execute()
+ClearSessionSlotCommand::ClearSessionSlotCommand(Session& session, std::size_t trackIndex, std::size_t sceneIndex)
+    : m_session(session)
+    , m_trackIndex(trackIndex)
+    , m_sceneIndex(sceneIndex)
+{
+}
+
+// Remembers the slot's contents, then empties it
+void ClearSessionSlotCommand::execute() {
+    m_removedSlot = m_session.slot(m_trackIndex, m_sceneIndex);
+    m_session.slot(m_trackIndex, m_sceneIndex) = ClipSlot {};
+}
+
+// Restores the stored slot copy
+void ClearSessionSlotCommand::undo() {
+    m_session.slot(m_trackIndex, m_sceneIndex) = m_removedSlot;
+}
+
+// Stores the arrangement, track, and parameter index of the lane to add on execute()
+AddAutomationLaneCommand::AddAutomationLaneCommand(Arrangement& arrangement, std::size_t trackIndex, int paramIndex)
+    : m_arrangement(arrangement)
+    , m_trackIndex(trackIndex)
+    , m_paramIndex(paramIndex)
+{
+}
+
+// Appends an empty lane for the stored parameter
+void AddAutomationLaneCommand::execute() {
+    m_arrangement.track(m_trackIndex).automation.push_back(AutomationLaneSlot { m_paramIndex, AutomationLane() });
+}
+
+// Removes the lane this command appended, it is always the last one
+void AddAutomationLaneCommand::undo() {
+    m_arrangement.track(m_trackIndex).automation.pop_back();
+}
+
+// Stores the arrangement, track, and lane index to remove on execute()
+RemoveAutomationLaneCommand::RemoveAutomationLaneCommand(Arrangement& arrangement, std::size_t trackIndex,
+                                                          std::size_t laneIndex)
+    : m_arrangement(arrangement)
+    , m_trackIndex(trackIndex)
+    , m_laneIndex(laneIndex)
+{
+}
+
+// Remembers the lane's contents, then removes it
+void RemoveAutomationLaneCommand::execute() {
+    auto& automation = m_arrangement.track(m_trackIndex).automation;
+    m_removedSlot = automation[m_laneIndex];
+    automation.erase(automation.begin() + static_cast<std::ptrdiff_t>(m_laneIndex));
+}
+
+// Re-inserts the removed lane at its original index
+void RemoveAutomationLaneCommand::undo() {
+    auto& automation = m_arrangement.track(m_trackIndex).automation;
+    automation.insert(automation.begin() + static_cast<std::ptrdiff_t>(m_laneIndex), m_removedSlot);
+}
+
+// Stores the arrangement, track, lane index, and point to add on execute()
+AddAutomationPointCommand::AddAutomationPointCommand(Arrangement& arrangement, std::size_t trackIndex,
+                                                      std::size_t laneIndex, AutomationPoint point)
+    : m_arrangement(arrangement)
+    , m_trackIndex(trackIndex)
+    , m_laneIndex(laneIndex)
+    , m_point(point)
+{
+}
+
+// Inserts the stored point into the lane
+void AddAutomationPointCommand::execute() {
+    m_arrangement.track(m_trackIndex).automation[m_laneIndex].lane.addPoint(m_point);
+}
+
+// Removes the point this command added, matched by exact tick and value
+void AddAutomationPointCommand::undo() {
+    AutomationLane& lane = m_arrangement.track(m_trackIndex).automation[m_laneIndex].lane;
+    const auto& points = lane.points();
+    for (std::size_t i = 0; i < points.size(); ++i) {
+        if (points[i].tick == m_point.tick && sameValue(points[i].value, m_point.value)) {
+            lane.removePointAt(i);
+            break;
+        }
+    }
+}
+
+// Stores the arrangement, track, lane index, and point index to remove on execute()
+RemoveAutomationPointCommand::RemoveAutomationPointCommand(Arrangement& arrangement, std::size_t trackIndex,
+                                                            std::size_t laneIndex, std::size_t pointIndex)
+    : m_arrangement(arrangement)
+    , m_trackIndex(trackIndex)
+    , m_laneIndex(laneIndex)
+    , m_pointIndex(pointIndex)
+{
+}
+
+// Remembers the point's data, then removes it
+void RemoveAutomationPointCommand::execute() {
+    AutomationLane& lane = m_arrangement.track(m_trackIndex).automation[m_laneIndex].lane;
+    m_removedPoint = lane.points()[m_pointIndex];
+    lane.removePointAt(m_pointIndex);
+}
+
+// Re-adds the removed point
+void RemoveAutomationPointCommand::undo() {
+    m_arrangement.track(m_trackIndex).automation[m_laneIndex].lane.addPoint(m_removedPoint);
+}
+
+// Stores the arrangement, track, lane index, and both endpoints of the move
+MoveAutomationPointCommand::MoveAutomationPointCommand(Arrangement& arrangement, std::size_t trackIndex,
+                                                        std::size_t laneIndex, AutomationPoint oldPoint,
+                                                        AutomationPoint newPoint)
+    : m_arrangement(arrangement)
+    , m_trackIndex(trackIndex)
+    , m_laneIndex(laneIndex)
+    , m_oldPoint(oldPoint)
+    , m_newPoint(newPoint)
+{
+}
+
+// Removes the old point by exact match, adds the new one
+void MoveAutomationPointCommand::execute() {
+    AutomationLane& lane = m_arrangement.track(m_trackIndex).automation[m_laneIndex].lane;
+    const auto& points = lane.points();
+    for (std::size_t i = 0; i < points.size(); ++i) {
+        if (points[i].tick == m_oldPoint.tick && sameValue(points[i].value, m_oldPoint.value)) {
+            lane.removePointAt(i);
+            break;
+        }
+    }
+    lane.addPoint(m_newPoint);
+}
+
+// Removes the new point by exact match, adds the old one back
+void MoveAutomationPointCommand::undo() {
+    AutomationLane& lane = m_arrangement.track(m_trackIndex).automation[m_laneIndex].lane;
+    const auto& points = lane.points();
+    for (std::size_t i = 0; i < points.size(); ++i) {
+        if (points[i].tick == m_newPoint.tick && sameValue(points[i].value, m_newPoint.value)) {
+            lane.removePointAt(i);
+            break;
+        }
+    }
+    lane.addPoint(m_oldPoint);
 }
 
 } // namespace howl::model
