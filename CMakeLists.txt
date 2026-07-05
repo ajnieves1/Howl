@@ -55,6 +55,11 @@ FetchContent_MakeAvailable(JUCE Catch2 clap clap-helpers rubberband)
 add_library(rubberband STATIC ${rubberband_SOURCE_DIR}/single/RubberBandSingle.cpp)
 target_include_directories(rubberband PUBLIC ${rubberband_SOURCE_DIR})
 target_compile_features(rubberband PRIVATE cxx_std_17)
+if (MSVC)
+    # windows.h defines min/max macros that break std::min/std::max inside
+    # Rubber Band, and MSVC hides M_PI unless _USE_MATH_DEFINES is set
+    target_compile_definitions(rubberband PRIVATE NOMINMAX _USE_MATH_DEFINES)
+endif()
 if (APPLE)
     # The single-file build uses Apple's vDSP FFT instead of the built-in one
     target_link_libraries(rubberband PUBLIC "-framework Accelerate")
