@@ -103,12 +103,12 @@ public:
         juce::JUCEApplication::getInstance()->systemRequestedQuit();
     }
 
-    // Returns the shell component, so the app can wire callbacks and trigger refreshes
+    // Returns the shell component, so the app can communicate callbacks and trigger refreshes
     ui::MainComponent* mainComponent() const {
         return m_mainComponent;
     }
 
-    // Sets the title bar to "Howl" (untitled) or "Howl - <fileName>"
+    // Sets the title bar to "Howl"
     void setProjectTitle(const juce::String& fileName) {
         setName(fileName.isEmpty() ? juce::String("Howl") : "Howl - " + fileName);
     }
@@ -301,7 +301,7 @@ private:
         }
     }
 
-    // Opens a picker of the built-in synth plus every hosted instrument plugin, assigns the pick
+    // Opens a picker of the built in synth plus every hosted instrument plugin, assigns the pick
     void showInstrumentPicker(std::size_t trackIndex)
     {
         juce::PopupMenu menu;
