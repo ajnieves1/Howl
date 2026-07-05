@@ -62,17 +62,17 @@ jobs:
 
       - name: Package (Linux)
         if: runner.os == 'Linux'
-        working-directory: build/src/app/Howl_artefacts
+        working-directory: build/src/app/Howl_artefacts/Release
         run: tar -czf "$GITHUB_WORKSPACE/${{ matrix.asset }}" Howl
 
       - name: Package (macOS)
         if: runner.os == 'macOS'
-        working-directory: build/src/app/Howl_artefacts
+        working-directory: build/src/app/Howl_artefacts/Release
         run: zip -r "$GITHUB_WORKSPACE/${{ matrix.asset }}" Howl.app
 
       - name: Package (Windows)
         if: runner.os == 'Windows'
-        run: Compress-Archive -Path build/src/app/Howl_artefacts/Howl.exe -DestinationPath ${{ matrix.asset }}
+        run: Compress-Archive -Path build/src/app/Howl_artefacts/Release/Howl.exe -DestinationPath ${{ matrix.asset }}
 
       - name: Upload to release
         env:
