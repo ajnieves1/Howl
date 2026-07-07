@@ -179,13 +179,14 @@ void TrackHeaderPanel::timerCallback() {
     }
 }
 
-// Opens the Remove Track confirmation menu for the given row, plus a Freeze/Unfreeze item
+// Opens the Remove Track confirmation menu for the given row, plus Freeze/Unfreeze and Automation
 void TrackHeaderPanel::showRemoveTrackMenu(std::size_t trackIndex) {
     const bool frozen = isTrackFrozen && isTrackFrozen(trackIndex);
 
     juce::PopupMenu menu;
     menu.addItem(1, "Remove Track");
     menu.addItem(2, frozen ? "Unfreeze Track" : "Freeze Track");
+    menu.addItem(3, "Automation...");
 
     menu.showMenuAsync(juce::PopupMenu::Options(), [this, trackIndex, frozen](int result) {
         if (result == 1) {
@@ -198,6 +199,10 @@ void TrackHeaderPanel::showRemoveTrackMenu(std::size_t trackIndex) {
         } else if (result == 2) {
             if (onFreezeRequested) {
                 onFreezeRequested(trackIndex, !frozen);
+            }
+        } else if (result == 3) {
+            if (onAutomationRequested) {
+                onAutomationRequested(trackIndex);
             }
         }
     });

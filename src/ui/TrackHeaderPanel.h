@@ -47,6 +47,9 @@ public:
     // Fired when a row's Freeze/Unfreeze Track menu item is picked, with the requested new state
     std::function<void(std::size_t, bool)> onFreezeRequested;
 
+    // Fired when a row's "Automation..." menu item is picked
+    std::function<void(std::size_t)> onAutomationRequested;
+
     void resized() override;
     void paint(juce::Graphics& g) override;
 

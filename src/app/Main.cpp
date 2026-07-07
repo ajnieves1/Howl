@@ -187,6 +187,19 @@ public:
             }
             return {};
         };
+        mainComponent->parameterNamesFor = [this](std::size_t trackIndex) -> std::vector<juce::String> {
+            if (trackIndex >= m_trackInstruments.size() || m_trackInstruments[trackIndex] == nullptr) {
+                return {};
+            }
+
+            engine::Instrument* instrument = m_trackInstruments[trackIndex].get();
+            std::vector<juce::String> names;
+            names.reserve(static_cast<std::size_t>(instrument->numParameters()));
+            for (int i = 0; i < instrument->numParameters(); ++i) {
+                names.emplace_back(instrument->parameterName(i));
+            }
+            return names;
+        };
         mainComponent->onImportAudioRequested = [this] {
             showImportAudioFileChooser();
         };

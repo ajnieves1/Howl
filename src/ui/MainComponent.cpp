@@ -67,6 +67,9 @@ MainComponent::MainComponent(model::Arrangement& arrangement, engine::Transport&
             onFreezeRequested(trackIndex, freeze);
         }
     };
+    m_trackHeaderPanel.onAutomationRequested = [this](std::size_t trackIndex) {
+        showAutomationEditorFor(trackIndex);
+    };
 
     m_arrangeView.onMidiClipSelected = [this](std::size_t trackIndex, std::size_t placementIndex) {
         showPianoRollFor(trackIndex, placementIndex);
@@ -118,6 +121,8 @@ void MainComponent::resized() {
             m_pianoRoll->setBounds(bottomBounds);
         } else if (m_bottomPanel == BottomPanel::Mixer && m_mixerView != nullptr) {
             m_mixerView->setBounds(bottomBounds);
+        } else if (m_bottomPanel == BottomPanel::Automation && m_automationEditor != nullptr) {
+            m_automationEditor->setBounds(bottomBounds);
         }
     }
 
@@ -206,6 +211,26 @@ void MainComponent::toggleMixer() {
         m_bottomPanel = BottomPanel::Mixer;
     }
 
+    updateBottomPanelVisibility();
+    resized();
+}
+
+// Shows the automation editor for a track in the bottom panel (replaces whatever is there)
+void MainComponent::showAutomationEditorFor(std::size_t trackIndex) {
+    if (m_automationEditor != nullptr) {
+        removeChildComponent(m_automationEditor.get());
+    }
+
+    m_automationEditor = std::make_unique<AutomationEditor>(m_arrangement, m_commandStack, trackIndex,
+        [this](std::size_t index) -> std::vector<juce::String> {
+            if (parameterNamesFor) {
+                return parameterNamesFor(index);
+            }
+            return {};
+        });
+    addAndMakeVisible(*m_automationEditor);
+
+    m_bottomPanel = BottomPanel::Automation;
     updateBottomPanelVisibility();
     resized();
 }
@@ -316,6 +341,10 @@ void MainComponent::updateBottomPanelVisibility() {
 
     if (m_mixerView != nullptr) {
         m_mixerView->setVisible(m_bottomPanel == BottomPanel::Mixer);
+    }
+
+    if (m_automationEditor != nullptr) {
+        m_automationEditor->setVisible(m_bottomPanel == BottomPanel::Automation);
     }
 }
 

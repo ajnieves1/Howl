@@ -13,6 +13,7 @@
 #include "model/Session.h"
 #include "plugins/IPluginInstance.h"
 #include "ui/ArrangeView.h"
+#include "ui/AutomationEditor.h"
 #include "ui/MixerView.h"
 #include "ui/PianoRoll.h"
 #include "ui/SessionView.h"
@@ -24,6 +25,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <vector>
 
 namespace howl::ui {
 
@@ -49,6 +51,9 @@ public:
 
     // Shows the mixer in the bottom panel, or hides the panel if the mixer is already shown
     void toggleMixer();
+
+    // Shows the automation editor for a track in the bottom panel (replaces whatever is there)
+    void showAutomationEditorFor(std::size_t trackIndex);
 
     // Flips the center view between the arrange view and the session view
     void toggleCenterView();
@@ -80,6 +85,9 @@ public:
     // Fired when a row's Freeze/Unfreeze Track menu item is picked, with the requested new state
     std::function<void(std::size_t, bool)> onFreezeRequested;
 
+    // App-provided instrument parameter names for a track, feeds the automation editor's combo
+    std::function<std::vector<juce::String>(std::size_t)> parameterNamesFor;
+
     // Fired when "Import Audio..." is picked, the app shows a FileChooser
     std::function<void()> onImportAudioRequested;
 
@@ -106,7 +114,8 @@ private:
     enum class BottomPanel {
         None,
         PianoRoll,
-        Mixer
+        Mixer,
+        Automation
     };
 
     enum class CenterView {
@@ -132,6 +141,7 @@ private:
     std::unique_ptr<SessionView> m_sessionView; // created once in the ctor
     std::unique_ptr<PianoRoll> m_pianoRoll; // recreated per selected clip
     std::unique_ptr<MixerView> m_mixerView; // created once in the ctor
+    std::unique_ptr<AutomationEditor> m_automationEditor; // recreated per requested track
     BottomPanel m_bottomPanel = BottomPanel::None;
     CenterView m_centerView = CenterView::Arrange;
 };
