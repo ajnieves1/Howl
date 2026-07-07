@@ -12,6 +12,7 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include <functional>
 #include <memory>
 #include <vector>
 
@@ -37,11 +38,23 @@ public:
     // Public wrapper around rebuildStrips(), called after undo/redo or a track/bus add
     void refreshStrips();
 
+    // Fired with (stripAddress, effectIndex, paramIndex) when a parameter row's "MIDI Learn" is picked
+    std::function<void(model::StripAddress, std::size_t, int)> onMidiLearnRequested;
+
+    // Fired with (stripAddress, effectIndex, paramIndex) when "Remove MIDI Mapping" is picked
+    std::function<void(model::StripAddress, std::size_t, int)> onMidiUnlearnRequested;
+
+    // Queried with (stripAddress, effectIndex, paramIndex) when building a parameter row's menu
+    std::function<bool(model::StripAddress, std::size_t, int)> isParameterMapped;
+
 private:
     static constexpr int kStripWidth = 96;
 
     // Rebuilds one ChannelStripComponent per track, bus, and master
     void rebuildStrips();
+
+    // Wires one strip's MIDI learn callbacks to this view's, adding its address
+    void wireMidiLearnCallbacks(ChannelStripComponent& strip, model::StripAddress address);
 
     // Pops meter readings into every strip
     void timerCallback() override;

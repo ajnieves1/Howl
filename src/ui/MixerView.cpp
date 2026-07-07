@@ -60,6 +60,23 @@ void MixerView::refreshStrips() {
     rebuildStrips();
 }
 
+// Wires one strip's MIDI learn callbacks to this view's, adding its address
+void MixerView::wireMidiLearnCallbacks(ChannelStripComponent& strip, model::StripAddress address) {
+    strip.onMidiLearnRequested = [this, address](std::size_t effectIndex, int paramIndex) {
+        if (onMidiLearnRequested) {
+            onMidiLearnRequested(address, effectIndex, paramIndex);
+        }
+    };
+    strip.onMidiUnlearnRequested = [this, address](std::size_t effectIndex, int paramIndex) {
+        if (onMidiUnlearnRequested) {
+            onMidiUnlearnRequested(address, effectIndex, paramIndex);
+        }
+    };
+    strip.isParameterMapped = [this, address](std::size_t effectIndex, int paramIndex) -> bool {
+        return isParameterMapped && isParameterMapped(address, effectIndex, paramIndex);
+    };
+}
+
 // Rebuilds one ChannelStripComponent per track, bus, and master
 void MixerView::rebuildStrips() {
     m_strips.clear();
@@ -70,6 +87,7 @@ void MixerView::rebuildStrips() {
         auto strip = std::make_unique<ChannelStripComponent>(m_mixer, address,
             juce::String(m_arrangement.track(i).name), m_factory, m_pluginHost,
             m_commandStack, m_sampleRate, m_maxBlockSize);
+        wireMidiLearnCallbacks(*strip, address);
         m_stripsContainer.addAndMakeVisible(*strip);
         m_strips.push_back(std::move(strip));
     }
@@ -80,6 +98,7 @@ void MixerView::rebuildStrips() {
         auto strip = std::make_unique<ChannelStripComponent>(m_mixer, address,
             juce::String(m_mixer.busName(i)), m_factory, m_pluginHost,
             m_commandStack, m_sampleRate, m_maxBlockSize);
+        wireMidiLearnCallbacks(*strip, address);
         m_stripsContainer.addAndMakeVisible(*strip);
         m_strips.push_back(std::move(strip));
     }
@@ -87,6 +106,7 @@ void MixerView::rebuildStrips() {
     model::StripAddress masterAddress { model::StripKind::Master, 0 };
     auto masterStrip = std::make_unique<ChannelStripComponent>(m_mixer, masterAddress,
         juce::String("Master"), m_factory, m_pluginHost, m_commandStack, m_sampleRate, m_maxBlockSize);
+    wireMidiLearnCallbacks(*masterStrip, masterAddress);
     m_stripsContainer.addAndMakeVisible(*masterStrip);
     m_strips.push_back(std::move(masterStrip));
 

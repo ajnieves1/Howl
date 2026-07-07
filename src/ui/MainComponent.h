@@ -109,6 +109,15 @@ public:
     // Fired after a tempo commit or an audio clip's warp toggle/BPM edit, the app rewarps clips
     std::function<void()> onRewarpRequested;
 
+    // Fired with (stripAddress, effectIndex, paramIndex) when a parameter row's "MIDI Learn" is picked
+    std::function<void(model::StripAddress, std::size_t, int)> onMidiLearnRequested;
+
+    // Fired with (stripAddress, effectIndex, paramIndex) when "Remove MIDI Mapping" is picked
+    std::function<void(model::StripAddress, std::size_t, int)> onMidiUnlearnRequested;
+
+    // Queried with (stripAddress, effectIndex, paramIndex) when building a parameter row's menu
+    std::function<bool(model::StripAddress, std::size_t, int)> isParameterMapped;
+
 private:
     static constexpr int kTransportHeight = 36;
     static constexpr int kBottomPanelHeight = 300;

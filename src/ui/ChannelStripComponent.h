@@ -11,6 +11,7 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include <functional>
 #include <memory>
 #include <vector>
 
@@ -39,6 +40,15 @@ public:
 
     // Reloads the FX list and send rows from the model, called after any structural edit
     void refreshFromModel();
+
+    // Fired with (effectIndex, paramIndex) when a parameter row's "MIDI Learn" is picked
+    std::function<void(std::size_t, int)> onMidiLearnRequested;
+
+    // Fired with (effectIndex, paramIndex) when a parameter row's "Remove MIDI Mapping" is picked
+    std::function<void(std::size_t, int)> onMidiUnlearnRequested;
+
+    // Queried with (effectIndex, paramIndex) when building a parameter row's right click menu
+    std::function<bool(std::size_t, int)> isParameterMapped;
 
 private:
     // One send row's controls: destination label, level slider, remove button

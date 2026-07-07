@@ -9,6 +9,7 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include <functional>
 #include <memory>
 #include <vector>
 
@@ -26,22 +27,46 @@ public:
     // Hides the window, the owning strip destroys it on the next structural edit
     void closeButtonPressed() override;
 
+    // Fired with a parameter index when "MIDI Learn" is picked for its row
+    std::function<void(int)> onMidiLearnRequested;
+
+    // Fired with a parameter index when "Remove MIDI Mapping" is picked for its row
+    std::function<void(int)> onMidiUnlearnRequested;
+
+    // Queried with a parameter index when building its row's right click menu
+    std::function<bool(int)> isParameterMapped;
+
 private:
+    // A slider that reports right clicks instead of only handling drags
+    class ParamSlider : public juce::Slider {
+    public:
+        using Slider::Slider;
+
+        std::function<void()> onRightClick;
+
+        // Reports right clicks via onRightClick, otherwise behaves like a normal slider
+        void mouseDown(const juce::MouseEvent& event) override;
+    };
+
     // One parameter row: name label plus a 0..1 slider
     struct ParamRow {
         std::unique_ptr<juce::Label> label;
-        std::unique_ptr<juce::Slider> slider;
+        std::unique_ptr<ParamSlider> slider;
     };
 
     // The window's content: an optional native-editor button, then one row per parameter
     class Content : public juce::Component {
     public:
-        Content(engine::Effect& effect, plugins::IPluginInstance* nativeInstance);
+        Content(EffectEditorWindow& window, engine::Effect& effect, plugins::IPluginInstance* nativeInstance);
         void resized() override;
 
     private:
         static constexpr int kRowHeight = 24;
 
+        // Opens the MIDI Learn or Remove MIDI Mapping menu for one parameter
+        void showMidiLearnMenu(int paramIndex);
+
+        EffectEditorWindow& m_window;
         engine::Effect& m_effect;
         plugins::IPluginInstance* m_nativeInstance;
         std::unique_ptr<juce::TextButton> m_openPluginEditorButton;

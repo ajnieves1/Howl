@@ -243,6 +243,21 @@ void ChannelStripComponent::listBoxItemDoubleClicked(int row, const juce::MouseE
     }
 
     m_effectEditor = std::make_unique<EffectEditorWindow>(effect, nativeInstance);
+
+    const auto effectIndex = static_cast<std::size_t>(row);
+    m_effectEditor->onMidiLearnRequested = [this, effectIndex](int paramIndex) {
+        if (onMidiLearnRequested) {
+            onMidiLearnRequested(effectIndex, paramIndex);
+        }
+    };
+    m_effectEditor->onMidiUnlearnRequested = [this, effectIndex](int paramIndex) {
+        if (onMidiUnlearnRequested) {
+            onMidiUnlearnRequested(effectIndex, paramIndex);
+        }
+    };
+    m_effectEditor->isParameterMapped = [this, effectIndex](int paramIndex) -> bool {
+        return isParameterMapped && isParameterMapped(effectIndex, paramIndex);
+    };
 }
 
 // Returns the strip this component targets
