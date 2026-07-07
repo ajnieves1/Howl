@@ -41,6 +41,17 @@ jobs:
       - name: Install Ninja
         uses: seanmiddleditch/gha-setup-ninja@master
 
+      # FetchContent clones and builds JUCE, Catch2, clap, clap-helpers, and
+      # rubberband from scratch every run without this; keyed on CMakeLists.txt
+      # so bumping a pinned dependency tag invalidates the cache
+      - name: Cache build directory
+        uses: actions/cache@v4
+        with:
+          path: build
+          key: ${{ runner.os }}-build-ci-${{ hashFiles('CMakeLists.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-build-ci-
+
       - name: Configure
         run: cmake -B build -G Ninja
 
