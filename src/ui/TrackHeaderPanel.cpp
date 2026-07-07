@@ -88,7 +88,8 @@ void TrackHeaderPanel::resized() {
     m_addTrackButton.setBounds(0, getHeight() - kAddButtonHeight, getWidth(), kAddButtonHeight);
 }
 
-// Draws lane separators matching ArrangeView's grid, and a tint over frozen rows
+// Draws lane separators matching ArrangeView's grid, a tint over frozen rows, and a
+// highlight over the row selected for live MIDI input
 void TrackHeaderPanel::paint(juce::Graphics& g) {
     g.fillAll(juce::Colours::darkgrey.darker());
 
@@ -104,10 +105,40 @@ void TrackHeaderPanel::paint(juce::Graphics& g) {
         }
     }
 
+    if (m_selectedTrack >= 0 && static_cast<std::size_t>(m_selectedTrack) < m_rows.size()) {
+        g.setColour(juce::Colours::orange.withAlpha(0.2f));
+        const auto y = static_cast<float>(m_selectedTrack) * height;
+        g.fillRect(0.0f, y, static_cast<float>(getWidth()), height);
+    }
+
     g.setColour(juce::Colours::grey.withAlpha(0.4f));
     for (std::size_t i = 1; i < m_rows.size(); ++i) {
         const auto y = static_cast<int>(static_cast<float>(i) * height);
         g.drawHorizontalLine(y, 0.0f, static_cast<float>(getWidth()));
+    }
+}
+
+// Selects the row under the click as the live MIDI target
+void TrackHeaderPanel::mouseDown(const juce::MouseEvent& event) {
+    if (event.mods.isPopupMenu() || m_rows.empty()) {
+        return;
+    }
+
+    const float height = laneHeight();
+    if (height <= 0.0f) {
+        return;
+    }
+
+    const auto row = static_cast<std::size_t>(static_cast<float>(event.y) / height);
+    if (row >= m_rows.size()) {
+        return;
+    }
+
+    m_selectedTrack = static_cast<std::ptrdiff_t>(row);
+    repaint();
+
+    if (onTrackSelected) {
+        onTrackSelected(m_selectedTrack);
     }
 }
 
@@ -193,6 +224,11 @@ void TrackHeaderPanel::showRemoveTrackMenu(std::size_t trackIndex) {
             m_commandStack.perform(std::make_unique<model::RemoveTrackCommand>(m_arrangement, m_mixer, m_session, trackIndex));
             refreshFromModel();
 
+            m_selectedTrack = -1;
+            if (onTrackSelected) {
+                onTrackSelected(-1);
+            }
+
             if (onTracksChanged) {
                 onTracksChanged();
             }
@@ -244,6 +280,11 @@ void TrackHeaderPanel::showAddTrackMenu() {
         m_commandStack.perform(std::make_unique<model::AddTrackCommand>(
             m_arrangement, m_mixer, m_session, name.toStdString(), kind));
         refreshFromModel();
+
+        m_selectedTrack = -1;
+        if (onTrackSelected) {
+            onTrackSelected(-1);
+        }
 
         if (onTracksChanged) {
             onTracksChanged();

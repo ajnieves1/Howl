@@ -70,6 +70,11 @@ MainComponent::MainComponent(model::Arrangement& arrangement, engine::Transport&
     m_trackHeaderPanel.onAutomationRequested = [this](std::size_t trackIndex) {
         showAutomationEditorFor(trackIndex);
     };
+    m_trackHeaderPanel.onTrackSelected = [this](std::ptrdiff_t trackIndex) {
+        if (onTrackSelected) {
+            onTrackSelected(trackIndex);
+        }
+    };
 
     m_arrangeView.onMidiClipSelected = [this](std::size_t trackIndex, std::size_t placementIndex) {
         showPianoRollFor(trackIndex, placementIndex);

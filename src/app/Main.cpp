@@ -11,6 +11,7 @@
 #include "engine/Transport.h"
 #include "io/AudioDevice.h"
 #include "io/AudioFile.h"
+#include "io/MidiInputHub.h"
 #include "model/Arrangement.h"
 #include "model/ArrangementNode.h"
 #include "model/AudioClip.h"
@@ -154,6 +155,7 @@ public:
 
         auto arrangementNode = std::make_unique<model::ArrangementNode>(m_transport, m_arrangement);
         arrangementNode->setSession(&m_session);
+        arrangementNode->setLiveNoteQueue(&m_midiInputHub.noteQueue());
         arrangementNode->prepare(m_sampleRate, m_bufferSize, 2);
         m_arrangementNode = arrangementNode.get();
         m_graph.addNode(std::move(arrangementNode));
@@ -238,6 +240,9 @@ public:
             } else {
                 unfreezeTrack(trackIndex);
             }
+        };
+        mainComponent->onTrackSelected = [this](std::ptrdiff_t trackIndex) {
+            m_arrangementNode->setLiveTargetTrack(trackIndex);
         };
         // Re-renders the initial track's instrument label, now that instrumentNameFor is wired
         mainComponent->refreshAllViews();
@@ -937,6 +942,7 @@ private:
     dsp::BuiltInEffectFactory m_effectFactory;
     plugins::PluginHost m_pluginHost;
     io::AudioDevice m_audioDevice;
+    io::MidiInputHub m_midiInputHub;
     engine::Graph m_graph;
     model::ArrangementNode* m_arrangementNode = nullptr;
     double m_sampleRate = 44100.0;

@@ -38,6 +38,7 @@ void ArrangementNode::prepare(double sampleRate, int maxBlockSize, int numChanne
     m_sessionPlayers.clear();
     // A full rebuild invalidates any frozen render, the mixer's bypass flags reset alongside
     m_frozenChannels.assign(numTracks, std::vector<std::vector<float>> {});
+    m_trackInstruments.assign(numTracks, nullptr);
 
     for (std::size_t i = 0; i < numTracks; ++i) {
         Track& track = m_arrangement.track(i);
@@ -71,6 +72,9 @@ void ArrangementNode::setInstrumentForTrack(std::size_t trackIndex, engine::Inst
     }
     if (trackIndex < m_sessionPlayers.size() && m_sessionPlayers[trackIndex] != nullptr) {
         m_sessionPlayers[trackIndex]->setInstrument(instrument);
+    }
+    if (trackIndex < m_trackInstruments.size()) {
+        m_trackInstruments[trackIndex] = instrument;
     }
 }
 
@@ -159,6 +163,16 @@ bool ArrangementNode::isFrozen(std::size_t trackIndex) const {
     return trackIndex < m_frozenChannels.size() && !m_frozenChannels[trackIndex].empty();
 }
 
+// Points the node at the queue of live note events to drain each block, call before prepare
+void ArrangementNode::setLiveNoteQueue(LockFreeQueue<MidiEvent, 256>* queue) {
+    m_liveNoteQueue = queue;
+}
+
+// Selects which track live notes play into, -1 for none, callable from any thread
+void ArrangementNode::setLiveTargetTrack(std::ptrdiff_t trackIndex) {
+    m_liveTargetTrack.store(trackIndex, std::memory_order_relaxed);
+}
+
 // [RT] Renders every track into its own buffer, then mixes them into audio
 void ArrangementNode::process(AudioBlock& audio, SampleCount pos) noexcept {
     // Guards against a block larger than what prepare() sized the scratch
@@ -174,6 +188,33 @@ void ArrangementNode::process(AudioBlock& audio, SampleCount pos) noexcept {
         if (!requestTargetFrozen && request.trackIndex < m_sessionPlayers.size()
             && m_sessionPlayers[request.trackIndex] != nullptr) {
             m_sessionPlayers[request.trackIndex]->queueScene(request.sceneIndex);
+        }
+    }
+
+    // Drains every block whether the transport is playing or stopped, so a keyboard is always
+    // live; a target that resolves to nothing still gets its events discarded here rather than
+    // building up and bursting out once a valid target is picked later
+    MidiEvent liveEvent;
+    while (m_liveNoteQueue != nullptr && m_liveNoteQueue->pop(liveEvent)) {
+        const std::ptrdiff_t target = m_liveTargetTrack.load(std::memory_order_relaxed);
+        if (target < 0 || static_cast<std::size_t>(target) >= m_trackInstruments.size()) {
+            continue;
+        }
+
+        const auto targetTrack = static_cast<std::size_t>(target);
+        if (targetTrack < m_frozenChannels.size() && !m_frozenChannels[targetTrack].empty()) {
+            continue;
+        }
+
+        engine::Instrument* instrument = m_trackInstruments[targetTrack];
+        if (instrument == nullptr) {
+            continue;
+        }
+
+        if (liveEvent.type == MidiEvent::Type::NoteOn) {
+            instrument->noteOn(liveEvent.number, liveEvent.value);
+        } else if (liveEvent.type == MidiEvent::Type::NoteOff) {
+            instrument->noteOff(liveEvent.number);
         }
     }
 
