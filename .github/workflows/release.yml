@@ -75,6 +75,26 @@ jobs:
         working-directory: build/src/app/Howl_artefacts/Release
         run: tar -czf "$GITHUB_WORKSPACE/${{ matrix.asset }}" Howl
 
+      - name: Package (Linux AppImage)
+        if: runner.os == 'Linux'
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+          # linuxdeploy's bundled strip cannot read the relr.dyn section modern
+          # binutils emits, and aborts the whole deployment on that mismatch alone
+          NO_STRIP: "1"
+        run: |
+          mkdir -p AppDir/usr/bin
+          cp build/src/app/Howl_artefacts/Release/Howl AppDir/usr/bin/Howl
+          curl -L -o linuxdeploy-x86_64.AppImage \
+            https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+          chmod +x linuxdeploy-x86_64.AppImage
+          ./linuxdeploy-x86_64.AppImage --appdir AppDir \
+            --executable AppDir/usr/bin/Howl \
+            --desktop-file packaging/howl.desktop \
+            --icon-file packaging/howl.png \
+            --output appimage
+          mv Howl-*.AppImage howl-linux-x64.AppImage
+
       - name: Package (macOS)
         if: runner.os == 'macOS'
         working-directory: build/src/app/Howl_artefacts/Release
@@ -88,3 +108,9 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release upload ${{ github.ref_name }} ${{ matrix.asset }} --clobber --repo ${{ github.repository }}
+
+      - name: Upload AppImage to release
+        if: runner.os == 'Linux'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload ${{ github.ref_name }} howl-linux-x64.AppImage --clobber --repo ${{ github.repository }}

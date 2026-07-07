@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Howl
+Comment=A digital audio workstation
+Exec=Howl
+Icon=howl
+Categories=AudioVideo;Audio;
+Terminal=false
