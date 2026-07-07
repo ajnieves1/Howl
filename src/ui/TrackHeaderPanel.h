@@ -50,8 +50,15 @@ public:
     // Fired when a row's "Automation..." menu item is picked
     std::function<void(std::size_t)> onAutomationRequested;
 
+    // Fired when a row's background is clicked, selecting it for live MIDI input; -1 when a
+    // track add/remove clears the selection
+    std::function<void(std::ptrdiff_t)> onTrackSelected;
+
     void resized() override;
     void paint(juce::Graphics& g) override;
+
+    // Selects the row under the click as the live MIDI target
+    void mouseDown(const juce::MouseEvent& event) override;
 
     // Rebuilds the rows from the model
     void refreshFromModel();
@@ -103,6 +110,7 @@ private:
 
     std::vector<Row> m_rows;
     juce::TextButton m_addTrackButton { "+ Track" };
+    std::ptrdiff_t m_selectedTrack = -1;
 };
 
 } // namespace howl::ui

@@ -88,6 +88,9 @@ public:
     // App-provided instrument parameter names for a track, feeds the automation editor's combo
     std::function<std::vector<juce::String>(std::size_t)> parameterNamesFor;
 
+    // Fired when a track header row is clicked, selecting it for live MIDI input, -1 for none
+    std::function<void(std::ptrdiff_t)> onTrackSelected;
+
     // Fired when "Import Audio..." is picked, the app shows a FileChooser
     std::function<void()> onImportAudioRequested;
 

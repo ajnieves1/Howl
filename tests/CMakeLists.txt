@@ -20,6 +20,7 @@ add_executable(HowlTests
     GoldenRenderTests.cpp
     GraphTests.cpp
     LimiterTests.cpp
+    LiveMidiInputTests.cpp
     MeterTests.cpp
     MidiClipTests.cpp
     MidiTrackRendererTests.cpp

@@ -1,6 +1,7 @@
 add_library(HowlIo STATIC
     AudioDevice.cpp
     AudioFile.cpp
+    MidiInputHub.cpp
 )
 
 target_include_directories(HowlIo PUBLIC

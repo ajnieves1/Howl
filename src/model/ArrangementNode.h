@@ -4,6 +4,7 @@
 #pragma once
 
 #include "core/LockFreeQueue.h"
+#include "core/MidiEvent.h"
 #include "core/Types.h"
 #include "engine/Instrument.h"
 #include "engine/Node.h"
@@ -15,6 +16,7 @@
 #include "model/Session.h"
 #include "model/SessionTrackPlayer.h"
 
+#include <atomic>
 #include <cstddef>
 #include <memory>
 #include <vector>
@@ -68,6 +70,12 @@ public:
     // True when the track plays a frozen render
     bool isFrozen(std::size_t trackIndex) const;
 
+    // Points the node at the queue of live note events to drain each block, call before prepare
+    void setLiveNoteQueue(LockFreeQueue<MidiEvent, 256>* queue);
+
+    // Selects which track live notes play into, -1 for none, callable from any thread
+    void setLiveTargetTrack(std::ptrdiff_t trackIndex);
+
     // [RT] Renders every track into its own buffer, then mixes them into audio
     void process(AudioBlock& audio, SampleCount pos) noexcept override;
 
@@ -78,6 +86,13 @@ private:
 
     // Indexed by track, empty vector means not frozen
     std::vector<std::vector<std::vector<float>>> m_frozenChannels;
+
+    // Mirrors the instrument pointer handed to setInstrumentForTrack, so live notes can reach
+    // it directly without going through a renderer
+    std::vector<engine::Instrument*> m_trackInstruments;
+
+    LockFreeQueue<MidiEvent, 256>* m_liveNoteQueue = nullptr;
+    std::atomic<std::ptrdiff_t> m_liveTargetTrack { -1 };
 
     // Indexed by track, exactly one of the pair is non-null per index
     std::vector<std::unique_ptr<MidiTrackRenderer>> m_midiRenderers;
