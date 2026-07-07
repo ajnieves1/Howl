@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Howl DAW: SandboxProtocolTests, exercises ShmAudioChannel against the real howl-host helper
 
+#include "plugins/SandboxedPluginInstance.h"
 #include "plugins/ShmAudioChannel.h"
 
 #include <juce_core/juce_core.h>
@@ -13,6 +14,7 @@
 #include <thread>
 
 using howl::AudioBlock;
+using howl::plugins::SandboxedPluginInstance;
 using howl::plugins::ShmAudioChannel;
 
 namespace {
@@ -175,4 +177,73 @@ TEST_CASE("ShmAudioChannel does not hang when the child is killed mid-run", "[sa
     REQUIRE(elapsed < std::chrono::milliseconds(50));
 
     backingFile.deleteFile();
+}
+
+TEST_CASE("SandboxedPluginInstance flips hasCrashed after the child dies, bounded and passthrough", "[sandbox]") {
+    auto instance = SandboxedPluginInstance::createForTest({ "--loopback", "--crash-after", "20" }, 44100.0, kBlockSize);
+    REQUIRE(instance != nullptr);
+    REQUIRE(instance->isValid());
+    REQUIRE_FALSE(instance->hasCrashed());
+
+    float left[kBlockSize] = {};
+    float right[kBlockSize] = {};
+    float* channels[kNumChannels] = { left, right };
+    AudioBlock block { channels, kNumChannels, kBlockSize };
+
+    // The child dies after 20 good blocks, then process() needs 100 consecutive failed
+    // exchanges before it latches the bypass, driving well past that either way
+    const auto start = std::chrono::steady_clock::now();
+    int iterations = 0;
+    while (!instance->hasCrashed() && iterations < 200) {
+        instance->process(block, nullptr);
+        ++iterations;
+    }
+    const auto elapsed = std::chrono::steady_clock::now() - start;
+
+    REQUIRE(instance->hasCrashed());
+    REQUIRE(iterations < 200);
+    // Each failed exchange gives up at a 2 ms deadline, so even ~100 of them in a row
+    // stays well under a second, proving process() never hangs on a dead child
+    REQUIRE(elapsed < std::chrono::seconds(2));
+
+    // Bypassed now: an effect proxy (createForTest's default) passes audio through
+    // unchanged rather than calling exchange() again
+    channels[0][0] = 0.42f;
+    channels[1][0] = 0.24f;
+    instance->process(block, nullptr);
+    REQUIRE(channels[0][0] == 0.42f);
+    REQUIRE(channels[1][0] == 0.24f);
+}
+
+TEST_CASE("SandboxedPluginInstance.restart respawns the child and resumes exchanging", "[sandbox]") {
+    auto instance = SandboxedPluginInstance::createForTest({ "--loopback", "--crash-after", "5" }, 44100.0, kBlockSize);
+    REQUIRE(instance != nullptr);
+    REQUIRE(instance->isValid());
+
+    float left[kBlockSize] = {};
+    float right[kBlockSize] = {};
+    float* channels[kNumChannels] = { left, right };
+    AudioBlock block { channels, kNumChannels, kBlockSize };
+
+    int iterations = 0;
+    while (!instance->hasCrashed() && iterations < 200) {
+        instance->process(block, nullptr);
+        ++iterations;
+    }
+    REQUIRE(instance->hasCrashed());
+
+    REQUIRE(instance->restart());
+    REQUIRE_FALSE(instance->hasCrashed());
+    REQUIRE(instance->isValid());
+
+    fillRamp(block, 11.0f);
+    float expectedLeft[kBlockSize];
+    float expectedRight[kBlockSize];
+    std::memcpy(expectedLeft, left, sizeof(expectedLeft));
+    std::memcpy(expectedRight, right, sizeof(expectedRight));
+
+    instance->process(block, nullptr);
+
+    REQUIRE(std::memcmp(left, expectedLeft, sizeof(expectedLeft)) == 0);
+    REQUIRE(std::memcmp(right, expectedRight, sizeof(expectedRight)) == 0);
 }

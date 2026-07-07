@@ -155,11 +155,14 @@ void ChannelStripComponent::paint(juce::Graphics& g) {
     g.fillRect(m_meterBounds.withTop(m_meterBounds.getBottom() - meterHeight));
 }
 
-// Pops pending meter readings and repaints the meter region, called by MixerView's timer
+// Pops pending meter readings and repaints the meter region, called by MixerView's timer.
+// Also repaints the FX list at the same 30 Hz cadence, so a crashed row's red highlight
+// shows up promptly without a dedicated timer of its own
 void ChannelStripComponent::refreshMeter() {
     if (m_address.kind == model::StripKind::Track && channelStrip().muted()) {
         m_meterPeak = 0.0f;
         repaint();
+        m_fxList.repaint();
         return;
     }
 
@@ -176,6 +179,7 @@ void ChannelStripComponent::refreshMeter() {
     }
 
     repaint();
+    m_fxList.repaint();
 }
 
 // Reloads the FX list and send rows from the model, called after any structural edit
@@ -211,7 +215,7 @@ int ChannelStripComponent::getNumRows() {
     return static_cast<int>(channelStrip().effects().size());
 }
 
-// Draws one effect's display name
+// Draws one effect's display name, red with a "(crashed)" suffix for a bypassed sandbox
 void ChannelStripComponent::paintListBoxItem(int rowNumber, juce::Graphics& g, int width, int height, bool rowIsSelected) {
     if (rowIsSelected) {
         g.fillAll(juce::Colours::lightblue);
@@ -222,9 +226,41 @@ void ChannelStripComponent::paintListBoxItem(int rowNumber, juce::Graphics& g, i
         return;
     }
 
-    g.setColour(juce::Colours::black);
-    g.drawText(chain.at(static_cast<std::size_t>(rowNumber)).displayName(),
-        4, 0, width - 8, height, juce::Justification::centredLeft);
+    const auto effectIndex = static_cast<std::size_t>(rowNumber);
+    const bool crashed = isPluginCrashed && isPluginCrashed(effectIndex);
+
+    juce::String text = chain.at(effectIndex).displayName();
+    if (crashed) {
+        text << " (crashed)";
+    }
+
+    g.setColour(crashed ? juce::Colours::red : juce::Colours::black);
+    g.drawText(text, 4, 0, width - 8, height, juce::Justification::centredLeft);
+}
+
+// Right click on a crashed row shows a "Restart Plugin" menu
+void ChannelStripComponent::listBoxItemClicked(int row, const juce::MouseEvent& event) {
+    if (!event.mods.isRightButtonDown()) {
+        return;
+    }
+
+    auto& chain = channelStrip().effects();
+    if (row < 0 || static_cast<std::size_t>(row) >= chain.size()) {
+        return;
+    }
+
+    const auto effectIndex = static_cast<std::size_t>(row);
+    if (!isPluginCrashed || !isPluginCrashed(effectIndex)) {
+        return;
+    }
+
+    juce::PopupMenu menu;
+    menu.addItem(1, "Restart Plugin");
+    menu.showMenuAsync(juce::PopupMenu::Options(), [this, effectIndex](int result) {
+        if (result == 1 && onRestartPluginRequested) {
+            onRestartPluginRequested(effectIndex);
+        }
+    });
 }
 
 // Opens (or replaces) the generic parameter editor for the double-clicked effect

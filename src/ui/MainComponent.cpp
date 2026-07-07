@@ -120,6 +120,14 @@ MainComponent::MainComponent(model::Arrangement& arrangement, engine::Transport&
     m_mixerView->isParameterMapped = [this](model::StripAddress stripAddress, std::size_t effectIndex, int paramIndex) -> bool {
         return isParameterMapped && isParameterMapped(stripAddress, effectIndex, paramIndex);
     };
+    m_mixerView->isPluginCrashed = [this](model::StripAddress stripAddress, std::size_t effectIndex) -> bool {
+        return isPluginCrashed && isPluginCrashed(stripAddress, effectIndex);
+    };
+    m_mixerView->onRestartPluginRequested = [this](model::StripAddress stripAddress, std::size_t effectIndex) {
+        if (onRestartPluginRequested) {
+            onRestartPluginRequested(stripAddress, effectIndex);
+        }
+    };
     addChildComponent(*m_mixerView);
 
     updateBottomPanelVisibility();

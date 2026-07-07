@@ -22,8 +22,10 @@
 #include "model/OfflineRenderer.h"
 #include "model/Session.h"
 #include "model/TrackFreezer.h"
+#include "plugins/PluginEffect.h"
 #include "plugins/PluginHost.h"
 #include "plugins/PluginInstrument.h"
+#include "plugins/SandboxedPluginInstance.h"
 #include "project/ProjectSerializer.h"
 #include "ui/MainComponent.h"
 #include "ui/PluginWindow.h"
@@ -325,6 +327,16 @@ public:
             m_sandboxEnabled = enabled;
             m_pluginHost.setSandboxed(enabled);
         };
+        mainComponent->isPluginCrashed = [this](model::StripAddress stripAddress, std::size_t effectIndex) {
+            auto* sandboxed = findSandboxedPluginEffect(stripAddress, effectIndex);
+            return sandboxed != nullptr && sandboxed->hasCrashed();
+        };
+        mainComponent->onRestartPluginRequested = [this](model::StripAddress stripAddress, std::size_t effectIndex) {
+            auto* sandboxed = findSandboxedPluginEffect(stripAddress, effectIndex);
+            if (sandboxed != nullptr) {
+                sandboxed->restart();
+            }
+        };
         // Re-renders the initial track's instrument label, now that instrumentNameFor is wired
         mainComponent->refreshAllViews();
         m_mainWindow->setProjectTitle({});
@@ -504,6 +516,41 @@ private:
         }
 
         return mapping.effectIndex < mixer.strip(mapping.stripAddress).effects().size();
+    }
+
+    // Returns the sandboxed proxy behind a strip's effect slot, or nullptr when the slot
+    // does not resolve, is not a plugin effect, or is not running sandboxed at all
+    plugins::SandboxedPluginInstance* findSandboxedPluginEffect(model::StripAddress stripAddress, std::size_t effectIndex)
+    {
+        model::Mixer& mixer = m_arrangementNode->mixer();
+
+        switch (stripAddress.kind) {
+            case model::StripKind::Track:
+                if (stripAddress.index >= m_arrangement.numTracks()) {
+                    return nullptr;
+                }
+                break;
+            case model::StripKind::Bus:
+                if (stripAddress.index >= mixer.numBuses()) {
+                    return nullptr;
+                }
+                break;
+            case model::StripKind::Master:
+            default:
+                break;
+        }
+
+        engine::EffectChain& chain = mixer.strip(stripAddress).effects();
+        if (effectIndex >= chain.size()) {
+            return nullptr;
+        }
+
+        auto* pluginEffect = dynamic_cast<plugins::PluginEffect*>(&chain.at(effectIndex));
+        if (pluginEffect == nullptr) {
+            return nullptr;
+        }
+
+        return dynamic_cast<plugins::SandboxedPluginInstance*>(&pluginEffect->instance());
     }
 
     // Returns the mapping bound to the given parameter, or nullptr when none is bound

@@ -47,14 +47,21 @@ public:
     // Queried with (stripAddress, effectIndex, paramIndex) when building a parameter row's menu
     std::function<bool(model::StripAddress, std::size_t, int)> isParameterMapped;
 
+    // Queried with (stripAddress, effectIndex) when painting an FX row and its right click menu
+    std::function<bool(model::StripAddress, std::size_t)> isPluginCrashed;
+
+    // Fired with (stripAddress, effectIndex) when a crashed row's "Restart Plugin" item is picked
+    std::function<void(model::StripAddress, std::size_t)> onRestartPluginRequested;
+
 private:
     static constexpr int kStripWidth = 96;
 
     // Rebuilds one ChannelStripComponent per track, bus, and master
     void rebuildStrips();
 
-    // Wires one strip's MIDI learn callbacks to this view's, adding its address
-    void wireMidiLearnCallbacks(ChannelStripComponent& strip, model::StripAddress address);
+    // Wires one strip's MIDI learn and plugin crash/restart callbacks to this view's,
+    // adding its address
+    void wireStripCallbacks(ChannelStripComponent& strip, model::StripAddress address);
 
     // Pops meter readings into every strip
     void timerCallback() override;
