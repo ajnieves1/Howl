@@ -59,6 +59,23 @@ juce::var stripToVar(model::ChannelStrip& strip) {
     return juce::var(obj);
 }
 
+// Writes one automation lane's JSON entry: the parameter it targets and its points
+juce::var automationLaneToVar(const model::AutomationLaneSlot& slot) {
+    auto* obj = new juce::DynamicObject();
+    obj->setProperty("param", slot.paramIndex);
+
+    juce::Array<juce::var> points;
+    for (const auto& point : slot.lane.points()) {
+        auto* pointObj = new juce::DynamicObject();
+        pointObj->setProperty("tick", static_cast<juce::int64>(point.tick));
+        pointObj->setProperty("value", static_cast<double>(point.value));
+        points.add(juce::var(pointObj));
+    }
+    obj->setProperty("points", points);
+
+    return juce::var(obj);
+}
+
 // Writes one send's JSON entry
 juce::var sendToVar(const model::Send& send) {
     auto* obj = new juce::DynamicObject();
@@ -165,6 +182,12 @@ juce::var trackToVar(const model::Track& track, model::Mixer& mixer, std::size_t
         audioClips.add(audioClipToVar(placement));
     }
     obj->setProperty("audioClips", audioClips);
+
+    juce::Array<juce::var> automationLanes;
+    for (const auto& slot : track.automation) {
+        automationLanes.add(automationLaneToVar(slot));
+    }
+    obj->setProperty("automation", automationLanes);
 
     obj->setProperty("strip", stripToVar(mixer.trackStrip(trackIndex)));
 
@@ -279,7 +302,8 @@ void applyStripVar(const juce::var& stripVar, model::ChannelStrip& strip, engine
 // Serializes the session to .howl JSON text; instruments is a juce::var array, one entry
 // per track (in track order), built by the app
 juce::String ProjectSerializer::save(const model::Arrangement& arrangement, model::Mixer& mixer,
-                                     const model::Session& session, const juce::var& instruments, double tempo) {
+                                     const model::Session& session, const juce::var& instruments, double tempo,
+                                     const juce::var& midiMappings) {
     auto* root = new juce::DynamicObject();
     root->setProperty("version", 1);
     root->setProperty("tempo", tempo);
@@ -302,6 +326,7 @@ juce::String ProjectSerializer::save(const model::Arrangement& arrangement, mode
     root->setProperty("masterStrip", stripToVar(mixer.masterStrip()));
     root->setProperty("instruments", instruments);
     root->setProperty("session", sessionToVar(session));
+    root->setProperty("midiMappings", midiMappings);
 
     return juce::JSON::toString(juce::var(root));
 }
@@ -313,7 +338,7 @@ juce::String ProjectSerializer::save(const model::Arrangement& arrangement, mode
 bool ProjectSerializer::load(const juce::String& json, model::Arrangement& arrangement,
                              model::Mixer& mixer, model::Session& session, engine::IEffectFactory& factory,
                              plugins::IPluginHost* pluginHost, juce::var& instrumentsOut,
-                             double& tempoOut) {
+                             double& tempoOut, juce::var& midiMappingsOut) {
     juce::var parsed;
     const juce::Result parseResult = juce::JSON::parse(json, parsed);
     if (parseResult.failed() || !parsed.isObject()) {
@@ -322,6 +347,7 @@ bool ProjectSerializer::load(const juce::String& json, model::Arrangement& arran
 
     tempoOut = static_cast<double>(parsed.getProperty("tempo", 120.0));
     instrumentsOut = parsed.getProperty("instruments", juce::var());
+    midiMappingsOut = parsed.getProperty("midiMappings", juce::var());
 
     arrangement = model::Arrangement();
 
@@ -368,6 +394,24 @@ bool ProjectSerializer::load(const juce::String& json, model::Arrangement& arran
                     clip.setOriginalBpm(static_cast<double>(clipVar.getProperty("originalBpm", 0.0)));
                     clip.setWarpEnabled(static_cast<bool>(clipVar.getProperty("warpEnabled", false)));
                     arrangement.addAudioClipPlacement(trackIndex, model::AudioClipPlacement { startTick, clip });
+                }
+            }
+
+            if (const auto* automationArray = trackVar.getProperty("automation", juce::var()).getArray()) {
+                for (const auto& laneVar : *automationArray) {
+                    model::AutomationLaneSlot laneSlot;
+                    laneSlot.paramIndex = static_cast<int>(laneVar.getProperty("param", 0));
+
+                    if (const auto* pointsArray = laneVar.getProperty("points", juce::var()).getArray()) {
+                        for (const auto& pointVar : *pointsArray) {
+                            laneSlot.lane.addPoint(model::AutomationPoint {
+                                static_cast<int64_t>(static_cast<juce::int64>(pointVar.getProperty("tick", 0))),
+                                static_cast<float>(static_cast<double>(pointVar.getProperty("value", 0.0)))
+                            });
+                        }
+                    }
+
+                    arrangement.track(trackIndex).automation.push_back(std::move(laneSlot));
                 }
             }
         }
