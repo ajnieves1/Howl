@@ -45,8 +45,8 @@ public:
 
     bool hasEditor() const override;
 
-    // Embeds the plugin's native editor under nativeParentHandle
-    void openEditor(void* nativeParentHandle) override;
+    // Creates the plugin's editor and returns it as a component, nullptr when it has none
+    juce::Component* openEditor() override;
 
     void closeEditor() override;
 

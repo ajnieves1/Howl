@@ -58,8 +58,8 @@ public:
     // CLAP editor hosting is a later task, always false for now
     bool hasEditor() const override;
 
-    // No-op, CLAP GUI embedding is not implemented yet
-    void openEditor(void* nativeParentHandle) override;
+    // Always nullptr, CLAP GUI embedding is not implemented yet
+    juce::Component* openEditor() override;
 
     // No-op, CLAP GUI embedding is not implemented yet
     void closeEditor() override;

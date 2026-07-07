@@ -70,7 +70,8 @@ public:
         return false;
     }
 
-    void openEditor(void*) override {
+    juce::Component* openEditor() override {
+        return nullptr;
     }
 
     void closeEditor() override {

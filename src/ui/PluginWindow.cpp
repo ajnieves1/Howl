@@ -3,14 +3,16 @@
 
 #include "ui/PluginWindow.h"
 
+#include <juce_audio_processors/juce_audio_processors.h>
+
 #include <functional>
 
 namespace howl::ui {
 
 namespace {
 
-// Host chrome for a plugin editor, the editor itself is a separate native
-// window attached via IPluginInstance::openEditor(), not a child Component
+// Host chrome for a plugin editor, the editor is hosted as the window's
+// content component so the window always matches the editor's size
 class HostWindow : public juce::DocumentWindow {
 public:
     // Stores the callback to run when the user clicks the close button
@@ -22,8 +24,6 @@ public:
         , m_onCloseRequested(std::move(onCloseRequested))
     {
         setUsingNativeTitleBar(true);
-        setResizable(true, true);
-        centreWithSize(400, 300);
     }
 
     // Runs the stored close callback
@@ -53,26 +53,41 @@ PluginWindow::~PluginWindow() {
     close();
 }
 
-// Creates the host window and asks the plugin to embed its editor into it, no-op if the plugin has no editor
+// Creates the host window with the plugin's editor as its content, no-op if the plugin has no editor
 void PluginWindow::open() {
     if (m_window != nullptr || !m_plugin.hasEditor()) {
         return;
     }
 
-    m_window = std::make_unique<HostWindow>(m_title, [this] { close(); });
-    m_window->setVisible(true);
+    juce::Component* editor = m_plugin.openEditor();
+    if (editor == nullptr) {
+        return;
+    }
 
-    m_plugin.openEditor(m_window->getWindowHandle());
+    m_window = std::make_unique<HostWindow>(m_title, [this] { close(); });
+
+    // The window sizes itself around the editor now and follows any resize
+    // the editor makes later, the adapter keeps ownership of the editor
+    m_window->setContentNonOwned(editor, true);
+
+    if (auto* processorEditor = dynamic_cast<juce::AudioProcessorEditor*>(editor)) {
+        m_window->setResizable(processorEditor->isResizable(), false);
+    }
+
+    m_window->centreWithSize(m_window->getWidth(), m_window->getHeight());
+    m_window->setVisible(true);
+    m_window->toFront(true);
 }
 
-// Asks the plugin to close its editor, then closes the host window
+// Detaches the editor from the window, then lets the plugin destroy it
 void PluginWindow::close() {
     if (m_window == nullptr) {
         return;
     }
 
-    m_plugin.closeEditor();
+    m_window->clearContentComponent();
     m_window.reset();
+    m_plugin.closeEditor();
 }
 
 } // namespace howl::ui

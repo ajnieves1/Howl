@@ -94,24 +94,16 @@ bool Vst3Adapter::hasEditor() const {
     return m_plugin->hasEditor();
 }
 
-// Embeds the plugin's native editor under nativeParentHandle
-void Vst3Adapter::openEditor(void* nativeParentHandle) {
-    if (m_editor != nullptr) {
-        return;
+// Creates the plugin's editor and returns it as a component, nullptr when it has none
+juce::Component* Vst3Adapter::openEditor() {
+    if (m_editor == nullptr) {
+        m_editor.reset(m_plugin->createEditorIfNeeded());
     }
-
-    m_editor.reset(m_plugin->createEditorIfNeeded());
-    if (m_editor != nullptr) {
-        m_editor->addToDesktop(0, nativeParentHandle);
-        m_editor->setVisible(true);
-    }
+    return m_editor.get();
 }
 
 void Vst3Adapter::closeEditor() {
-    if (m_editor != nullptr) {
-        m_editor->removeFromDesktop();
-        m_editor.reset();
-    }
+    m_editor.reset();
 }
 
 } // namespace howl::plugins

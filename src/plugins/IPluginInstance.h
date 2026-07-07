@@ -11,6 +11,10 @@
 #include <string>
 #include <vector>
 
+namespace juce {
+class Component;
+}
+
 namespace howl::plugins {
 
 struct ParamInfo {
@@ -45,9 +49,10 @@ public:
     virtual const std::vector<ParamInfo>& params() const = 0;
     virtual void setParamNormalized(uint32_t id, float value) = 0;
 
-    // Editor, off the audio thread
+    // Editor, off the audio thread. The returned component is owned by the
+    // adapter and stays valid until closeEditor(), nullptr when there is none
     virtual bool hasEditor() const = 0;
-    virtual void openEditor(void* nativeParentHandle) = 0;
+    virtual juce::Component* openEditor() = 0;
     virtual void closeEditor() = 0;
 };
 

@@ -436,8 +436,9 @@ bool ClapAdapter::hasEditor() const {
     return false;
 }
 
-// No-op, CLAP GUI embedding is not implemented yet
-void ClapAdapter::openEditor(void* /*nativeParentHandle*/) {
+// Always nullptr, CLAP GUI embedding is not implemented yet
+juce::Component* ClapAdapter::openEditor() {
+    return nullptr;
 }
 
 // No-op, CLAP GUI embedding is not implemented yet
