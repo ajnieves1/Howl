@@ -3,7 +3,7 @@
 <img width="1909" height="1023" alt="image" src="https://github.com/user-attachments/assets/2b4b918e-3d8f-4f1d-9922-b781abd0f570" />
 
 
-Howl is a digital audio workstation written from scratch in C++20 on the JUCE 8 framework. It covers the core of what a DAW needs, a timeline, a piano roll, a session grid, a mixer, plugin hosting, and clean offline rendering, without the bloat that piles up in commercial products, and most importantly, supports VST3.
+Howl is a digital audio workstation written in C++20 on the JUCE 8 framework. It covers the core of what a DAW needs, a timeline, a piano roll, a session grid, a mixer, plugin hosting, and clean offline rendering, without the bloat that piles up in commercial products, and most importantly, supports VST3.
 
 ## Features
 
@@ -39,7 +39,7 @@ You are able to run the app's binary from build/src/Howl_artefacts
 ctest --test-dir build
 ```
 
-The suite has over 140 test cases across 43 files, covering the audio engine, the mixer, DSP, plugin adapters, serialization, and golden render checks that assert offline output is deterministic down to the sample.
+Unit tests cover the audio engine, the mixer, DSP, plugin adapters, serialization, and golden render checks that ensure offline output is deterministic
 
 ## Documentation
 

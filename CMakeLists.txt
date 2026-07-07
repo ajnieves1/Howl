@@ -65,8 +65,7 @@ if (APPLE)
     target_link_libraries(rubberband PUBLIC "-framework Accelerate")
 endif()
 
-# Treat the fetched CLAP headers as system headers so their own warnings
-# stay out of our zero-warning build output (SYSTEM property is CMake 3.25+,
+# Treat the fetched CLAP headers as system headers (SYSTEM property is CMake 3.25+,
 # silently ignored on older versions)
 if (TARGET clap)
     set_target_properties(clap PROPERTIES SYSTEM TRUE)
@@ -80,7 +79,7 @@ list(APPEND CMAKE_MODULE_PATH ${catch2_SOURCE_DIR}/extras)
 enable_testing()
 
 # Applies to every target below so each JUCE module is compiled
-# with the same flags no matter which of our libraries pulls it in
+# with the same flags no matter 
 add_compile_definitions(
     JUCE_DISPLAY_SPLASH_SCREEN=0
     JUCE_WEB_BROWSER=0
