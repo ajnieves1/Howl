@@ -54,6 +54,9 @@ private:
     // Path to the cached KnownPluginList XML
     static juce::File cacheFilePath();
 
+    // Path to the dead man's pedal file, next to the cache
+    static juce::File deadMansPedalFilePath();
+
     juce::AudioPluginFormatManager m_formatManager;
     juce::KnownPluginList m_knownPlugins;
 

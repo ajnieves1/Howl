@@ -18,8 +18,13 @@ PluginHost::PluginHost() {
 
     if (auto xml = juce::XmlDocument::parse(cacheFilePath())) {
         m_knownPlugins.recreateFromXml(*xml);
-        refreshDescriptors();
     }
+
+    // A plugin that crashed during a scan last launch left its path in this file, blacklist it
+    // now rather than let the next rescan try (and crash on) it again
+    juce::PluginDirectoryScanner::applyBlacklistingsFromDeadMansPedal(m_knownPlugins, deadMansPedalFilePath());
+
+    refreshDescriptors();
 }
 
 // Joins the scan thread if one is still running
@@ -124,7 +129,7 @@ void PluginHost::scanThreadFunc() {
         }
        #endif
 
-        juce::PluginDirectoryScanner scanner(m_knownPlugins, *vst3Format, searchPath, true, juce::File());
+        juce::PluginDirectoryScanner scanner(m_knownPlugins, *vst3Format, searchPath, true, deadMansPedalFilePath());
 
         juce::String pluginBeingScanned;
         while (scanner.scanNextFile(true, pluginBeingScanned)) {
@@ -161,6 +166,19 @@ void PluginHost::refreshDescriptors() {
         });
     }
 
+    // A blacklisted file crashed before a description could ever be read from it, so
+    // there is no real name or vendor to show, only the file itself, marked so the user
+    // knows why the plugin they expected is missing rather than it just vanishing quietly
+    for (const auto& blacklistedPath : m_knownPlugins.getBlacklistedFiles()) {
+        descriptors.push_back(PluginDescriptor {
+            juce::File(blacklistedPath).getFileNameWithoutExtension().toStdString() + " (failed to scan)",
+            "",
+            "VST3",
+            blacklistedPath.toStdString(),
+            false
+        });
+    }
+
     std::lock_guard<std::mutex> lock(m_listMutex);
     for (const auto& info : m_clapPlugins) {
         descriptors.push_back(PluginDescriptor { info.name, info.vendor, "CLAP", info.path, info.isInstrument });
@@ -173,6 +191,14 @@ juce::File PluginHost::cacheFilePath() {
     return juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
         .getChildFile("Howl")
         .getChildFile("vst3_cache.xml");
+}
+
+// Path to the dead man's pedal file: a plugin that crashes during a scan leaves its path
+// here, read back and blacklisted on the next launch instead of crashing again on the same one
+juce::File PluginHost::deadMansPedalFilePath() {
+    return juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
+        .getChildFile("Howl")
+        .getChildFile("vst3_dead_mans_pedal.txt");
 }
 
 } // namespace howl::plugins
