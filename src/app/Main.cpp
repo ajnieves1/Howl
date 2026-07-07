@@ -32,8 +32,10 @@
 #include <juce_events/juce_events.h>
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include <algorithm>
 #include <cmath>
 #include <memory>
+#include <optional>
 #include <vector>
 
 namespace howl {
@@ -73,6 +75,45 @@ private:
 
     io::AudioDevice& m_device;
     int m_secondsElapsed = 0;
+};
+
+// One learned CC to effect parameter binding
+struct MidiMapping {
+    int cc;
+    model::StripAddress stripAddress;
+    std::size_t effectIndex;
+    int paramIndex;
+};
+
+// The parameter armed to receive the next CC that comes in
+struct MidiLearnTarget {
+    model::StripAddress stripAddress;
+    std::size_t effectIndex;
+    int paramIndex;
+};
+
+// Drains the MIDI input hub's CC queue at 30 Hz, message thread only
+class MidiLearnTimer : public juce::Timer {
+public:
+    // Stores the hub to drain and the callback to run for each CC event
+    MidiLearnTimer(io::MidiInputHub& hub, std::function<void(const MidiEvent&)> onCcEvent)
+        : m_hub(hub)
+        , m_onCcEvent(std::move(onCcEvent))
+    {
+        startTimerHz(30);
+    }
+
+    // Pops every pending CC event and runs the callback for each
+    void timerCallback() override {
+        MidiEvent event {};
+        while (m_hub.popCcEvent(event)) {
+            m_onCcEvent(event);
+        }
+    }
+
+private:
+    io::MidiInputHub& m_hub;
+    std::function<void(const MidiEvent&)> m_onCcEvent;
 };
 
 class MainWindow : public juce::DocumentWindow {
@@ -244,6 +285,15 @@ public:
         mainComponent->onTrackSelected = [this](std::ptrdiff_t trackIndex) {
             m_arrangementNode->setLiveTargetTrack(trackIndex);
         };
+        mainComponent->onMidiLearnRequested = [this](model::StripAddress stripAddress, std::size_t effectIndex, int paramIndex) {
+            m_midiLearnTarget = MidiLearnTarget { stripAddress, effectIndex, paramIndex };
+        };
+        mainComponent->onMidiUnlearnRequested = [this](model::StripAddress stripAddress, std::size_t effectIndex, int paramIndex) {
+            removeMidiMappingFor(stripAddress, effectIndex, paramIndex);
+        };
+        mainComponent->isParameterMapped = [this](model::StripAddress stripAddress, std::size_t effectIndex, int paramIndex) {
+            return findMidiMappingFor(stripAddress, effectIndex, paramIndex) != nullptr;
+        };
         // Re-renders the initial track's instrument label, now that instrumentNameFor is wired
         mainComponent->refreshAllViews();
         m_mainWindow->setProjectTitle({});
@@ -255,11 +305,16 @@ public:
 
         m_xrunWatcher = std::make_unique<XrunWatcher>(m_audioDevice);
         m_xrunWatcher->start();
+
+        m_midiLearnTimer = std::make_unique<MidiLearnTimer>(m_midiInputHub, [this](const MidiEvent& event) {
+            handleMidiCcEvent(event);
+        });
     }
 
     // Stops the xrun watcher, closes the audio device, and closes the window
     void shutdown() override
     {
+        m_midiLearnTimer.reset();
         m_xrunWatcher.reset();
         m_audioDevice.close();
         m_mainWindow.reset();
@@ -394,6 +449,89 @@ private:
         m_instrumentEditorWindow = std::make_unique<ui::PluginWindow>(
             pluginInstrument->instance(), pluginInstrument->displayName());
         m_instrumentEditorWindow->open();
+    }
+
+    // True when a mapping's strip and effect still resolve, false after a structural edit removes them
+    bool midiMappingResolves(const MidiMapping& mapping) const
+    {
+        model::Mixer& mixer = m_arrangementNode->mixer();
+
+        switch (mapping.stripAddress.kind) {
+            case model::StripKind::Track:
+                if (mapping.stripAddress.index >= m_arrangement.numTracks()) {
+                    return false;
+                }
+                break;
+            case model::StripKind::Bus:
+                if (mapping.stripAddress.index >= mixer.numBuses()) {
+                    return false;
+                }
+                break;
+            case model::StripKind::Master:
+            default:
+                break;
+        }
+
+        return mapping.effectIndex < mixer.strip(mapping.stripAddress).effects().size();
+    }
+
+    // Returns the mapping bound to the given parameter, or nullptr when none is bound
+    MidiMapping* findMidiMappingFor(model::StripAddress stripAddress, std::size_t effectIndex, int paramIndex)
+    {
+        for (auto& mapping : m_midiMappings) {
+            if (mapping.stripAddress.kind == stripAddress.kind && mapping.stripAddress.index == stripAddress.index
+                && mapping.effectIndex == effectIndex && mapping.paramIndex == paramIndex) {
+                return &mapping;
+            }
+        }
+        return nullptr;
+    }
+
+    // Removes the mapping bound to the given parameter, if any
+    void removeMidiMappingFor(model::StripAddress stripAddress, std::size_t effectIndex, int paramIndex)
+    {
+        m_midiMappings.erase(
+            std::remove_if(m_midiMappings.begin(), m_midiMappings.end(),
+                [&](const MidiMapping& mapping) {
+                    return mapping.stripAddress.kind == stripAddress.kind
+                        && mapping.stripAddress.index == stripAddress.index
+                        && mapping.effectIndex == effectIndex && mapping.paramIndex == paramIndex;
+                }),
+            m_midiMappings.end());
+    }
+
+    // Binds the armed learn target to the first CC that comes in, or applies a bound CC's value
+    void handleMidiCcEvent(const MidiEvent& event)
+    {
+        if (m_midiLearnTarget) {
+            const MidiLearnTarget target = *m_midiLearnTarget;
+
+            // Replace any existing mapping for this CC, and any existing mapping for this target
+            m_midiMappings.erase(
+                std::remove_if(m_midiMappings.begin(), m_midiMappings.end(),
+                    [&](const MidiMapping& mapping) {
+                        return mapping.cc == event.number
+                            || (mapping.stripAddress.kind == target.stripAddress.kind
+                                && mapping.stripAddress.index == target.stripAddress.index
+                                && mapping.effectIndex == target.effectIndex
+                                && mapping.paramIndex == target.paramIndex);
+                    }),
+                m_midiMappings.end());
+
+            m_midiMappings.push_back(
+                MidiMapping { event.number, target.stripAddress, target.effectIndex, target.paramIndex });
+            m_midiLearnTarget.reset();
+            return;
+        }
+
+        for (const auto& mapping : m_midiMappings) {
+            if (mapping.cc != event.number || !midiMappingResolves(mapping)) {
+                continue;
+            }
+
+            model::Mixer& mixer = m_arrangementNode->mixer();
+            mixer.strip(mapping.stripAddress).effects().at(mapping.effectIndex).setParameter(mapping.paramIndex, event.value);
+        }
     }
 
     // Returns the index of the first audio track, creating one (always at the current end,
@@ -943,6 +1081,9 @@ private:
     plugins::PluginHost m_pluginHost;
     io::AudioDevice m_audioDevice;
     io::MidiInputHub m_midiInputHub;
+    std::unique_ptr<MidiLearnTimer> m_midiLearnTimer;
+    std::vector<MidiMapping> m_midiMappings;
+    std::optional<MidiLearnTarget> m_midiLearnTarget;
     engine::Graph m_graph;
     model::ArrangementNode* m_arrangementNode = nullptr;
     double m_sampleRate = 44100.0;

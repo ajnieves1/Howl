@@ -107,6 +107,19 @@ MainComponent::MainComponent(model::Arrangement& arrangement, engine::Transport&
 
     m_mixerView = std::make_unique<MixerView>(mixer, arrangement, factory, pluginHost,
         commandStack, sampleRate, maxBlockSize);
+    m_mixerView->onMidiLearnRequested = [this](model::StripAddress stripAddress, std::size_t effectIndex, int paramIndex) {
+        if (onMidiLearnRequested) {
+            onMidiLearnRequested(stripAddress, effectIndex, paramIndex);
+        }
+    };
+    m_mixerView->onMidiUnlearnRequested = [this](model::StripAddress stripAddress, std::size_t effectIndex, int paramIndex) {
+        if (onMidiUnlearnRequested) {
+            onMidiUnlearnRequested(stripAddress, effectIndex, paramIndex);
+        }
+    };
+    m_mixerView->isParameterMapped = [this](model::StripAddress stripAddress, std::size_t effectIndex, int paramIndex) -> bool {
+        return isParameterMapped && isParameterMapped(stripAddress, effectIndex, paramIndex);
+    };
     addChildComponent(*m_mixerView);
 
     updateBottomPanelVisibility();
