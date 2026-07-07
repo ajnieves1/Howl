@@ -39,7 +39,7 @@ You are able to run the app's binary from build/src/Howl_artefacts
 ctest --test-dir build
 ```
 
-The suite has over 140 test cases across 43 files, covering the audio engine, the mixer, DSP, plugin adapters, serialization, and golden render checks that assert offline output is deterministic down to the sample.
+The suite has over 140 test cases across 43 files, covering the audio engine, the mixer, DSP, plugin adapters, serialization, and golden render checks that affirm offline output is deterministic
 
 ## Documentation
 
