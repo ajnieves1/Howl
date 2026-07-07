@@ -83,6 +83,8 @@ std::vector<std::string> standardClapDirectories() {
    #if JUCE_LINUX
     dirs.push_back(home.getChildFile(".clap").getFullPathName().toStdString());
     dirs.push_back("/usr/lib/clap");
+    dirs.push_back("/usr/local/lib/clap");
+    dirs.push_back("/usr/lib64/clap");
    #elif JUCE_MAC
     dirs.push_back(home.getChildFile("Library/Audio/Plug-Ins/CLAP").getFullPathName().toStdString());
     dirs.push_back("/Library/Audio/Plug-Ins/CLAP");
@@ -263,7 +265,8 @@ void ClapAdapter::prepare(double sampleRate, int maxBlockSize) {
         }
     }
 
-    if (plugin->activate(plugin, sampleRate, 0, static_cast<uint32_t>(maxBlockSize))) {
+    // min_frames_count must be at least 1 per the CLAP spec, 1 accepts any block size up to max
+    if (plugin->activate(plugin, sampleRate, 1, static_cast<uint32_t>(maxBlockSize))) {
         m_impl->activated = true;
         if (plugin->start_processing(plugin)) {
             m_impl->processing = true;

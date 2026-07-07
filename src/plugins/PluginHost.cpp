@@ -55,8 +55,18 @@ void PluginHost::waitForScanToFinish() {
     }
 }
 
-// Creates a VST3 instance for the given descriptor, matched against the cached scan
+// Instantiates a VST3 or CLAP plugin, matched against the cached scan by format
 std::unique_ptr<IPluginInstance> PluginHost::instantiate(const PluginDescriptor& descriptor) {
+    if (descriptor.format == "CLAP") {
+        std::lock_guard<std::mutex> lock(m_listMutex);
+        for (const auto& info : m_clapPlugins) {
+            if (info.path == descriptor.path && info.name == descriptor.name) {
+                return ClapAdapter::load(info);
+            }
+        }
+        return nullptr;
+    }
+
     for (const auto& type : m_knownPlugins.getTypes()) {
         if (type.fileOrIdentifier.toStdString() != descriptor.path) {
             continue;
@@ -86,13 +96,28 @@ void PluginHost::scanThreadFunc() {
     }
 
     if (vst3Format != nullptr) {
-        juce::PluginDirectoryScanner scanner(m_knownPlugins, *vst3Format,
-                                              vst3Format->getDefaultLocationsToSearch(),
-                                              true, juce::File());
+        juce::FileSearchPath searchPath = vst3Format->getDefaultLocationsToSearch();
+
+       #if JUCE_LINUX
+        // Fedora's surge-xt and similar packages install here, outside JUCE's defaults;
+        // this retires the ~/.vst3 symlink workaround from the earlier phase
+        const juce::File fedoraVst3Dir("/usr/lib64/vst3");
+        if (fedoraVst3Dir.isDirectory()) {
+            searchPath.addIfNotAlreadyThere(fedoraVst3Dir);
+        }
+       #endif
+
+        juce::PluginDirectoryScanner scanner(m_knownPlugins, *vst3Format, searchPath, true, juce::File());
 
         juce::String pluginBeingScanned;
         while (scanner.scanNextFile(true, pluginBeingScanned)) {
         }
+    }
+
+    {
+        std::vector<ClapPluginInfo> clapPlugins = ClapAdapter::scan();
+        std::lock_guard<std::mutex> lock(m_listMutex);
+        m_clapPlugins = std::move(clapPlugins);
     }
 
     refreshDescriptors();
@@ -106,7 +131,7 @@ void PluginHost::scanThreadFunc() {
     m_scanning.store(false, std::memory_order_release);
 }
 
-// Rebuilds m_descriptors from the current contents of m_knownPlugins
+// Rebuilds m_descriptors from the current contents of m_knownPlugins and m_clapPlugins
 void PluginHost::refreshDescriptors() {
     std::vector<PluginDescriptor> descriptors;
     for (const auto& type : m_knownPlugins.getTypes()) {
@@ -120,6 +145,9 @@ void PluginHost::refreshDescriptors() {
     }
 
     std::lock_guard<std::mutex> lock(m_listMutex);
+    for (const auto& info : m_clapPlugins) {
+        descriptors.push_back(PluginDescriptor { info.name, info.vendor, "CLAP", info.path, info.isInstrument });
+    }
     m_descriptors = std::move(descriptors);
 }
 
