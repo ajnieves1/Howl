@@ -92,6 +92,30 @@ struct MidiLearnTarget {
     int paramIndex;
 };
 
+// Names a strip kind for JSON, matching the instruments and effects kind string convention
+juce::String stripKindToString(model::StripKind kind) {
+    switch (kind) {
+        case model::StripKind::Track:
+            return "track";
+        case model::StripKind::Bus:
+            return "bus";
+        case model::StripKind::Master:
+        default:
+            return "master";
+    }
+}
+
+// Parses a strip kind string, defaulting to Master for anything not recognized
+model::StripKind stripKindFromString(const juce::String& kindString) {
+    if (kindString == "track") {
+        return model::StripKind::Track;
+    }
+    if (kindString == "bus") {
+        return model::StripKind::Bus;
+    }
+    return model::StripKind::Master;
+}
+
 // Drains the MIDI input hub's CC queue at 30 Hz, message thread only
 class MidiLearnTimer : public juce::Timer {
 public:
@@ -849,11 +873,54 @@ private:
         return instruments;
     }
 
+    // Builds the midiMappings array save() embeds: one entry per learned CC binding
+    juce::var buildMidiMappingsVar()
+    {
+        juce::Array<juce::var> mappings;
+
+        for (const auto& mapping : m_midiMappings) {
+            auto* obj = new juce::DynamicObject();
+            obj->setProperty("cc", mapping.cc);
+            obj->setProperty("stripKind", stripKindToString(mapping.stripAddress.kind));
+            obj->setProperty("stripIndex", static_cast<int>(mapping.stripAddress.index));
+            obj->setProperty("effectIndex", static_cast<int>(mapping.effectIndex));
+            obj->setProperty("paramIndex", mapping.paramIndex);
+            mappings.add(juce::var(obj));
+        }
+
+        return mappings;
+    }
+
+    // Rebuilds m_midiMappings from a loaded midiMappings var, dropping entries whose strip
+    // or effect no longer resolves
+    void rebuildMidiMappingsFromVar(const juce::var& midiMappingsVar)
+    {
+        m_midiMappings.clear();
+
+        if (const auto* mappingsArray = midiMappingsVar.getArray()) {
+            for (const auto& entry : *mappingsArray) {
+                const MidiMapping mapping {
+                    static_cast<int>(entry.getProperty("cc", 0)),
+                    model::StripAddress {
+                        stripKindFromString(entry.getProperty("stripKind", juce::var()).toString()),
+                        static_cast<std::size_t>(static_cast<int>(entry.getProperty("stripIndex", 0)))
+                    },
+                    static_cast<std::size_t>(static_cast<int>(entry.getProperty("effectIndex", 0))),
+                    static_cast<int>(entry.getProperty("paramIndex", 0))
+                };
+
+                if (midiMappingResolves(mapping)) {
+                    m_midiMappings.push_back(mapping);
+                }
+            }
+        }
+    }
+
     // Serializes the current session and writes it to file
     void saveProject(const juce::File& file)
     {
         const juce::String json = project::ProjectSerializer::save(m_arrangement, m_arrangementNode->mixer(),
-            m_session, buildInstrumentsVar(), m_transport.tempo());
+            m_session, buildInstrumentsVar(), m_transport.tempo(), buildMidiMappingsVar());
 
         if (!file.replaceWithText(json)) {
             juce::Logger::writeToLog("Howl: failed to write project file " + file.getFullPathName());
@@ -913,6 +980,7 @@ private:
     {
         // Every instrument is about to be replaced, an open editor would dangle
         m_instrumentEditorWindow.reset();
+        m_midiLearnTarget.reset();
 
         m_transport.stop();
         m_audioDevice.stop();
@@ -920,9 +988,10 @@ private:
 
         juce::var instrumentsVar;
         double tempo = 120.0;
+        juce::var midiMappingsVar;
 
         const bool ok = project::ProjectSerializer::load(json, m_arrangement, m_arrangementNode->mixer(),
-            m_session, m_effectFactory, &m_pluginHost, instrumentsVar, tempo);
+            m_session, m_effectFactory, &m_pluginHost, instrumentsVar, tempo, midiMappingsVar);
 
         if (!ok) {
             juce::Logger::writeToLog("Howl: failed to parse project file");
@@ -934,6 +1003,7 @@ private:
         }
 
         m_transport.setTempo(tempo);
+        rebuildMidiMappingsFromVar(midiMappingsVar);
 
         // Re-read every audio clip's source file now that placements only carry sourcePath,
         // both in the arrangement and in the session grid

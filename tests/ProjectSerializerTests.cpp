@@ -6,6 +6,7 @@
 #include "dsp/BuiltInEffectFactory.h"
 #include "model/Arrangement.h"
 #include "model/AudioClip.h"
+#include "model/AutomationLane.h"
 #include "model/MidiClip.h"
 #include "model/Mixer.h"
 #include "model/Note.h"
@@ -21,6 +22,8 @@ using howl::engine::EffectType;
 using howl::model::Arrangement;
 using howl::model::AudioClip;
 using howl::model::AudioClipPlacement;
+using howl::model::AutomationLaneSlot;
+using howl::model::AutomationPoint;
 using howl::model::MidiClip;
 using howl::model::MidiClipPlacement;
 using howl::model::Mixer;
@@ -91,10 +94,27 @@ TEST_CASE("ProjectSerializer round-trips tracks, clips, mixer state, effects, se
 
     mixer.masterStrip().setGainDb(-3.0f);
 
+    AutomationLaneSlot laneSlot;
+    laneSlot.paramIndex = 2;
+    laneSlot.lane.addPoint(AutomationPoint { 0, 0.1f });
+    laneSlot.lane.addPoint(AutomationPoint { 480, 0.5f });
+    laneSlot.lane.addPoint(AutomationPoint { 960, 0.9f });
+    arrangement.track(midiTrack).automation.push_back(laneSlot);
+
     const double tempo = 98.5;
     const juce::var instruments; // not this test's concern
 
-    const juce::String json = ProjectSerializer::save(arrangement, mixer, session, instruments, tempo);
+    juce::Array<juce::var> mappingsArray;
+    auto* mappingObj = new juce::DynamicObject();
+    mappingObj->setProperty("cc", 74);
+    mappingObj->setProperty("stripKind", "track");
+    mappingObj->setProperty("stripIndex", static_cast<int>(midiTrack));
+    mappingObj->setProperty("effectIndex", 0);
+    mappingObj->setProperty("paramIndex", 0);
+    mappingsArray.add(juce::var(mappingObj));
+    const juce::var midiMappings(mappingsArray);
+
+    const juce::String json = ProjectSerializer::save(arrangement, mixer, session, instruments, tempo, midiMappings);
     REQUIRE(json.contains("\"version\""));
 
     juce::var parsed;
@@ -106,11 +126,24 @@ TEST_CASE("ProjectSerializer round-trips tracks, clips, mixer state, effects, se
     Session loadedSession;
     juce::var loadedInstruments;
     double loadedTempo = 0.0;
+    juce::var loadedMidiMappings;
 
     const bool ok = ProjectSerializer::load(json, loadedArrangement, loadedMixer, loadedSession, factory, nullptr,
-        loadedInstruments, loadedTempo);
+        loadedInstruments, loadedTempo, loadedMidiMappings);
     REQUIRE(ok);
     REQUIRE(loadedTempo == Catch::Approx(98.5));
+
+    REQUIRE(loadedArrangement.track(midiTrack).automation.size() == 1);
+    REQUIRE(loadedArrangement.track(midiTrack).automation[0].paramIndex == 2);
+    REQUIRE(loadedArrangement.track(midiTrack).automation[0].lane.points().size() == 3);
+    REQUIRE(loadedArrangement.track(midiTrack).automation[0].lane.points()[1].tick == 480);
+    REQUIRE(loadedArrangement.track(midiTrack).automation[0].lane.points()[1].value == Catch::Approx(0.5f));
+
+    const auto* loadedMappingsArray = loadedMidiMappings.getArray();
+    REQUIRE(loadedMappingsArray != nullptr);
+    REQUIRE(loadedMappingsArray->size() == 1);
+    REQUIRE(static_cast<int>((*loadedMappingsArray)[0].getProperty("cc", -1)) == 74);
+    REQUIRE((*loadedMappingsArray)[0].getProperty("stripKind", juce::var()).toString() == "track");
 
     REQUIRE(loadedArrangement.numTracks() == 2);
     REQUIRE(loadedArrangement.track(midiTrack).name == "Lead");
@@ -183,15 +216,21 @@ TEST_CASE("ProjectSerializer.load is forward-tolerant of an unrecognized version
     Session session;
     juce::var instruments;
     double tempo = 0.0;
+    juce::var midiMappings;
 
-    const bool ok = ProjectSerializer::load(json, arrangement, mixer, session, factory, nullptr, instruments, tempo);
+    const bool ok = ProjectSerializer::load(json, arrangement, mixer, session, factory, nullptr, instruments, tempo,
+        midiMappings);
     REQUIRE(ok);
     REQUIRE(tempo == Catch::Approx(140.0));
     REQUIRE(arrangement.numTracks() == 1);
     REQUIRE(arrangement.track(0).name == "Lead");
     REQUIRE(mixer.trackStrip(0).gainDb() == Catch::Approx(-1.0f));
 
-    // No "session" key in this older-era JSON: still loads as an empty grid sized to the track count
+    // No "session" key in this version 2 file, so session is empty but sized to the track count
     REQUIRE(session.numTracks() == 1);
     REQUIRE(session.numScenes() == 0);
+
+    // No "automation" or "midiMappings" keys in this version 2 file: empty, not a crash
+    REQUIRE(arrangement.track(0).automation.empty());
+    REQUIRE(midiMappings.isVoid());
 }
