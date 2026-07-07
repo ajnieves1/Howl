@@ -2,6 +2,7 @@
 // Howl DAW: scans system VST3 plugins on a background thread, caches the result
 
 #include "plugins/PluginHost.h"
+#include "plugins/SandboxedPluginInstance.h"
 #include "plugins/Vst3Adapter.h"
 
 namespace howl::plugins {
@@ -55,8 +56,24 @@ void PluginHost::waitForScanToFinish() {
     }
 }
 
-// Instantiates a VST3 or CLAP plugin, matched against the cached scan by format
+// When true, instantiate() wraps new plugins in a sandbox child, default true
+void PluginHost::setSandboxed(bool sandboxed) {
+    m_sandboxed.store(sandboxed, std::memory_order_relaxed);
+}
+
+// Instantiates a VST3 or CLAP plugin, matched against the cached scan by format.
+// Sandboxed when setSandboxed(true) (the default), falls back in process (logged)
+// when the sandbox fails to start
 std::unique_ptr<IPluginInstance> PluginHost::instantiate(const PluginDescriptor& descriptor) {
+    if (m_sandboxed.load(std::memory_order_relaxed) && (descriptor.format == "VST3" || descriptor.format == "CLAP")) {
+        auto sandboxed = std::make_unique<SandboxedPluginInstance>(descriptor, kInitialSampleRate, kInitialBufferSize);
+        if (sandboxed->isValid()) {
+            return sandboxed;
+        }
+        juce::Logger::writeToLog("Howl: sandbox failed to start for '" + juce::String(descriptor.name)
+                                  + "', falling back to in process hosting");
+    }
+
     if (descriptor.format == "CLAP") {
         std::lock_guard<std::mutex> lock(m_listMutex);
         for (const auto& info : m_clapPlugins) {

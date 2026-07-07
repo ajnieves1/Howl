@@ -101,7 +101,7 @@ std::vector<std::string> standardClapDirectories() {
 }
 
 // Opens one .clap file, appends every plugin it declares to out
-void scanFile(const std::string& path, std::vector<ClapPluginInfo>& out) {
+void scanOneClapFile(const std::string& path, std::vector<ClapPluginInfo>& out) {
     juce::DynamicLibrary library;
     if (!library.open(path)) {
         return;
@@ -200,9 +200,17 @@ std::vector<ClapPluginInfo> ClapAdapter::scan() {
         }
         const auto files = directory.findChildFiles(juce::File::findFilesAndDirectories, true, "*.clap");
         for (const auto& file : files) {
-            scanFile(file.getFullPathName().toStdString(), found);
+            scanOneClapFile(file.getFullPathName().toStdString(), found);
         }
     }
+    return found;
+}
+
+// Opens one .clap file directly and returns every plugin it declares, used by the
+// sandbox child to resolve a plugin id from just the path and name it was given
+std::vector<ClapPluginInfo> ClapAdapter::scanFile(const std::string& path) {
+    std::vector<ClapPluginInfo> found;
+    scanOneClapFile(path, found);
     return found;
 }
 

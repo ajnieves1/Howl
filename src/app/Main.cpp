@@ -318,6 +318,13 @@ public:
         mainComponent->isParameterMapped = [this](model::StripAddress stripAddress, std::size_t effectIndex, int paramIndex) {
             return findMidiMappingFor(stripAddress, effectIndex, paramIndex) != nullptr;
         };
+        mainComponent->isSandboxEnabled = [this] {
+            return m_sandboxEnabled;
+        };
+        mainComponent->onSandboxToggled = [this](bool enabled) {
+            m_sandboxEnabled = enabled;
+            m_pluginHost.setSandboxed(enabled);
+        };
         // Re-renders the initial track's instrument label, now that instrumentNameFor is wired
         mainComponent->refreshAllViews();
         m_mainWindow->setProjectTitle({});
@@ -1098,10 +1105,14 @@ private:
         if (foundAny) {
             auto pluginInstance = m_pluginHost.instantiate(found);
             if (pluginInstance != nullptr) {
-                juce::MemoryBlock stateBlock;
-                stateBlock.fromBase64Encoding(entry.getProperty("state", juce::var()).toString());
-                const auto* bytes = static_cast<const uint8_t*>(stateBlock.getData());
-                plugins::StateBlob blob(bytes, bytes + stateBlock.getSize());
+                // Base64::toBase64() (used to write "state" in buildInstrumentsVar) pairs
+                // with Base64::convertFromBase64(), not MemoryBlock::fromBase64Encoding(),
+                // which expects its own "byteCount.base64" format and otherwise just
+                // silently fails to an empty block
+                juce::MemoryOutputStream decodedState;
+                juce::Base64::convertFromBase64(decodedState, entry.getProperty("state", juce::var()).toString());
+                const auto* bytes = static_cast<const uint8_t*>(decodedState.getData());
+                plugins::StateBlob blob(bytes, bytes + decodedState.getDataSize());
                 pluginInstance->loadState(blob);
                 instrument = std::make_unique<plugins::PluginInstrument>(std::move(pluginInstance), found);
                 instrumentName = name;
@@ -1149,6 +1160,7 @@ private:
     model::CommandStack m_commandStack;
     dsp::BuiltInEffectFactory m_effectFactory;
     plugins::PluginHost m_pluginHost;
+    bool m_sandboxEnabled = true;
     io::AudioDevice m_audioDevice;
     io::MidiInputHub m_midiInputHub;
     std::unique_ptr<MidiLearnTimer> m_midiLearnTimer;

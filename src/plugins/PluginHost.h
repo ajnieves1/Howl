@@ -35,8 +35,14 @@ public:
     // Blocks the calling thread until any in-progress scan completes
     void waitForScanToFinish();
 
-    // Instantiates a VST3 or CLAP plugin, matched against the cached scan by format
+    // Instantiates a VST3 or CLAP plugin, matched against the cached scan by format.
+    // Sandboxed when setSandboxed(true) (the default), falls back in process (logged)
+    // when the sandbox fails to start
     std::unique_ptr<IPluginInstance> instantiate(const PluginDescriptor& descriptor) override;
+
+    // When true, instantiate() wraps new plugins in a sandbox child, default true.
+    // Affects new instantiations only, plugins already loaded are unaffected
+    void setSandboxed(bool sandboxed);
 
 private:
     // Runs the actual scan, called on m_scanThread
@@ -57,6 +63,7 @@ private:
 
     std::thread m_scanThread;
     std::atomic<bool> m_scanning { false };
+    std::atomic<bool> m_sandboxed { true };
 };
 
 } // namespace howl::plugins

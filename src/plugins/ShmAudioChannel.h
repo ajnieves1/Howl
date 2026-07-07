@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Howl DAW: one block-synchronous audio exchange between a parent and a sandboxed child, over shared memory
+// Howl DAW: one block synchronous audio exchange between a parent and a sandboxed child, over shared memory
 
 #pragma once
 
@@ -15,7 +15,7 @@
 
 namespace howl::plugins {
 
-// Fixed shared-memory layout at the start of the mapped file
+// Fixed shared memory layout at the start of the mapped file
 struct ShmHeader {
     // Incremented by the parent after writing an input block
     std::atomic<std::uint32_t> inputSeq;
@@ -30,7 +30,7 @@ struct ShmHeader {
     std::int32_t numEvents;
 };
 
-// One block-synchronous audio exchange over a memory-mapped file: the parent writes an
+// One block synchronous audio exchange over a memory mapped file: the parent writes an
 // input block and spin-waits for the matching output, the child blocks politely for input
 // and publishes output when done. Layout: ShmHeader, then a fixed 64-slot frame-offset array,
 // then a fixed 64-slot MidiEvent array (kept as two parallel arrays rather than one array of

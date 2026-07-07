@@ -28,6 +28,10 @@ public:
     // Searches the standard CLAP directories and returns every plugin found
     static std::vector<ClapPluginInfo> scan();
 
+    // Opens one .clap file directly and returns every plugin it declares, used by the
+    // sandbox child to resolve a plugin id from just the path and name it was given
+    static std::vector<ClapPluginInfo> scanFile(const std::string& path);
+
     // Loads the given CLAP plugin, returns nullptr on any failure
     static std::unique_ptr<ClapAdapter> load(const ClapPluginInfo& info);
 

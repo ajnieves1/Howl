@@ -271,9 +271,9 @@ void MainComponent::refreshAllViews() {
     }
 }
 
-// juce::MenuBarModel: File, Edit, View
+// juce::MenuBarModel: File, Edit, View, Options
 juce::StringArray MainComponent::getMenuBarNames() {
-    return { "File", "Edit", "View" };
+    return { "File", "Edit", "View", "Options" };
 }
 
 // juce::MenuBarModel: builds each top-level menu's items
@@ -294,6 +294,9 @@ juce::PopupMenu MainComponent::getMenuForIndex(int topLevelMenuIndex, const juce
     } else if (topLevelMenuIndex == 2) {
         menu.addItem(4, "Toggle Mixer");
         menu.addItem(9, "Toggle Session View");
+    } else if (topLevelMenuIndex == 3) {
+        const bool sandboxOn = isSandboxEnabled ? isSandboxEnabled() : true;
+        menu.addItem(11, "Sandbox Plugins", true, sandboxOn);
     }
 
     return menu;
@@ -344,6 +347,12 @@ void MainComponent::menuItemSelected(int menuItemID, int) {
         case 10:
             if (onExportAudioRequested) {
                 onExportAudioRequested();
+            }
+            break;
+        case 11:
+            if (onSandboxToggled) {
+                const bool currentlyOn = isSandboxEnabled ? isSandboxEnabled() : true;
+                onSandboxToggled(!currentlyOn);
             }
             break;
         default:

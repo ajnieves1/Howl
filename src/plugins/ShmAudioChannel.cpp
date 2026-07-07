@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Howl DAW: one block-synchronous audio exchange between a parent and a sandboxed child, over shared memory
+// Howl DAW: one block synchronous audio exchange between a parent and a sandboxed child, over shared memory
 
 #include "plugins/ShmAudioChannel.h"
 

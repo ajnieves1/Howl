@@ -11,11 +11,16 @@
 #include "model/Mixer.h"
 #include "model/Note.h"
 #include "model/Session.h"
+#include "plugins/IPluginInstance.h"
+#include "plugins/PluginDescriptor.h"
+#include "plugins/PluginEffect.h"
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include <memory>
 #include <string>
+#include <vector>
 
 using howl::dsp::BuiltInEffectFactory;
 using howl::engine::EffectType;
@@ -32,7 +37,73 @@ using howl::model::Send;
 using howl::model::Session;
 using howl::model::SlotContent;
 using howl::model::TrackKind;
+using howl::plugins::IPluginHost;
+using howl::plugins::IPluginInstance;
+using howl::plugins::ParamInfo;
+using howl::plugins::PluginDescriptor;
+using howl::plugins::PluginEffect;
+using howl::plugins::StateBlob;
 using howl::project::ProjectSerializer;
+
+namespace {
+
+// Returns whatever state it is given by loadState(), returns the fixed seed on saveState()
+class StatefulStubPluginInstance : public IPluginInstance {
+public:
+    StateBlob stateToReturn;
+    StateBlob lastLoadedState;
+
+    void prepare(double, int) override {
+    }
+    void release() override {
+    }
+    void process(howl::AudioBlock&, const void*) override {
+    }
+    StateBlob saveState() const override {
+        return stateToReturn;
+    }
+    void loadState(const StateBlob& state) override {
+        lastLoadedState = state;
+    }
+    const std::vector<ParamInfo>& params() const override {
+        return m_params;
+    }
+    void setParamNormalized(uint32_t, float) override {
+    }
+    bool hasEditor() const override {
+        return false;
+    }
+    juce::Component* openEditor() override {
+        return nullptr;
+    }
+    void closeEditor() override {
+    }
+
+private:
+    std::vector<ParamInfo> m_params;
+};
+
+// Minimal host: instantiate() always hands back a fresh StatefulStubPluginInstance,
+// list() advertises one descriptor matching what the test's saved effect used
+class StatefulStubPluginHost : public IPluginHost {
+public:
+    StateBlob seedState;
+    StatefulStubPluginInstance* lastInstantiated = nullptr;
+
+    void rescan() override {
+    }
+    std::vector<PluginDescriptor> list() const override {
+        return { PluginDescriptor { "TestSynth", "TestVendor", "VST3", "/fake/TestSynth.vst3", true } };
+    }
+    std::unique_ptr<IPluginInstance> instantiate(const PluginDescriptor&) override {
+        auto instance = std::make_unique<StatefulStubPluginInstance>();
+        instance->stateToReturn = seedState;
+        lastInstantiated = instance.get();
+        return instance;
+    }
+};
+
+} // namespace
 
 TEST_CASE("ProjectSerializer round-trips tracks, clips, mixer state, effects, sends, and tempo", "[projectserializer]") {
     Arrangement arrangement;
@@ -233,4 +304,45 @@ TEST_CASE("ProjectSerializer.load is forward-tolerant of an unrecognized version
     // No "automation" or "midiMappings" keys in this version 2 file: empty, not a crash
     REQUIRE(arrangement.track(0).automation.empty());
     REQUIRE(midiMappings.isVoid());
+}
+
+TEST_CASE("ProjectSerializer preserves a plugin effect's state bytes exactly through save and load", "[projectserializer]") {
+    Arrangement arrangement;
+    Mixer mixer;
+    BuiltInEffectFactory factory;
+
+    const std::size_t track = arrangement.addTrack("Lead", TrackKind::Midi);
+    mixer.prepare(arrangement.numTracks(), 44100.0, 512, 2);
+
+    // Includes a zero byte and a 0xFF byte on purpose, exactly the kind of bytes a Base64
+    // round trip bug would corrupt or drop
+    const StateBlob seedBytes { 0x00, 0x01, 0xFF, 0x10, 0x00, 0x2A, 0x7F };
+
+    auto savingInstance = std::make_unique<StatefulStubPluginInstance>();
+    savingInstance->stateToReturn = seedBytes;
+
+    const PluginDescriptor descriptor { "TestSynth", "TestVendor", "VST3", "/fake/TestSynth.vst3", true };
+    auto effect = std::make_unique<PluginEffect>(std::move(savingInstance), descriptor);
+    mixer.trackStrip(track).effects().add(std::move(effect));
+
+    const juce::var instruments;
+    const juce::var midiMappings;
+    const juce::String json = ProjectSerializer::save(arrangement, mixer, Session(), instruments, 120.0, midiMappings);
+
+    StatefulStubPluginHost host;
+
+    Arrangement loadedArrangement;
+    Mixer loadedMixer;
+    Session loadedSession;
+    juce::var loadedInstruments;
+    double loadedTempo = 0.0;
+    juce::var loadedMidiMappings;
+
+    const bool ok = ProjectSerializer::load(json, loadedArrangement, loadedMixer, loadedSession, factory, &host,
+        loadedInstruments, loadedTempo, loadedMidiMappings);
+    REQUIRE(ok);
+
+    REQUIRE(loadedMixer.trackStrip(track).effects().size() == 1);
+    REQUIRE(host.lastInstantiated != nullptr);
+    REQUIRE(host.lastInstantiated->lastLoadedState == seedBytes);
 }

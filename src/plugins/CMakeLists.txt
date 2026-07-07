@@ -3,6 +3,7 @@ add_library(HowlPlugins STATIC
     PluginEffect.cpp
     PluginHost.cpp
     PluginInstrument.cpp
+    SandboxedPluginInstance.cpp
     ShmAudioChannel.cpp
     Vst3Adapter.cpp
 )

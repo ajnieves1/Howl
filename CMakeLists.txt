@@ -98,3 +98,9 @@ add_subdirectory(src/project)
 add_subdirectory(src/ui)
 add_subdirectory(src/app)
 add_subdirectory(tests)
+
+# SandboxedPluginInstance spawns the exact HowlHost binary this build just produced; set here
+# rather than in src/plugins/CMakeLists.txt because HowlHost is not defined yet at that point.
+# No add_dependencies is needed for build order: HowlHost already links HowlPlugins the other
+# way, and the default build target builds every target in the project regardless
+target_compile_definitions(HowlPlugins PRIVATE HOWL_HOST_BINARY="$<TARGET_FILE:HowlHost>")
