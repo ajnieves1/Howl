@@ -29,8 +29,34 @@ juce::File makeBackingFile() {
         .getChildFile("howl_shm_test_" + juce::String(juce::Random::getSystemRandom().nextInt64()) + ".bin");
 }
 
+// Kills the wrapped host process from its destructor, on every exit path including a
+// REQUIRE failure partway through a test. On Windows, CreateProcess's bInheritHandles
+// duplicates the test binary's own inherited handles into the spawned host, including
+// CTest's pipe for capturing this test's output, so an orphaned host left running past
+// a failed assertion can hold that pipe open and hang CTest forever waiting for its EOF
+// rather than reporting the failure
+class ScopedHost {
+public:
+    explicit ScopedHost(std::unique_ptr<juce::ChildProcess> process) : m_process(std::move(process)) {}
+
+    ~ScopedHost() {
+        if (m_process != nullptr) {
+            m_process->kill();
+        }
+    }
+
+    ScopedHost(const ScopedHost&) = delete;
+    ScopedHost& operator=(const ScopedHost&) = delete;
+
+    juce::ChildProcess* get() const { return m_process.get(); }
+    juce::ChildProcess* operator->() const { return m_process.get(); }
+
+private:
+    std::unique_ptr<juce::ChildProcess> m_process;
+};
+
 // Launches howl-host against the given backing file with the given extra arguments
-std::unique_ptr<juce::ChildProcess> launchHost(const juce::File& backingFile, const juce::StringArray& extraArgs) {
+ScopedHost launchHost(const juce::File& backingFile, const juce::StringArray& extraArgs) {
     juce::StringArray command;
     command.add(HOWL_HOST_BINARY);
     command.add("--shm");
@@ -43,9 +69,9 @@ std::unique_ptr<juce::ChildProcess> launchHost(const juce::File& backingFile, co
 
     auto process = std::make_unique<juce::ChildProcess>();
     if (!process->start(command)) {
-        return nullptr;
+        return ScopedHost(nullptr);
     }
-    return process;
+    return ScopedHost(std::move(process));
 }
 
 // Fills a block's channels with an ascending ramp so a loopback round trip is easy to verify
@@ -77,7 +103,7 @@ TEST_CASE("ShmAudioChannel round-trips 64 ramp blocks through a real loopback ch
     REQUIRE(parentChannel != nullptr);
 
     auto host = launchHost(backingFile, { "--loopback" });
-    REQUIRE(host != nullptr);
+    REQUIRE(host.get() != nullptr);
 
     float left[kBlockSize];
     float right[kBlockSize];
@@ -127,7 +153,6 @@ TEST_CASE("ShmAudioChannel round-trips 64 ramp blocks through a real loopback ch
     // not a bet worth making inside a failing assertion path
     REQUIRE(missedExchanges < 10);
 
-    host->kill();
     backingFile.deleteFile();
 }
 
@@ -137,7 +162,7 @@ TEST_CASE("ShmAudioChannel times out and returns silence once the child crashes"
     REQUIRE(parentChannel != nullptr);
 
     auto host = launchHost(backingFile, { "--loopback", "--crash-after", "10" });
-    REQUIRE(host != nullptr);
+    REQUIRE(host.get() != nullptr);
 
     float left[kBlockSize];
     float right[kBlockSize];
@@ -168,7 +193,6 @@ TEST_CASE("ShmAudioChannel times out and returns silence once the child crashes"
     REQUIRE_FALSE(parentChannel->exchange(block, nullptr, 0));
     REQUIRE(isSilent(block));
 
-    host->kill();
     backingFile.deleteFile();
 }
 
@@ -178,7 +202,7 @@ TEST_CASE("ShmAudioChannel does not hang when the child is killed mid-run", "[sa
     REQUIRE(parentChannel != nullptr);
 
     auto host = launchHost(backingFile, { "--loopback" });
-    REQUIRE(host != nullptr);
+    REQUIRE(host.get() != nullptr);
 
     float left[kBlockSize];
     float right[kBlockSize];
