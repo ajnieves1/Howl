@@ -202,11 +202,26 @@ void TrackHeaderPanel::refreshFromModel() {
     repaint(); // picks up the frozen-row tint immediately after a freeze/unfreeze
 }
 
-// 30 Hz, mirrors mute/solo toggle state from the mixer
+// 30 Hz, mirrors mute/solo toggle state from the mixer, and a crashed instrument's
+// red "(crashed)" label, the same cadence and treatment as a crashed FX chain row
 void TrackHeaderPanel::timerCallback() {
     for (std::size_t i = 0; i < m_rows.size() && i < m_arrangement.numTracks(); ++i) {
         m_rows[i].muteButton->setToggleState(m_mixer.trackStrip(i).muted(), juce::dontSendNotification);
         m_rows[i].soloButton->setToggleState(m_mixer.trackStrip(i).soloed(), juce::dontSendNotification);
+
+        if (m_rows[i].instrumentButton == nullptr) {
+            continue;
+        }
+
+        const bool crashed = isInstrumentCrashed && isInstrumentCrashed(i);
+        juce::String text = instrumentNameFor ? instrumentNameFor(i) : juce::String();
+        if (crashed) {
+            text << " (crashed)";
+            m_rows[i].instrumentButton->setColour(juce::TextButton::textColourOffId, juce::Colours::red);
+        } else {
+            m_rows[i].instrumentButton->removeColour(juce::TextButton::textColourOffId);
+        }
+        m_rows[i].instrumentButton->setButtonText(text);
     }
 }
 
@@ -244,11 +259,17 @@ void TrackHeaderPanel::showRemoveTrackMenu(std::size_t trackIndex) {
     });
 }
 
-// Opens the Change Instrument.../Open Editor menu for the given row's instrument button
+// Opens the Change Instrument.../Open Editor menu for the given row's instrument button,
+// plus Restart Plugin when the instrument has crashed
 void TrackHeaderPanel::showInstrumentMenu(std::size_t trackIndex) {
+    const bool crashed = isInstrumentCrashed && isInstrumentCrashed(trackIndex);
+
     juce::PopupMenu menu;
     menu.addItem(1, "Change Instrument...");
     menu.addItem(2, "Open Editor");
+    if (crashed) {
+        menu.addItem(3, "Restart Plugin");
+    }
 
     menu.showMenuAsync(juce::PopupMenu::Options(), [this, trackIndex](int result) {
         if (result == 1) {
@@ -258,6 +279,10 @@ void TrackHeaderPanel::showInstrumentMenu(std::size_t trackIndex) {
         } else if (result == 2) {
             if (onInstrumentEditRequested) {
                 onInstrumentEditRequested(trackIndex);
+            }
+        } else if (result == 3) {
+            if (onRestartInstrumentRequested) {
+                onRestartInstrumentRequested(trackIndex);
             }
         }
     });

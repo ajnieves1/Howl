@@ -308,6 +308,16 @@ public:
                 unfreezeTrack(trackIndex);
             }
         };
+        mainComponent->isInstrumentCrashed = [this](std::size_t trackIndex) {
+            auto* sandboxed = findSandboxedPluginInstrument(trackIndex);
+            return sandboxed != nullptr && sandboxed->hasCrashed();
+        };
+        mainComponent->onRestartInstrumentRequested = [this](std::size_t trackIndex) {
+            auto* sandboxed = findSandboxedPluginInstrument(trackIndex);
+            if (sandboxed != nullptr) {
+                sandboxed->restart();
+            }
+        };
         mainComponent->onTrackSelected = [this](std::ptrdiff_t trackIndex) {
             m_arrangementNode->setLiveTargetTrack(trackIndex);
         };
@@ -554,6 +564,22 @@ private:
         }
 
         return dynamic_cast<plugins::SandboxedPluginInstance*>(&pluginEffect->instance());
+    }
+
+    // Returns the sandboxed proxy behind a track's instrument, or nullptr when the track does
+    // not resolve, has no plugin instrument assigned, or is not running sandboxed at all
+    plugins::SandboxedPluginInstance* findSandboxedPluginInstrument(std::size_t trackIndex)
+    {
+        if (trackIndex >= m_trackInstruments.size()) {
+            return nullptr;
+        }
+
+        auto* pluginInstrument = dynamic_cast<plugins::PluginInstrument*>(m_trackInstruments[trackIndex].get());
+        if (pluginInstrument == nullptr) {
+            return nullptr;
+        }
+
+        return dynamic_cast<plugins::SandboxedPluginInstance*>(&pluginInstrument->instance());
     }
 
     // Returns the mapping bound to the given parameter, or nullptr when none is bound
