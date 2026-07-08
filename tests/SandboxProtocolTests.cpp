@@ -235,6 +235,14 @@ TEST_CASE("ShmAudioChannel does not hang when the child is killed mid-run", "[sa
 
     REQUIRE(host->kill());
 
+    // kill() only sends the signal and returns, it does not wait for the process to
+    // actually exit. Without waiting here, the child can win a race against its own
+    // termination and still complete one more round trip, especially now that
+    // waitForInput() busy spins and responds within microseconds. Confirming the
+    // process is actually gone first is what makes this test about the protocol's
+    // dead-child handling rather than about how fast the OS delivers a kill signal
+    REQUIRE(host->waitForProcessToFinish(2000));
+
     fillRamp(block, 7.0f);
     const auto start = std::chrono::steady_clock::now();
     const bool ok = parentChannel->exchange(block, nullptr, 0);
