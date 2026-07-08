@@ -58,9 +58,9 @@ public:
     // or handshake fails
     bool restart();
 
-    // The child is already prepared at construction with the rate and block size it was
-    // given, preparing again at a different rate would mean respawning the child, a known
-    // gap documented in handoff.md rather than implemented here
+    // The child is already prepared at construction, but usually with a placeholder rate
+    // and block size, not the real device's. When the given values actually differ,
+    // respawns the child at the right ones and carries its state across
     void prepare(double sampleRate, int maxBlockSize) override;
 
     // No-op, the child keeps running between the engine's prepare cycles

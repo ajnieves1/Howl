@@ -6,7 +6,7 @@
 #include <juce_audio_basics/juce_audio_basics.h>
 
 #include <chrono>
-#include <cstdio>
+#include <cmath>
 #include <cstring>
 
 #if JUCE_LINUX || JUCE_MAC
@@ -268,8 +268,29 @@ void SandboxedPluginInstance::checkHealth() {
     }
 }
 
-// The child is already prepared at construction, nothing to do here
-void SandboxedPluginInstance::prepare(double, int) {
+// The child is already prepared at construction, but PluginHost::instantiate() spawns it
+// at a fixed placeholder rate and block size before the real audio device is known, so a
+// mismatch here is the normal case, not an edge case, on any device that does not happen
+// to run at exactly that placeholder. When the values actually differ, respawn the child
+// at the right ones and carry its current state across so the patch is not lost
+void SandboxedPluginInstance::prepare(double sampleRate, int maxBlockSize) {
+    constexpr double kSampleRateEpsilon = 0.5;
+    const bool sameSampleRate = std::abs(sampleRate - m_lastSampleRate) < kSampleRateEpsilon;
+
+    if (!m_valid || (sameSampleRate && maxBlockSize == m_lastBlockSize)) {
+        return;
+    }
+
+    const StateBlob state = saveState();
+    teardownChild();
+
+    if (spawnChild(m_lastExtraArgs, sampleRate, maxBlockSize)) {
+        if (!state.empty()) {
+            loadState(state);
+        }
+        m_consecutiveFailures.store(0, std::memory_order_relaxed);
+        m_bypassed.store(false, std::memory_order_release);
+    }
 }
 
 // No-op, the child keeps running between the engine's prepare cycles

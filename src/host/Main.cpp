@@ -23,7 +23,6 @@
 #include <cstring>
 #include <iostream>
 #include <memory>
-#include <mutex>
 #include <optional>
 #include <string>
 #include <thread>
@@ -224,14 +223,16 @@ int main(int argc, char* argv[]) {
         plugin->prepare(args->sampleRate, args->blockSize);
     }
 
-    std::mutex pluginMutex;
     std::unique_ptr<ChildEditorWindow> editorWindow;
     std::atomic<bool> quitRequested { false };
 
     // The audio thread: waits for each block, feeds it (and any queued note events) to
-    // the plugin, and publishes the result. Guarded by pluginMutex so a concurrent
-    // getState/setState/setParam/editor command from the main thread below cannot
-    // race a process() call
+    // the plugin, and publishes the result. Not locked against the control commands
+    // below: a VST3 plugin already has to tolerate process() running on one thread while
+    // its editor/parameters/state are touched from another, the same as any real host.
+    // A mutex here would serialize them, and editor creation alone can take hundreds of
+    // milliseconds (Wine GUI, Direct2D context setup), long enough to blow through the
+    // parent's exchange deadline over and over and trip the crash bypass from T12
     std::thread audioThread([&] {
         std::vector<float*> outPtrs(static_cast<std::size_t>(args->numChannels));
         int blocksProcessed = 0;
@@ -262,22 +263,18 @@ int main(int argc, char* argv[]) {
             float* const* inChannels = channel->inputChannels();
             float* const* outChannels = channel->outputChannels();
 
-            {
-                std::lock_guard<std::mutex> lock(pluginMutex);
-
-                if (plugin != nullptr) {
-                    // Primed with the input first: an effect needs real audio to transform,
-                    // an instrument just overwrites it, either way this is correct
-                    for (int c = 0; c < args->numChannels; ++c) {
-                        outPtrs[static_cast<std::size_t>(c)] = outChannels[c];
-                        std::memcpy(outChannels[c], inChannels[c], static_cast<std::size_t>(args->blockSize) * sizeof(float));
-                    }
-                    AudioBlock block { outPtrs.data(), args->numChannels, args->blockSize };
-                    plugin->process(block, &midiBuffer);
-                } else if (args->loopback) {
-                    for (int c = 0; c < args->numChannels; ++c) {
-                        std::memcpy(outChannels[c], inChannels[c], static_cast<std::size_t>(args->blockSize) * sizeof(float));
-                    }
+            if (plugin != nullptr) {
+                // Primed with the input first: an effect needs real audio to transform,
+                // an instrument just overwrites it, either way this is correct
+                for (int c = 0; c < args->numChannels; ++c) {
+                    outPtrs[static_cast<std::size_t>(c)] = outChannels[c];
+                    std::memcpy(outChannels[c], inChannels[c], static_cast<std::size_t>(args->blockSize) * sizeof(float));
+                }
+                AudioBlock block { outPtrs.data(), args->numChannels, args->blockSize };
+                plugin->process(block, &midiBuffer);
+            } else if (args->loopback) {
+                for (int c = 0; c < args->numChannels; ++c) {
+                    std::memcpy(outChannels[c], inChannels[c], static_cast<std::size_t>(args->blockSize) * sizeof(float));
                 }
             }
 
@@ -305,17 +302,14 @@ int main(int argc, char* argv[]) {
             obj->setProperty("ok", true);
             sendReply(juce::var(obj));
         } else if (cmd == "getParams") {
-            std::lock_guard<std::mutex> lock(pluginMutex);
             sendReply(buildParamsReply(plugin != nullptr ? plugin->params() : std::vector<ParamInfo> {}));
         } else if (cmd == "setParam") {
-            std::lock_guard<std::mutex> lock(pluginMutex);
             if (plugin != nullptr) {
                 const auto index = static_cast<uint32_t>(static_cast<int>(parsed.getProperty("index", 0)));
                 const auto value = static_cast<float>(static_cast<double>(parsed.getProperty("value", 0.0)));
                 plugin->setParamNormalized(index, value);
             }
         } else if (cmd == "getState") {
-            std::lock_guard<std::mutex> lock(pluginMutex);
             juce::MemoryBlock encoded;
             if (plugin != nullptr) {
                 const StateBlob state = plugin->saveState();
@@ -325,7 +319,6 @@ int main(int argc, char* argv[]) {
             obj->setProperty("stateBase64", juce::Base64::toBase64(encoded.getData(), encoded.getSize()));
             sendReply(juce::var(obj));
         } else if (cmd == "setState") {
-            std::lock_guard<std::mutex> lock(pluginMutex);
             if (plugin != nullptr) {
                 // Base64::toBase64() pairs with Base64::convertFromBase64(), not
                 // MemoryBlock::fromBase64Encoding(), see SandboxedPluginInstance::saveState()
@@ -335,7 +328,6 @@ int main(int argc, char* argv[]) {
                 plugin->loadState(StateBlob(bytes, bytes + decoded.getDataSize()));
             }
         } else if (cmd == "openEditor") {
-            std::lock_guard<std::mutex> lock(pluginMutex);
             if (plugin != nullptr && plugin->hasEditor()) {
                 if (editorWindow == nullptr) {
                     if (auto* editor = plugin->openEditor()) {
@@ -347,7 +339,6 @@ int main(int argc, char* argv[]) {
                 }
             }
         } else if (cmd == "closeEditor") {
-            std::lock_guard<std::mutex> lock(pluginMutex);
             if (editorWindow != nullptr) {
                 editorWindow->setVisible(false);
             }
@@ -357,13 +348,11 @@ int main(int argc, char* argv[]) {
     quitRequested.store(true);
     audioThread.join();
 
-    {
-        std::lock_guard<std::mutex> lock(pluginMutex);
-        editorWindow.reset();
-        if (plugin != nullptr) {
-            plugin->closeEditor();
-            plugin->release();
-        }
+    // The audio thread has already stopped, nothing else touches plugin/editorWindow now
+    editorWindow.reset();
+    if (plugin != nullptr) {
+        plugin->closeEditor();
+        plugin->release();
     }
 
     return 0;

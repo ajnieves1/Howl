@@ -431,7 +431,10 @@ private:
         }
 
         for (std::size_t i = 0; i < instrumentPlugins.size(); ++i) {
-            menu.addItem(static_cast<int>(i + 2), instrumentPlugins[i].name);
+            // The same plugin can appear once per format (VST3 and CLAP unified in one
+            // picker), the format label is the only thing that tells those two apart
+            const juce::String label = juce::String(instrumentPlugins[i].name) + " (" + instrumentPlugins[i].format + ")";
+            menu.addItem(static_cast<int>(i + 2), label);
         }
 
         menu.showMenuAsync(juce::PopupMenu::Options(), [this, trackIndex, instrumentPlugins](int result) {

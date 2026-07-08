@@ -331,7 +331,10 @@ void ChannelStripComponent::showAddEffectMenu() {
         if (!pluginList.empty()) {
             juce::PopupMenu pluginMenu;
             for (std::size_t i = 0; i < pluginList.size(); ++i) {
-                pluginMenu.addItem(static_cast<int>(1001 + i), pluginList[i].name);
+                // The same plugin can appear once per format (VST3 and CLAP unified in one
+                // picker), the format label is the only thing that tells those two apart
+                const juce::String label = juce::String(pluginList[i].name) + " (" + pluginList[i].format + ")";
+                pluginMenu.addItem(static_cast<int>(1001 + i), label);
             }
             menu.addSubMenu("Plugins", pluginMenu);
         }
