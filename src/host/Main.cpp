@@ -18,6 +18,7 @@
 #endif
 
 #include <atomic>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -204,7 +205,20 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    auto channel = ShmAudioChannel::open(juce::File(args->shmPath));
+    // The parent has already fully written and mapped this file by the time it spawns
+    // this process, but the first open attempt can still lose a race against filesystem
+    // or antivirus latency (seen in practice on Windows CI, not on Linux/macOS), so retry
+    // for a couple of seconds before giving up rather than failing on the very first try
+    std::unique_ptr<ShmAudioChannel> channel;
+    const auto shmOpenDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    do {
+        channel = ShmAudioChannel::open(juce::File(args->shmPath));
+        if (channel != nullptr) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    } while (std::chrono::steady_clock::now() < shmOpenDeadline);
+
     if (channel == nullptr) {
         std::fprintf(stderr, "Howl host: failed to open shared memory at %s\n", args->shmPath.toRawUTF8());
         return 1;
