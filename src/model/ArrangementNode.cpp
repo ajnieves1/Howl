@@ -173,6 +173,11 @@ void ArrangementNode::setLiveTargetTrack(std::ptrdiff_t trackIndex) {
     m_liveTargetTrack.store(trackIndex, std::memory_order_relaxed);
 }
 
+// Points the node at the app's preview player, call before prepare
+void ArrangementNode::setPreviewPlayer(PreviewPlayer* player) {
+    m_previewPlayer = player;
+}
+
 // [RT] Renders every track into its own buffer, then mixes them into audio
 void ArrangementNode::process(AudioBlock& audio, SampleCount pos) noexcept {
     // Guards against a block larger than what prepare() sized the scratch
@@ -258,6 +263,10 @@ void ArrangementNode::process(AudioBlock& audio, SampleCount pos) noexcept {
     }
 
     m_mixer.process(m_trackBlocks, audio, pos);
+
+    if (m_previewPlayer != nullptr) {
+        m_previewPlayer->process(audio);
+    }
 }
 
 } // namespace howl::model

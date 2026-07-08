@@ -20,6 +20,7 @@
 #include "model/MidiClip.h"
 #include "model/Note.h"
 #include "model/OfflineRenderer.h"
+#include "model/PreviewPlayer.h"
 #include "model/Session.h"
 #include "model/TrackFreezer.h"
 #include "plugins/PluginEffect.h"
@@ -118,28 +119,37 @@ model::StripKind stripKindFromString(const juce::String& kindString) {
     return model::StripKind::Master;
 }
 
-// Drains the MIDI input hub's CC queue at 30 Hz, message thread only
+// Drains the MIDI input hub's CC queue at 30 Hz, message thread only, then runs
+// a second callback every tick regardless (the preview player's garbage collection rides
+// this same timer rather than starting a dedicated one)
 class MidiLearnTimer : public juce::Timer {
 public:
-    // Stores the hub to drain and the callback to run for each CC event
-    MidiLearnTimer(io::MidiInputHub& hub, std::function<void(const MidiEvent&)> onCcEvent)
+    // Stores the hub to drain, the callback to run for each CC event, and the per-tick callback
+    MidiLearnTimer(io::MidiInputHub& hub, std::function<void(const MidiEvent&)> onCcEvent,
+                    std::function<void()> onTick)
         : m_hub(hub)
         , m_onCcEvent(std::move(onCcEvent))
+        , m_onTick(std::move(onTick))
     {
         startTimerHz(30);
     }
 
-    // Pops every pending CC event and runs the callback for each
+    // Pops every pending CC event and runs the callback for each, then runs the tick callback
     void timerCallback() override {
         MidiEvent event {};
         while (m_hub.popCcEvent(event)) {
             m_onCcEvent(event);
+        }
+
+        if (m_onTick) {
+            m_onTick();
         }
     }
 
 private:
     io::MidiInputHub& m_hub;
     std::function<void(const MidiEvent&)> m_onCcEvent;
+    std::function<void()> m_onTick;
 };
 
 class MainWindow : public juce::DocumentWindow {
@@ -231,6 +241,7 @@ public:
         auto arrangementNode = std::make_unique<model::ArrangementNode>(m_transport, m_arrangement);
         arrangementNode->setSession(&m_session);
         arrangementNode->setLiveNoteQueue(&m_midiInputHub.noteQueue());
+        arrangementNode->setPreviewPlayer(&m_previewPlayer);
         arrangementNode->prepare(m_sampleRate, m_bufferSize, 2);
         m_arrangementNode = arrangementNode.get();
         m_graph.addNode(std::move(arrangementNode));
@@ -284,6 +295,9 @@ public:
         mainComponent->onBrowserRootChanged = [this](juce::File root) {
             m_settings->setValue("browserRoot", root.getFullPathName());
             m_settings->saveIfNeeded();
+        };
+        mainComponent->onBrowserFileClicked = [this](juce::File file) {
+            startSamplePreview(file);
         };
         mainComponent->onAudioFileDropped = [this](juce::String path, std::size_t trackIndex, int64_t tick) {
             std::size_t targetTrack = trackIndex;
@@ -374,6 +388,8 @@ public:
 
         m_midiLearnTimer = std::make_unique<MidiLearnTimer>(m_midiInputHub, [this](const MidiEvent& event) {
             handleMidiCcEvent(event);
+        }, [this] {
+            m_previewPlayer.collectGarbage();
         });
     }
 
@@ -705,6 +721,33 @@ private:
 
         rebuildAudioGraph();
         m_mainWindow->mainComponent()->refreshAllViews();
+    }
+
+    // Reads a wav file fully into memory and posts it to the preview player, message thread only
+    void startSamplePreview(const juce::File& file)
+    {
+        io::AudioFileReader reader;
+        if (!reader.open(file.getFullPathName().toStdString())) {
+            juce::Logger::writeToLog("Howl: failed to preview audio file " + file.getFullPathName());
+            return;
+        }
+
+        const int numChannels = reader.numChannels();
+        const auto lengthSamples = static_cast<int>(reader.lengthInSamples());
+
+        auto preview = std::make_unique<model::PreviewBuffer>();
+        preview->channels.assign(static_cast<std::size_t>(numChannels),
+            std::vector<float>(static_cast<std::size_t>(lengthSamples), 0.0f));
+
+        std::vector<float*> channelPointers(static_cast<std::size_t>(numChannels));
+        for (int channel = 0; channel < numChannels; ++channel) {
+            channelPointers[static_cast<std::size_t>(channel)] = preview->channels[static_cast<std::size_t>(channel)].data();
+        }
+
+        AudioBlock block { channelPointers.data(), numChannels, lengthSamples };
+        reader.read(block, 0);
+
+        m_previewPlayer.post(std::move(preview));
     }
 
     // Re-reads one audio clip's source file in place, preserving sourcePath/originalBpm/
@@ -1255,6 +1298,7 @@ private:
     bool m_sandboxEnabled = true;
     io::AudioDevice m_audioDevice;
     io::MidiInputHub m_midiInputHub;
+    model::PreviewPlayer m_previewPlayer;
     std::unique_ptr<MidiLearnTimer> m_midiLearnTimer;
     std::vector<MidiMapping> m_midiMappings;
     std::optional<MidiLearnTarget> m_midiLearnTarget;
