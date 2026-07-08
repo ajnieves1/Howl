@@ -17,13 +17,14 @@ TEST_CASE("PluginHost scans for VST3 plugins and writes a cache file", "[plugins
 
     const auto descriptors = host.list();
 
-    // Not asserted >0 here, CI runners and most dev machines have no VST3s
+    // Not asserted >0 here, CI runners and most dev machines have no plugins
     // installed, the scan and cache-write paths are what this test proves
-    std::cout << "Howl: discovered " << descriptors.size() << " VST3 plugin(s)\n";
+    std::cout << "Howl: discovered " << descriptors.size() << " plugin(s)\n";
 
     for (const auto& descriptor : descriptors) {
+        std::cout << "Howl:   " << descriptor.format << " | " << descriptor.name << " | " << descriptor.path << "\n";
         REQUIRE_FALSE(descriptor.name.empty());
-        REQUIRE(descriptor.format == "VST3");
+        REQUIRE((descriptor.format == "VST3" || descriptor.format == "CLAP"));
     }
 }
 

@@ -50,6 +50,12 @@ public:
     // Queried with (effectIndex, paramIndex) when building a parameter row's right click menu
     std::function<bool(std::size_t, int)> isParameterMapped;
 
+    // Queried with effectIndex when painting an FX row and building its right click menu
+    std::function<bool(std::size_t)> isPluginCrashed;
+
+    // Fired with effectIndex when a crashed row's "Restart Plugin" menu item is picked
+    std::function<void(std::size_t)> onRestartPluginRequested;
+
 private:
     // One send row's controls: destination label, level slider, remove button
     struct SendRow {
@@ -66,6 +72,9 @@ private:
 
     // Opens (or replaces) the generic parameter editor for the double-clicked effect
     void listBoxItemDoubleClicked(int row, const juce::MouseEvent& event) override;
+
+    // Right click on a crashed row shows a "Restart Plugin" menu
+    void listBoxItemClicked(int row, const juce::MouseEvent& event) override;
 
     // Returns the strip this component targets
     model::ChannelStrip& channelStrip();

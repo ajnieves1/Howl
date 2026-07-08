@@ -265,10 +265,13 @@ std::unique_ptr<engine::Effect> effectFromVar(const juce::var& effectVar, engine
             return nullptr;
         }
 
-        juce::MemoryBlock stateBlock;
-        stateBlock.fromBase64Encoding(effectVar.getProperty("state", juce::var()).toString());
-        const auto* stateBytes = static_cast<const uint8_t*>(stateBlock.getData());
-        plugins::StateBlob blob(stateBytes, stateBytes + stateBlock.getSize());
+        // Base64::toBase64() (used to write "state" above) pairs with
+        // Base64::convertFromBase64(), not MemoryBlock::fromBase64Encoding(), which expects
+        // its own "byteCount.base64" format and otherwise just silently fails to an empty block
+        juce::MemoryOutputStream decodedState;
+        juce::Base64::convertFromBase64(decodedState, effectVar.getProperty("state", juce::var()).toString());
+        const auto* stateBytes = static_cast<const uint8_t*>(decodedState.getData());
+        plugins::StateBlob blob(stateBytes, stateBytes + decodedState.getDataSize());
         instance->loadState(blob);
 
         auto effect = std::make_unique<plugins::PluginEffect>(std::move(instance), found);

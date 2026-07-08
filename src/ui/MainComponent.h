@@ -118,6 +118,18 @@ public:
     // Queried with (stripAddress, effectIndex, paramIndex) when building a parameter row's menu
     std::function<bool(model::StripAddress, std::size_t, int)> isParameterMapped;
 
+    // Queried with (stripAddress, effectIndex) when painting an FX row and its right click menu
+    std::function<bool(model::StripAddress, std::size_t)> isPluginCrashed;
+
+    // Fired with (stripAddress, effectIndex) when a crashed row's "Restart Plugin" item is picked
+    std::function<void(model::StripAddress, std::size_t)> onRestartPluginRequested;
+
+    // Queried when building the Options menu, so its Sandbox Plugins item shows a checkmark
+    std::function<bool()> isSandboxEnabled;
+
+    // Fired with the new state when Options > Sandbox Plugins is picked
+    std::function<void(bool)> onSandboxToggled;
+
 private:
     static constexpr int kTransportHeight = 36;
     static constexpr int kBottomPanelHeight = 300;

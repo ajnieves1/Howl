@@ -34,6 +34,7 @@ add_executable(HowlTests
     PluginInstrumentTests.cpp
     ProjectSerializerTests.cpp
     ReverbTests.cpp
+    SandboxProtocolTests.cpp
     SequencerNodeTests.cpp
     SessionPlaybackTests.cpp
     SessionTests.cpp
@@ -55,6 +56,10 @@ target_link_libraries(HowlTests PRIVATE
     HowlProject
     Catch2::Catch2WithMain
 )
+
+# So SandboxProtocolTests can spawn the exact helper binary this build just produced
+target_compile_definitions(HowlTests PRIVATE HOWL_HOST_BINARY="$<TARGET_FILE:HowlHost>")
+add_dependencies(HowlTests HowlHost)
 
 include(Catch)
 catch_discover_tests(HowlTests)

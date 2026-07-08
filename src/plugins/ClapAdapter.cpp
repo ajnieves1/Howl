@@ -83,6 +83,8 @@ std::vector<std::string> standardClapDirectories() {
    #if JUCE_LINUX
     dirs.push_back(home.getChildFile(".clap").getFullPathName().toStdString());
     dirs.push_back("/usr/lib/clap");
+    dirs.push_back("/usr/local/lib/clap");
+    dirs.push_back("/usr/lib64/clap");
    #elif JUCE_MAC
     dirs.push_back(home.getChildFile("Library/Audio/Plug-Ins/CLAP").getFullPathName().toStdString());
     dirs.push_back("/Library/Audio/Plug-Ins/CLAP");
@@ -99,7 +101,7 @@ std::vector<std::string> standardClapDirectories() {
 }
 
 // Opens one .clap file, appends every plugin it declares to out
-void scanFile(const std::string& path, std::vector<ClapPluginInfo>& out) {
+void scanOneClapFile(const std::string& path, std::vector<ClapPluginInfo>& out) {
     juce::DynamicLibrary library;
     if (!library.open(path)) {
         return;
@@ -198,9 +200,17 @@ std::vector<ClapPluginInfo> ClapAdapter::scan() {
         }
         const auto files = directory.findChildFiles(juce::File::findFilesAndDirectories, true, "*.clap");
         for (const auto& file : files) {
-            scanFile(file.getFullPathName().toStdString(), found);
+            scanOneClapFile(file.getFullPathName().toStdString(), found);
         }
     }
+    return found;
+}
+
+// Opens one .clap file directly and returns every plugin it declares, used by the
+// sandbox child to resolve a plugin id from just the path and name it was given
+std::vector<ClapPluginInfo> ClapAdapter::scanFile(const std::string& path) {
+    std::vector<ClapPluginInfo> found;
+    scanOneClapFile(path, found);
     return found;
 }
 
@@ -263,7 +273,8 @@ void ClapAdapter::prepare(double sampleRate, int maxBlockSize) {
         }
     }
 
-    if (plugin->activate(plugin, sampleRate, 0, static_cast<uint32_t>(maxBlockSize))) {
+    // min_frames_count must be at least 1 per the CLAP spec, 1 accepts any block size up to max
+    if (plugin->activate(plugin, sampleRate, 1, static_cast<uint32_t>(maxBlockSize))) {
         m_impl->activated = true;
         if (plugin->start_processing(plugin)) {
             m_impl->processing = true;

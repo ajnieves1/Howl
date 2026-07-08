@@ -2,6 +2,7 @@
 // Howl DAW: scans system VST3 plugins on a background thread, caches the result
 
 #include "plugins/PluginHost.h"
+#include "plugins/SandboxedPluginInstance.h"
 #include "plugins/Vst3Adapter.h"
 
 namespace howl::plugins {
@@ -17,8 +18,13 @@ PluginHost::PluginHost() {
 
     if (auto xml = juce::XmlDocument::parse(cacheFilePath())) {
         m_knownPlugins.recreateFromXml(*xml);
-        refreshDescriptors();
     }
+
+    // A plugin that crashed during a scan last launch left its path in this file, blacklist it
+    // now rather than let the next rescan try (and crash on) it again
+    juce::PluginDirectoryScanner::applyBlacklistingsFromDeadMansPedal(m_knownPlugins, deadMansPedalFilePath());
+
+    refreshDescriptors();
 }
 
 // Joins the scan thread if one is still running
@@ -55,8 +61,34 @@ void PluginHost::waitForScanToFinish() {
     }
 }
 
-// Creates a VST3 instance for the given descriptor, matched against the cached scan
+// When true, instantiate() wraps new plugins in a sandbox child, default true
+void PluginHost::setSandboxed(bool sandboxed) {
+    m_sandboxed.store(sandboxed, std::memory_order_relaxed);
+}
+
+// Instantiates a VST3 or CLAP plugin, matched against the cached scan by format.
+// Sandboxed when setSandboxed(true) (the default), falls back in process (logged)
+// when the sandbox fails to start
 std::unique_ptr<IPluginInstance> PluginHost::instantiate(const PluginDescriptor& descriptor) {
+    if (m_sandboxed.load(std::memory_order_relaxed) && (descriptor.format == "VST3" || descriptor.format == "CLAP")) {
+        auto sandboxed = std::make_unique<SandboxedPluginInstance>(descriptor, kInitialSampleRate, kInitialBufferSize);
+        if (sandboxed->isValid()) {
+            return sandboxed;
+        }
+        juce::Logger::writeToLog("Howl: sandbox failed to start for '" + juce::String(descriptor.name)
+                                  + "', falling back to in process hosting");
+    }
+
+    if (descriptor.format == "CLAP") {
+        std::lock_guard<std::mutex> lock(m_listMutex);
+        for (const auto& info : m_clapPlugins) {
+            if (info.path == descriptor.path && info.name == descriptor.name) {
+                return ClapAdapter::load(info);
+            }
+        }
+        return nullptr;
+    }
+
     for (const auto& type : m_knownPlugins.getTypes()) {
         if (type.fileOrIdentifier.toStdString() != descriptor.path) {
             continue;
@@ -86,13 +118,28 @@ void PluginHost::scanThreadFunc() {
     }
 
     if (vst3Format != nullptr) {
-        juce::PluginDirectoryScanner scanner(m_knownPlugins, *vst3Format,
-                                              vst3Format->getDefaultLocationsToSearch(),
-                                              true, juce::File());
+        juce::FileSearchPath searchPath = vst3Format->getDefaultLocationsToSearch();
+
+       #if JUCE_LINUX
+        // Fedora's surge-xt and similar packages install here, outside JUCE's defaults;
+        // this retires the ~/.vst3 symlink workaround from the earlier phase
+        const juce::File fedoraVst3Dir("/usr/lib64/vst3");
+        if (fedoraVst3Dir.isDirectory()) {
+            searchPath.addIfNotAlreadyThere(fedoraVst3Dir);
+        }
+       #endif
+
+        juce::PluginDirectoryScanner scanner(m_knownPlugins, *vst3Format, searchPath, true, deadMansPedalFilePath());
 
         juce::String pluginBeingScanned;
         while (scanner.scanNextFile(true, pluginBeingScanned)) {
         }
+    }
+
+    {
+        std::vector<ClapPluginInfo> clapPlugins = ClapAdapter::scan();
+        std::lock_guard<std::mutex> lock(m_listMutex);
+        m_clapPlugins = std::move(clapPlugins);
     }
 
     refreshDescriptors();
@@ -106,7 +153,7 @@ void PluginHost::scanThreadFunc() {
     m_scanning.store(false, std::memory_order_release);
 }
 
-// Rebuilds m_descriptors from the current contents of m_knownPlugins
+// Rebuilds m_descriptors from the current contents of m_knownPlugins and m_clapPlugins
 void PluginHost::refreshDescriptors() {
     std::vector<PluginDescriptor> descriptors;
     for (const auto& type : m_knownPlugins.getTypes()) {
@@ -119,7 +166,23 @@ void PluginHost::refreshDescriptors() {
         });
     }
 
+    // A blacklisted file crashed before a description could ever be read from it, so
+    // there is no real name or vendor to show, only the file itself, marked so the user
+    // knows why the plugin they expected is missing rather than it just vanishing quietly
+    for (const auto& blacklistedPath : m_knownPlugins.getBlacklistedFiles()) {
+        descriptors.push_back(PluginDescriptor {
+            juce::File(blacklistedPath).getFileNameWithoutExtension().toStdString() + " (failed to scan)",
+            "",
+            "VST3",
+            blacklistedPath.toStdString(),
+            false
+        });
+    }
+
     std::lock_guard<std::mutex> lock(m_listMutex);
+    for (const auto& info : m_clapPlugins) {
+        descriptors.push_back(PluginDescriptor { info.name, info.vendor, "CLAP", info.path, info.isInstrument });
+    }
     m_descriptors = std::move(descriptors);
 }
 
@@ -128,6 +191,14 @@ juce::File PluginHost::cacheFilePath() {
     return juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
         .getChildFile("Howl")
         .getChildFile("vst3_cache.xml");
+}
+
+// Path to the dead man's pedal file: a plugin that crashes during a scan leaves its path
+// here, read back and blacklisted on the next launch instead of crashing again on the same one
+juce::File PluginHost::deadMansPedalFilePath() {
+    return juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
+        .getChildFile("Howl")
+        .getChildFile("vst3_dead_mans_pedal.txt");
 }
 
 } // namespace howl::plugins
