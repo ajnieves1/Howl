@@ -37,30 +37,39 @@ std::unique_ptr<ShmAudioChannel> ShmAudioChannel::create(const juce::File& backi
         return nullptr;
     }
 
-    return mapExisting(backingFile, true, numChannels, blockSize);
+    auto mapped = std::make_unique<juce::MemoryMappedFile>(backingFile, juce::MemoryMappedFile::readWrite);
+    if (mapped->getData() == nullptr || mapped->getSize() < size) {
+        return nullptr;
+    }
+
+    return fromMappedFile(std::move(mapped), true, numChannels, blockSize);
 }
 
 // Maps an existing backing file, child side; reads the geometry the parent already wrote
+// from the same mapping used afterward, rather than a separate probe mapping first
 std::unique_ptr<ShmAudioChannel> ShmAudioChannel::open(const juce::File& backingFile) {
-    juce::MemoryMappedFile probe(backingFile, juce::MemoryMappedFile::readOnly);
-    if (probe.getData() == nullptr || probe.getSize() < sizeof(ShmHeader)) {
+    auto mapped = std::make_unique<juce::MemoryMappedFile>(backingFile, juce::MemoryMappedFile::readWrite);
+    if (mapped->getData() == nullptr || mapped->getSize() < sizeof(ShmHeader)) {
         return nullptr;
     }
 
-    const auto* header = static_cast<const ShmHeader*>(probe.getData());
-    return mapExisting(backingFile, false, header->numChannels, header->blockSize);
+    const auto* header = static_cast<const ShmHeader*>(mapped->getData());
+    const int numChannels = header->numChannels;
+    const int blockSize = header->blockSize;
+
+    if (mapped->getSize() < totalMappedSize(numChannels, blockSize)) {
+        return nullptr;
+    }
+
+    return fromMappedFile(std::move(mapped), false, numChannels, blockSize);
 }
 
-// Maps the file and resolves every region pointer; isCreator also placement-news the
-// header and zeros the sequence counters, a non-creator trusts the geometry already there
-std::unique_ptr<ShmAudioChannel> ShmAudioChannel::mapExisting(const juce::File& backingFile, bool isCreator,
-                                                              int numChannels, int blockSize) {
+// Resolves every region pointer from an already-opened mapping; isCreator also
+// placement-news the header and zeros the sequence counters, a non-creator trusts the
+// geometry already there
+std::unique_ptr<ShmAudioChannel> ShmAudioChannel::fromMappedFile(std::unique_ptr<juce::MemoryMappedFile> mapped,
+                                                                 bool isCreator, int numChannels, int blockSize) {
     if (numChannels <= 0 || blockSize <= 0) {
-        return nullptr;
-    }
-
-    auto mapped = std::make_unique<juce::MemoryMappedFile>(backingFile, juce::MemoryMappedFile::readWrite);
-    if (mapped->getData() == nullptr || mapped->getSize() < totalMappedSize(numChannels, blockSize)) {
         return nullptr;
     }
 

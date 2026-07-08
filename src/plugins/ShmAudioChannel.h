@@ -73,10 +73,14 @@ public:
 private:
     ShmAudioChannel() = default;
 
-    // Maps the file and resolves every region pointer; isCreator also placement-news the
-    // header and zeros the sequence counters, a non-creator trusts the geometry already there
-    static std::unique_ptr<ShmAudioChannel> mapExisting(const juce::File& backingFile, bool isCreator,
-                                                        int numChannels, int blockSize);
+    // Resolves every region pointer from an already-opened mapping; isCreator also
+    // placement-news the header and zeros the sequence counters, a non-creator trusts the
+    // geometry already there. Takes ownership of a mapping the caller already opened,
+    // rather than opening its own second one: on Windows, a still-open read-only handle
+    // does not grant FILE_SHARE_WRITE, so a second, separate read-write open of the same
+    // file deterministically fails with a sharing violation while the first stays open
+    static std::unique_ptr<ShmAudioChannel> fromMappedFile(std::unique_ptr<juce::MemoryMappedFile> mapped,
+                                                           bool isCreator, int numChannels, int blockSize);
 
     std::unique_ptr<juce::MemoryMappedFile> m_mappedFile;
 
