@@ -57,12 +57,6 @@ void fillRamp(AudioBlock& block, float startValue) {
     }
 }
 
-// Reads whatever the child printed to stdout/stderr, for diagnosing a CI-only failure
-// that cannot be reproduced or debugged locally
-juce::String childOutput(juce::ChildProcess& process) {
-    return process.readAllProcessOutput();
-}
-
 // True when every sample in every channel of the block is exactly 0
 bool isSilent(const AudioBlock& block) {
     for (int c = 0; c < block.numChannels; ++c) {
@@ -127,12 +121,11 @@ TEST_CASE("ShmAudioChannel round-trips 64 ramp blocks through a real loopback ch
         std::cout << "Howl: " << missedExchanges << " of 64 exchanges missed the 2 ms deadline (CI jitter), tolerated\n";
     }
 
-    if (missedExchanges >= 10) {
-        // A truly dead or hung child misses every exchange, not a handful, capture its
-        // output for whatever diagnosis is still possible
-        host->kill();
-        FAIL(missedExchanges << " of 64 exchanges missed the deadline, child output:\n" << childOutput(*host));
-    }
+    // A truly dead or hung child misses every exchange, not a handful. Not reading the
+    // child's output here even for diagnosis: readAllProcessOutput() blocks until the
+    // child's stdout pipe closes, which needs the process to have actually exited, and is
+    // not a bet worth making inside a failing assertion path
+    REQUIRE(missedExchanges < 10);
 
     host->kill();
     backingFile.deleteFile();
