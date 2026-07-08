@@ -162,9 +162,13 @@ bool ShmAudioChannel::exchange(AudioBlock& audio, const MidiEvent* events, int n
     return true;
 }
 
-// Child side: blocks until the next input block arrives, false when the parent vanished
+// Child side: blocks until the next input block arrives, false when the parent vanished.
+// Busy spins first, only falling back to sleeping between checks once past the spin
+// window, so an actively streaming parent is always caught well within its own
+// exchange() deadline regardless of the platform's sleep_for granularity
 bool ShmAudioChannel::waitForInput() {
     const std::uint32_t target = m_lastHandledInputSeq + 1;
+    const auto spinDeadline = std::chrono::steady_clock::now() + std::chrono::microseconds(kWaitForInputSpinMicros);
 
     while (m_header->inputSeq.load(std::memory_order_acquire) != target) {
        #if JUCE_LINUX || JUCE_MAC
@@ -172,7 +176,9 @@ bool ShmAudioChannel::waitForInput() {
             return false;
         }
        #endif
-        std::this_thread::sleep_for(std::chrono::microseconds(100));
+        if (std::chrono::steady_clock::now() >= spinDeadline) {
+            std::this_thread::sleep_for(std::chrono::microseconds(100));
+        }
     }
 
     m_lastHandledInputSeq = target;

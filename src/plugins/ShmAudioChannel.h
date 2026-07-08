@@ -44,6 +44,14 @@ public:
     // The parent gives up and returns silence past this deadline, taken once per exchange()
     static constexpr int kExchangeTimeoutMicros = 2000;
 
+    // Child side: waitForInput() busy spins with no sleep at all up to this long before
+    // it falls back to sleeping between checks. Windows rounds a sub millisecond
+    // sleep_for up to its default timer resolution, commonly around 15 ms without a
+    // process wide timeBeginPeriod call, which would blow the parent's exchange
+    // deadline on almost every block during active streaming if the child slept from
+    // the very first check
+    static constexpr int kWaitForInputSpinMicros = 5000;
+
     ~ShmAudioChannel();
 
     ShmAudioChannel(const ShmAudioChannel&) = delete;
