@@ -56,6 +56,12 @@ void fillRamp(AudioBlock& block, float startValue) {
     }
 }
 
+// Reads whatever the child printed to stdout/stderr, for diagnosing a CI-only failure
+// that cannot be reproduced or debugged locally
+juce::String childOutput(juce::ChildProcess& process) {
+    return process.readAllProcessOutput();
+}
+
 // True when every sample in every channel of the block is exactly 0
 bool isSilent(const AudioBlock& block) {
     for (int c = 0; c < block.numChannels; ++c) {
@@ -95,7 +101,13 @@ TEST_CASE("ShmAudioChannel round-trips 64 ramp blocks through a real loopback ch
         std::memcpy(expectedLeft, left, sizeof(expectedLeft));
         std::memcpy(expectedRight, right, sizeof(expectedRight));
 
-        REQUIRE(parentChannel->exchange(block, nullptr, 0));
+        const bool exchanged = parentChannel->exchange(block, nullptr, 0);
+        if (!exchanged) {
+            // Diagnostic only: this failure is not reproducible locally, so capture
+            // whatever the child printed before failing the assertion
+            host->kill();
+            FAIL("exchange() failed on iteration " << i << ", child output:\n" << childOutput(*host));
+        }
 
         REQUIRE(std::memcmp(left, expectedLeft, sizeof(expectedLeft)) == 0);
         REQUIRE(std::memcmp(right, expectedRight, sizeof(expectedRight)) == 0);
