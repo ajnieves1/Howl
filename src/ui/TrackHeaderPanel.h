@@ -44,6 +44,12 @@ public:
     // App-provided frozen state for a track, used for the row menu label and the row tint
     std::function<bool(std::size_t)> isTrackFrozen;
 
+    // Queried with trackIndex when painting the instrument button and building its menu
+    std::function<bool(std::size_t)> isInstrumentCrashed;
+
+    // Fired with trackIndex when a crashed instrument's "Restart Plugin" menu item is picked
+    std::function<void(std::size_t)> onRestartInstrumentRequested;
+
     // Fired when a row's Freeze/Unfreeze Track menu item is picked, with the requested new state
     std::function<void(std::size_t, bool)> onFreezeRequested;
 

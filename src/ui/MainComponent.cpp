@@ -67,6 +67,14 @@ MainComponent::MainComponent(model::Arrangement& arrangement, engine::Transport&
             onFreezeRequested(trackIndex, freeze);
         }
     };
+    m_trackHeaderPanel.isInstrumentCrashed = [this](std::size_t trackIndex) -> bool {
+        return isInstrumentCrashed && isInstrumentCrashed(trackIndex);
+    };
+    m_trackHeaderPanel.onRestartInstrumentRequested = [this](std::size_t trackIndex) {
+        if (onRestartInstrumentRequested) {
+            onRestartInstrumentRequested(trackIndex);
+        }
+    };
     m_trackHeaderPanel.onAutomationRequested = [this](std::size_t trackIndex) {
         showAutomationEditorFor(trackIndex);
     };

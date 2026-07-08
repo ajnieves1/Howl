@@ -85,6 +85,12 @@ public:
     // Fired when a row's Freeze/Unfreeze Track menu item is picked, with the requested new state
     std::function<void(std::size_t, bool)> onFreezeRequested;
 
+    // Queried with trackIndex when painting the instrument button and its right click menu
+    std::function<bool(std::size_t)> isInstrumentCrashed;
+
+    // Fired with trackIndex when a crashed instrument's "Restart Plugin" menu item is picked
+    std::function<void(std::size_t)> onRestartInstrumentRequested;
+
     // App-provided instrument parameter names for a track, feeds the automation editor's combo
     std::function<std::vector<juce::String>(std::size_t)> parameterNamesFor;
 
