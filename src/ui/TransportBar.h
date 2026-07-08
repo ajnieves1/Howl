@@ -5,6 +5,7 @@
 
 #include "engine/Transport.h"
 #include "model/CommandStack.h"
+#include "model/SnapGrid.h"
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
@@ -30,6 +31,9 @@ public:
     // Fired after a tempo edit commits, so the owner can rewarp audio clips
     std::function<void()> onTempoCommitted;
 
+    // Fired when the snap combo's selection changes
+    std::function<void(model::SnapDivision)> onSnapChanged;
+
     void resized() override;
     void paint(juce::Graphics& g) override;
 
@@ -39,6 +43,9 @@ private:
 
     // Parses and clamps the tempo label's text, applies it to the transport
     void commitTempo();
+
+    // Maps a snap combo item id (1-based) to its division
+    static model::SnapDivision snapDivisionForItemId(int itemId);
 
     engine::Transport& m_transport;
     model::CommandStack& m_commandStack;
@@ -50,6 +57,7 @@ private:
     juce::TextButton m_undoButton { "Undo" };
     juce::TextButton m_redoButton { "Redo" };
     juce::TextButton m_mixerButton { "Mixer" };
+    juce::ComboBox m_snapCombo;
 };
 
 } // namespace howl::ui

@@ -129,6 +129,9 @@ MainComponent::MainComponent(model::Arrangement& arrangement, engine::Transport&
             onRewarpRequested();
         }
     };
+    m_transportBar.onSnapChanged = [this](model::SnapDivision division) {
+        m_snapDivision = division;
+    };
 
     m_mixerView = std::make_unique<MixerView>(mixer, arrangement, factory, pluginHost,
         commandStack, sampleRate, maxBlockSize);

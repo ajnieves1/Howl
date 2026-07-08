@@ -39,6 +39,7 @@ add_executable(HowlTests
     SequencerNodeTests.cpp
     SessionPlaybackTests.cpp
     SessionTests.cpp
+    SnapGridTests.cpp
     SubtractiveSynthTests.cpp
     TrackCommandTests.cpp
     TrackFreezerTests.cpp

@@ -54,6 +54,19 @@ TransportBar::TransportBar(engine::Transport& transport, model::CommandStack& co
     };
     addAndMakeVisible(m_mixerButton);
 
+    m_snapCombo.addItem("Bar", 1);
+    m_snapCombo.addItem("Beat", 2);
+    m_snapCombo.addItem("1/2 Beat", 3);
+    m_snapCombo.addItem("Step", 4);
+    m_snapCombo.addItem("Off", 5);
+    m_snapCombo.setSelectedId(4, juce::dontSendNotification); // Step is the default division
+    m_snapCombo.onChange = [this] {
+        if (onSnapChanged) {
+            onSnapChanged(snapDivisionForItemId(m_snapCombo.getSelectedId()));
+        }
+    };
+    addAndMakeVisible(m_snapCombo);
+
     startTimerHz(30);
 }
 
@@ -69,6 +82,7 @@ void TransportBar::resized() {
     m_playButton.setBounds(bounds.removeFromLeft(60));
     m_positionLabel.setBounds(bounds.removeFromLeft(100));
     m_tempoLabel.setBounds(bounds.removeFromLeft(60));
+    m_snapCombo.setBounds(bounds.removeFromRight(90));
     m_mixerButton.setBounds(bounds.removeFromRight(60));
     m_redoButton.setBounds(bounds.removeFromRight(60));
     m_undoButton.setBounds(bounds.removeFromRight(60));
@@ -111,6 +125,23 @@ void TransportBar::commitTempo() {
 
     if (onTempoCommitted) {
         onTempoCommitted();
+    }
+}
+
+// Maps a snap combo item id (1-based) to its division
+model::SnapDivision TransportBar::snapDivisionForItemId(int itemId) {
+    switch (itemId) {
+        case 1:
+            return model::SnapDivision::Bar;
+        case 2:
+            return model::SnapDivision::Beat;
+        case 3:
+            return model::SnapDivision::HalfBeat;
+        case 5:
+            return model::SnapDivision::Off;
+        case 4:
+        default:
+            return model::SnapDivision::Step;
     }
 }
 

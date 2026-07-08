@@ -176,6 +176,7 @@ private:
     model::CommandStack& m_commandStack;
     model::Session& m_session;
     double m_sampleRate;
+    model::SnapDivision m_snapDivision = model::SnapDivision::Step;
 
     TransportBar m_transportBar;
     FileBrowserPanel m_browserPanel;
