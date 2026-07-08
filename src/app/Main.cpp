@@ -147,7 +147,8 @@ public:
     // Creates and shows a window hosting the whole app shell (MainComponent)
     MainWindow(model::Arrangement& arrangement, engine::Transport& transport, model::CommandStack& commandStack,
                model::Mixer& mixer, model::Session& session, model::ArrangementNode& arrangementNode,
-               engine::IEffectFactory& factory, plugins::IPluginHost* pluginHost, double sampleRate, int maxBlockSize)
+               engine::IEffectFactory& factory, plugins::IPluginHost* pluginHost, double sampleRate, int maxBlockSize,
+               const juce::File& browserRoot)
         : DocumentWindow(
               "Howl",
               juce::Desktop::getInstance().getDefaultLookAndFeel()
@@ -156,7 +157,7 @@ public:
     {
         setUsingNativeTitleBar(true);
         m_mainComponent = new ui::MainComponent(arrangement, transport, commandStack, mixer, session,
-            arrangementNode, factory, pluginHost, sampleRate, maxBlockSize);
+            arrangementNode, factory, pluginHost, sampleRate, maxBlockSize, browserRoot);
         setContentOwned(m_mainComponent, true);
         setMenuBar(m_mainComponent);
         setResizable(true, true);
@@ -204,6 +205,13 @@ public:
     // Builds the arrangement, opens the app shell, starts the audio device, and starts the xrun watcher
     void initialise(const juce::String&) override
     {
+        juce::PropertiesFile::Options settingsOptions;
+        settingsOptions.applicationName = "Howl";
+        settingsOptions.filenameSuffix = "xml";
+        settingsOptions.folderName = "Howl";
+        settingsOptions.osxLibrarySubFolder = "Application Support";
+        m_settings = std::make_unique<juce::PropertiesFile>(settingsOptions);
+
         if (!m_audioDevice.open()) {
             juce::Logger::writeToLog("Howl: failed to open audio device");
             return;
@@ -234,9 +242,10 @@ public:
         reconcileTrackInstruments();
         applyTrackInstruments();
 
+        const juce::File browserRoot(m_settings->getValue("browserRoot"));
         m_mainWindow = std::make_unique<MainWindow>(m_arrangement, m_transport, m_commandStack,
             m_arrangementNode->mixer(), m_session, *m_arrangementNode, m_effectFactory, &m_pluginHost,
-            m_sampleRate, m_bufferSize);
+            m_sampleRate, m_bufferSize, browserRoot);
 
         ui::MainComponent* mainComponent = m_mainWindow->mainComponent();
         mainComponent->onTracksChanged = [this] {
@@ -271,6 +280,10 @@ public:
         };
         mainComponent->onImportAudioRequested = [this] {
             showImportAudioFileChooser();
+        };
+        mainComponent->onBrowserRootChanged = [this](juce::File root) {
+            m_settings->setValue("browserRoot", root.getFullPathName());
+            m_settings->saveIfNeeded();
         };
         mainComponent->onAudioFileDropped = [this](juce::String path, std::size_t trackIndex, int64_t tick) {
             std::size_t targetTrack = trackIndex;
@@ -371,6 +384,9 @@ public:
         m_xrunWatcher.reset();
         m_audioDevice.close();
         m_mainWindow.reset();
+        if (m_settings != nullptr) {
+            m_settings->saveIfNeeded();
+        }
     }
 
     // Quits the app when the OS or window asks it to
@@ -1252,6 +1268,7 @@ private:
     std::unique_ptr<ui::PluginWindow> m_instrumentEditorWindow;
     std::unique_ptr<MainWindow> m_mainWindow;
     std::unique_ptr<XrunWatcher> m_xrunWatcher;
+    std::unique_ptr<juce::PropertiesFile> m_settings;
 };
 
 } // namespace howl

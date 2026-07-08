@@ -9,13 +9,15 @@ namespace howl::ui {
 MainComponent::MainComponent(model::Arrangement& arrangement, engine::Transport& transport,
                               model::CommandStack& commandStack, model::Mixer& mixer, model::Session& session,
                               model::ArrangementNode& arrangementNode, engine::IEffectFactory& factory,
-                              plugins::IPluginHost* pluginHost, double sampleRate, int maxBlockSize)
+                              plugins::IPluginHost* pluginHost, double sampleRate, int maxBlockSize,
+                              const juce::File& browserRoot)
     : m_arrangement(arrangement)
     , m_transport(transport)
     , m_commandStack(commandStack)
     , m_session(session)
     , m_sampleRate(sampleRate)
     , m_transportBar(transport, commandStack, sampleRate)
+    , m_browserPanel(browserRoot)
     , m_trackHeaderPanel(arrangement, mixer, session, commandStack)
     , m_arrangeView(arrangement, transport, commandStack, sampleRate)
 {
@@ -23,8 +25,20 @@ MainComponent::MainComponent(model::Arrangement& arrangement, engine::Transport&
     setWantsKeyboardFocus(true);
 
     addAndMakeVisible(m_transportBar);
+    addChildComponent(m_browserPanel);
     addAndMakeVisible(m_trackHeaderPanel);
     addAndMakeVisible(m_arrangeView);
+
+    m_browserPanel.onRootChanged = [this](juce::File root) {
+        if (onBrowserRootChanged) {
+            onBrowserRootChanged(root);
+        }
+    };
+    m_browserPanel.onFileClicked = [this](juce::File file) {
+        if (onBrowserFileClicked) {
+            onBrowserFileClicked(file);
+        }
+    };
 
     m_sessionView = std::make_unique<SessionView>(session, arrangement, arrangementNode, transport, commandStack);
     addChildComponent(*m_sessionView);
@@ -148,6 +162,10 @@ void MainComponent::resized() {
 
     m_transportBar.setBounds(bounds.removeFromTop(kTransportHeight));
 
+    if (m_browserVisible) {
+        m_browserPanel.setBounds(bounds.removeFromLeft(kBrowserWidth));
+    }
+
     if (m_bottomPanel != BottomPanel::None) {
         auto bottomBounds = bounds.removeFromBottom(kBottomPanelHeight);
 
@@ -179,6 +197,11 @@ bool MainComponent::keyPressed(const juce::KeyPress& key) {
 
     if (key == juce::KeyPress('M')) {
         toggleMixer();
+        return true;
+    }
+
+    if (key == juce::KeyPress('B')) {
+        toggleBrowser();
         return true;
     }
 
@@ -269,6 +292,13 @@ void MainComponent::showAutomationEditorFor(std::size_t trackIndex) {
     resized();
 }
 
+// Shows or hides the sample browser's left column
+void MainComponent::toggleBrowser() {
+    m_browserVisible = !m_browserVisible;
+    m_browserPanel.setVisible(m_browserVisible);
+    resized();
+}
+
 // Flips the center view between the arrange view and the session view
 void MainComponent::toggleCenterView() {
     m_centerView = m_centerView == CenterView::Arrange ? CenterView::Session : CenterView::Arrange;
@@ -310,6 +340,7 @@ juce::PopupMenu MainComponent::getMenuForIndex(int topLevelMenuIndex, const juce
     } else if (topLevelMenuIndex == 2) {
         menu.addItem(4, "Toggle Mixer");
         menu.addItem(9, "Toggle Session View");
+        menu.addItem(12, "Browser");
     } else if (topLevelMenuIndex == 3) {
         const bool sandboxOn = isSandboxEnabled ? isSandboxEnabled() : true;
         menu.addItem(11, "Sandbox Plugins", true, sandboxOn);
@@ -370,6 +401,9 @@ void MainComponent::menuItemSelected(int menuItemID, int) {
                 const bool currentlyOn = isSandboxEnabled ? isSandboxEnabled() : true;
                 onSandboxToggled(!currentlyOn);
             }
+            break;
+        case 12:
+            toggleBrowser();
             break;
         default:
             break;
