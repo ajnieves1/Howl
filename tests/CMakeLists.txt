@@ -28,6 +28,7 @@ add_executable(HowlTests
     MixerCommandTests.cpp
     MixerPdcTests.cpp
     MixerTests.cpp
+    NoteCommandTests.cpp
     OfflineStretcherTests.cpp
     PluginEffectTests.cpp
     PluginHostTests.cpp

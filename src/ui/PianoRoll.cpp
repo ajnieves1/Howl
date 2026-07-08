@@ -1,17 +1,25 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Howl DAW: shows and edits a MidiClip, draws the transport playhead
+// Howl DAW: shows and edits a MidiClip resolved from a ClipAddress, draws the transport playhead
 
 #include "ui/PianoRoll.h"
 
 #include <cmath>
+#include <memory>
+#include <vector>
 
 namespace howl::ui {
 
-// Stores references to the clip and transport, starts the playhead timer
-PianoRoll::PianoRoll(model::MidiClip& clip, engine::Transport& transport, double sampleRate)
-    : m_clip(clip)
+// Stores references, the clip address, and the snap division provider, starts the playhead timer
+PianoRoll::PianoRoll(model::Arrangement& arrangement, model::Session& session, model::ClipAddress address,
+                      model::CommandStack& commandStack, engine::Transport& transport, double sampleRate,
+                      std::function<model::SnapDivision()> snapProvider)
+    : m_arrangement(arrangement)
+    , m_session(session)
+    , m_address(address)
+    , m_commandStack(commandStack)
     , m_transport(transport)
     , m_sampleRate(sampleRate)
+    , m_snapProvider(std::move(snapProvider))
 {
     setWantsKeyboardFocus(true);
     startTimerHz(30);
@@ -27,15 +35,26 @@ void PianoRoll::timerCallback() {
     repaint();
 }
 
-// Ticks spanned by the visible grid, at least 4 beats even for an empty clip
-int64_t PianoRoll::visibleTickSpan() const {
-    const int64_t minimumSpan = kDefaultNoteLengthTicks * 4;
-    return juce::jmax(m_clip.lengthTicks(), minimumSpan);
+// Resolves the addressed clip fresh, nullptr when it no longer resolves. patterns is always
+// nullptr, a Pattern-sourced address never resolves until a later phase introduces PatternBank
+model::MidiClip* PianoRoll::resolveClip() const {
+    return model::resolveClip(m_arrangement, m_session, nullptr, m_address);
 }
 
-// Converts a pixel x position to a tick, clamped to the visible span
-int64_t PianoRoll::xToTick(int x) const {
-    const int64_t span = visibleTickSpan();
+// Returns the current global snap division, Step when no provider is set
+model::SnapDivision PianoRoll::snapDivision() const {
+    return m_snapProvider ? m_snapProvider() : model::SnapDivision::Step;
+}
+
+// Ticks spanned by the visible grid, at least 4 beats even for an empty or unresolved clip
+int64_t PianoRoll::visibleTickSpan(int64_t clipLengthTicks) const {
+    const int64_t minimumSpan = kDefaultNoteLengthTicks * 4;
+    return juce::jmax(clipLengthTicks, minimumSpan);
+}
+
+// Converts a pixel x position to a tick, clamped to the visible span, unsnapped
+int64_t PianoRoll::xToTick(int x, int64_t clipLengthTicks) const {
+    const int64_t span = visibleTickSpan(clipLengthTicks);
     const float ratio = juce::jlimit(0.0f, 1.0f, static_cast<float>(x) / static_cast<float>(getWidth()));
     return static_cast<int64_t>(ratio * static_cast<float>(span));
 }
@@ -48,8 +67,8 @@ int PianoRoll::yToKey(int y) const {
 }
 
 // Converts a tick to a pixel x position
-float PianoRoll::tickToX(int64_t tick) const {
-    const int64_t span = visibleTickSpan();
+float PianoRoll::tickToX(int64_t tick, int64_t clipLengthTicks) const {
+    const int64_t span = visibleTickSpan(clipLengthTicks);
     return static_cast<float>(tick) / static_cast<float>(span) * static_cast<float>(getWidth());
 }
 
@@ -60,9 +79,9 @@ float PianoRoll::keyToY(int key) const {
     return static_cast<float>(rowIndex) * rowHeight;
 }
 
-// Returns the index of the note at (tick, key), or -1 if none
-int PianoRoll::hitTestNote(int64_t tick, int key) const {
-    const auto& notes = m_clip.notes();
+// Returns the index of the note at (tick, key), or -1 if none, hit-testing is unsnapped
+int PianoRoll::hitTestNote(const model::MidiClip& clip, int64_t tick, int key) const {
+    const auto& notes = clip.notes();
     for (std::size_t i = 0; i < notes.size(); ++i) {
         const model::Note& note = notes[i];
         if (note.key == key && tick >= note.startTick && tick < note.startTick + note.lengthTicks) {
@@ -79,7 +98,7 @@ double PianoRoll::playheadTick() const {
     return static_cast<double>(m_transport.position()) / samplesPerTick;
 }
 
-// Draws the key grid, notes, and playhead
+// Draws the key grid, notes, and playhead, an empty grid when the address does not resolve
 void PianoRoll::paint(juce::Graphics& g) {
     g.fillAll(juce::Colours::black);
 
@@ -96,56 +115,77 @@ void PianoRoll::paint(juce::Graphics& g) {
         }
     }
 
+    model::MidiClip* clip = resolveClip();
+    const int64_t clipLength = clip != nullptr ? clip->lengthTicks() : 0;
+
     // Beat grid lines
-    const int64_t span = visibleTickSpan();
+    const int64_t span = visibleTickSpan(clipLength);
     const int numBeats = static_cast<int>(span / model::kTicksPerQuarter);
     g.setColour(juce::Colours::grey.withAlpha(0.4f));
     for (int beat = 0; beat <= numBeats; ++beat) {
-        const float x = tickToX(static_cast<int64_t>(beat) * model::kTicksPerQuarter);
+        const float x = tickToX(static_cast<int64_t>(beat) * model::kTicksPerQuarter, clipLength);
         g.drawVerticalLine(static_cast<int>(x), 0.0f, static_cast<float>(getHeight()));
     }
 
     // Notes
-    g.setColour(juce::Colours::orange);
-    for (const model::Note& note : m_clip.notes()) {
-        if (note.key < kLowestKey || note.key > kHighestKey) {
-            continue;
+    if (clip != nullptr) {
+        g.setColour(juce::Colours::orange);
+        for (const model::Note& note : clip->notes()) {
+            if (note.key < kLowestKey || note.key > kHighestKey) {
+                continue;
+            }
+            const float x = tickToX(note.startTick, clipLength);
+            const float width = tickToX(note.startTick + note.lengthTicks, clipLength) - x;
+            g.fillRect(x, keyToY(note.key), juce::jmax(2.0f, width), rowHeight);
         }
-        const float x = tickToX(note.startTick);
-        const float width = tickToX(note.startTick + note.lengthTicks) - x;
-        g.fillRect(x, keyToY(note.key), juce::jmax(2.0f, width), rowHeight);
     }
 
     // Playhead
     g.setColour(juce::Colours::white);
-    const float playheadX = tickToX(static_cast<int64_t>(playheadTick()));
+    const float playheadX = tickToX(static_cast<int64_t>(playheadTick()), clipLength);
     g.drawVerticalLine(static_cast<int>(playheadX), 0.0f, static_cast<float>(getHeight()));
 }
 
-// Begins adding a note, or begins a move or resize drag on an existing note
+// Begins adding a note (performs AddNoteCommand), or begins a move or resize drag
 void PianoRoll::mouseDown(const juce::MouseEvent& event) {
+    model::MidiClip* clip = resolveClip();
+    if (clip == nullptr) {
+        return;
+    }
+
     m_mouseDownPosition = event.getPosition();
     m_hasDraggedBeyondThreshold = false;
 
-    const int64_t tick = xToTick(event.x);
+    const int64_t tick = xToTick(event.x, clip->lengthTicks());
     const int key = yToKey(event.y);
-    const int index = hitTestNote(tick, key);
+    const int index = hitTestNote(*clip, tick, key);
 
     if (index < 0) {
-        model::Note note { key, 1.0f, tick, kDefaultNoteLengthTicks };
-        m_clip.addNote(note);
-        if (note.startTick + note.lengthTicks > m_clip.lengthTicks()) {
-            m_clip.setLengthTicks(note.startTick + note.lengthTicks);
+        const model::SnapDivision division = snapDivision();
+        const int64_t startTick = model::snapTickFloor(tick, division);
+        const int64_t lengthTicks = division == model::SnapDivision::Off
+            ? model::kTicksPerQuarter : model::snapUnitTicks(division);
+        const model::Note note { key, 1.0f, startTick, lengthTicks };
+
+        m_commandStack.perform(std::make_unique<model::AddNoteCommand>(
+            m_arrangement, m_session, nullptr, m_address, note));
+
+        // Growing the clip to fit a note placed past its current end is not undoable,
+        // matching the pre-existing behavior this task carries forward unchanged
+        model::MidiClip* afterAdd = resolveClip();
+        if (afterAdd != nullptr && startTick + lengthTicks > afterAdd->lengthTicks()) {
+            afterAdd->setLengthTicks(startTick + lengthTicks);
         }
+
         m_dragMode = DragMode::None;
         m_dragNoteIndex = -1;
         repaint();
         return;
     }
 
-    const auto& notes = m_clip.notes();
-    const model::Note& note = notes[static_cast<std::size_t>(index)];
-    const float rightEdgeX = tickToX(note.startTick + note.lengthTicks);
+    const model::Note& note = clip->notes()[static_cast<std::size_t>(index)];
+    m_dragOriginalNote = note;
+    const float rightEdgeX = tickToX(note.startTick + note.lengthTicks, clip->lengthTicks());
 
     m_dragNoteIndex = index;
     if (std::abs(static_cast<float>(event.x) - rightEdgeX) <= static_cast<float>(kResizeHandlePixels)) {
@@ -156,9 +196,16 @@ void PianoRoll::mouseDown(const juce::MouseEvent& event) {
     }
 }
 
-// Continues a move or resize drag once the mouse has moved past a small threshold
+// Continues a move or resize drag once the mouse has moved past a small threshold. Mutates
+// the resolved clip directly for live feedback, the gesture rule; mouseUp turns the net
+// change into one ReplaceNotesCommand
 void PianoRoll::mouseDrag(const juce::MouseEvent& event) {
     if (m_dragMode == DragMode::None || m_dragNoteIndex < 0) {
+        return;
+    }
+
+    model::MidiClip* clip = resolveClip();
+    if (clip == nullptr) {
         return;
     }
 
@@ -169,31 +216,46 @@ void PianoRoll::mouseDrag(const juce::MouseEvent& event) {
         return;
     }
 
-    const auto& notes = m_clip.notes();
-    model::Note note = notes[static_cast<std::size_t>(m_dragNoteIndex)];
+    model::Note note = clip->notes()[static_cast<std::size_t>(m_dragNoteIndex)];
+    const model::SnapDivision division = snapDivision();
 
     if (m_dragMode == DragMode::Move) {
-        const int64_t newTick = xToTick(event.x) - m_dragTickOffset;
-        note.startTick = juce::jmax<int64_t>(0, newTick);
+        const int64_t rawTick = xToTick(event.x, clip->lengthTicks()) - m_dragTickOffset;
+        note.startTick = model::snapTick(juce::jmax<int64_t>(0, rawTick), division);
         note.key = yToKey(event.y);
     } else {
-        const int64_t newEndTick = xToTick(event.x);
-        note.lengthTicks = juce::jmax<int64_t>(1, newEndTick - note.startTick);
+        const int64_t rawEndTick = xToTick(event.x, clip->lengthTicks());
+        const int64_t snappedEndTick = model::snapTick(rawEndTick, division);
+        note.lengthTicks = juce::jmax<int64_t>(1, snappedEndTick - note.startTick);
     }
 
-    m_dragNoteIndex = static_cast<int>(m_clip.replaceNoteAt(static_cast<std::size_t>(m_dragNoteIndex), note));
+    m_dragNoteIndex = static_cast<int>(clip->replaceNoteAt(static_cast<std::size_t>(m_dragNoteIndex), note));
 
-    if (note.startTick + note.lengthTicks > m_clip.lengthTicks()) {
-        m_clip.setLengthTicks(note.startTick + note.lengthTicks);
+    if (note.startTick + note.lengthTicks > clip->lengthTicks()) {
+        clip->setLengthTicks(note.startTick + note.lengthTicks);
     }
 
     repaint();
 }
 
-// Deletes the note if mouseDown started a drag that never moved
+// Performs ReplaceNotesCommand for a completed drag (the model already reflects the after
+// state from the live mutation, execute() is a harmless no-op, undo restores the before
+// values), or RemoveNoteCommand for a plain click that never moved
 void PianoRoll::mouseUp(const juce::MouseEvent&) {
-    if (m_dragMode != DragMode::None && m_dragNoteIndex >= 0 && !m_hasDraggedBeyondThreshold) {
-        m_clip.removeNoteAt(static_cast<std::size_t>(m_dragNoteIndex));
+    if (m_dragMode == DragMode::None || m_dragNoteIndex < 0) {
+        return;
+    }
+
+    model::MidiClip* clip = resolveClip();
+    if (clip != nullptr) {
+        if (m_hasDraggedBeyondThreshold) {
+            const model::Note finalNote = clip->notes()[static_cast<std::size_t>(m_dragNoteIndex)];
+            m_commandStack.perform(std::make_unique<model::ReplaceNotesCommand>(m_arrangement, m_session, nullptr,
+                m_address, std::vector<model::Note> { m_dragOriginalNote }, std::vector<model::Note> { finalNote }));
+        } else {
+            m_commandStack.perform(std::make_unique<model::RemoveNoteCommand>(
+                m_arrangement, m_session, nullptr, m_address, m_dragOriginalNote));
+        }
         repaint();
     }
 
