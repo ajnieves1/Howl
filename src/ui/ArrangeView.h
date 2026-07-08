@@ -20,7 +20,8 @@ namespace howl::ui {
 // transport stopped, same caveat as PianoRoll. Clicking a MIDI clip without
 // dragging fires onMidiClipSelected, actually opening a PianoRoll for it is
 // wired in P4-T7
-class ArrangeView : public juce::Component, public juce::FileDragAndDropTarget, private juce::Timer {
+class ArrangeView : public juce::Component, public juce::FileDragAndDropTarget,
+                    public juce::DragAndDropTarget, private juce::Timer {
 public:
     // Stores references to the arrangement, transport, and command stack, starts the playhead timer
     ArrangeView(model::Arrangement& arrangement, engine::Transport& transport,
@@ -57,6 +58,12 @@ public:
     // Fires onAudioFileDropped with the drop lane and snapped tick for each dropped .wav
     void filesDropped(const juce::StringArray& files, int x, int y) override;
 
+    // Accepts a drag whose description matches the browser's "howl-sample" tag
+    bool isInterestedInDragSource(const juce::DragAndDropTarget::SourceDetails& dragSourceDetails) override;
+
+    // Fires onAudioFileDropped for the browser's currently selected file, same lane/tick math as filesDropped
+    void itemDropped(const juce::DragAndDropTarget::SourceDetails& dragSourceDetails) override;
+
     // Called with (trackIndex, placementIndex) when a MIDI clip is clicked without dragging
     std::function<void(std::size_t, std::size_t)> onMidiClipSelected;
 
@@ -68,6 +75,9 @@ public:
 
     // Called after an audio clip's warp toggle or original BPM changes
     std::function<void()> onWarpChanged;
+
+    // Provides the file behind a "howl-sample" drag, wired to the browser's selection
+    std::function<juce::File()> browserFileProvider;
 
 private:
     static constexpr int64_t kMinimumVisibleTicks = model::kTicksPerQuarter * 16; // 4 bars at 4/4

@@ -31,7 +31,7 @@
 namespace howl::ui {
 
 // The whole app shell: transport bar top, arrange view center, piano roll or mixer bottom
-class MainComponent : public juce::Component, public juce::MenuBarModel {
+class MainComponent : public juce::Component, public juce::MenuBarModel, public juce::DragAndDropContainer {
 public:
     MainComponent(model::Arrangement& arrangement, engine::Transport& transport,
                   model::CommandStack& commandStack, model::Mixer& mixer, model::Session& session,

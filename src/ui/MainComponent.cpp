@@ -114,6 +114,9 @@ MainComponent::MainComponent(model::Arrangement& arrangement, engine::Transport&
             onRewarpRequested();
         }
     };
+    m_arrangeView.browserFileProvider = [this] {
+        return m_browserPanel.selectedFile();
+    };
 
     m_transportBar.onMixerToggle = [this] {
         toggleMixer();

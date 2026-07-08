@@ -428,6 +428,34 @@ void ArrangeView::filesDropped(const juce::StringArray& files, int x, int y) {
     }
 }
 
+// Accepts a drag whose description matches the browser's "howl-sample" tag
+bool ArrangeView::isInterestedInDragSource(const juce::DragAndDropTarget::SourceDetails& dragSourceDetails) {
+    return dragSourceDetails.description == juce::var("howl-sample");
+}
+
+// Fires onAudioFileDropped for the browser's currently selected file, same lane/tick math as filesDropped
+void ArrangeView::itemDropped(const juce::DragAndDropTarget::SourceDetails& dragSourceDetails) {
+    if (m_arrangement.numTracks() == 0 || dragSourceDetails.localPosition.y < kRulerHeight) {
+        return;
+    }
+
+    if (!browserFileProvider || !onAudioFileDropped) {
+        return;
+    }
+
+    const juce::File file = browserFileProvider();
+    if (!file.existsAsFile()) {
+        return;
+    }
+
+    const std::size_t trackIndex = yToTrackIndex(dragSourceDetails.localPosition.y);
+    const int64_t tick = xToTick(dragSourceDetails.localPosition.x);
+    const int64_t barTicks = model::kTicksPerQuarter * 4;
+    const int64_t snappedTick = tick - (tick % barTicks);
+
+    onAudioFileDropped(file.getFullPathName(), trackIndex, snappedTick);
+}
+
 // Opens a "Delete Clip" popup for the given clip, with warp toggle and BPM entry for audio clips
 void ArrangeView::showDeleteClipMenu(const DraggedClip& target) {
     juce::PopupMenu menu;
