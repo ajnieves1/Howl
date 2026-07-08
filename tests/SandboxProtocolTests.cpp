@@ -95,7 +95,7 @@ TEST_CASE("ShmAudioChannel round-trips 64 ramp blocks through a real loopback ch
     // on every call, a failed one included, so retrying it before the child is listening
     // would race the sequence ahead of what the child's first wait is looking for and it
     // would never catch up. A generous one-shot sleep across slower CI runners instead
-    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    std::this_thread::sleep_for(std::chrono::milliseconds(3000));
 
     for (int i = 0; i < 64; ++i) {
         fillRamp(block, static_cast<float>(i));
@@ -135,7 +135,7 @@ TEST_CASE("ShmAudioChannel times out and returns silence once the child crashes"
     AudioBlock block { channels, kNumChannels, kBlockSize };
 
     // Warms the child up the same way as the round trip test above
-    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    std::this_thread::sleep_for(std::chrono::milliseconds(3000));
 
     for (int i = 0; i < 10; ++i) {
         fillRamp(block, static_cast<float>(i));
@@ -176,7 +176,7 @@ TEST_CASE("ShmAudioChannel does not hang when the child is killed mid-run", "[sa
     AudioBlock block { channels, kNumChannels, kBlockSize };
 
     // Warms the child up the same way as the round trip test above
-    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    std::this_thread::sleep_for(std::chrono::milliseconds(3000));
 
     for (int i = 0; i < 5; ++i) {
         fillRamp(block, static_cast<float>(i));
