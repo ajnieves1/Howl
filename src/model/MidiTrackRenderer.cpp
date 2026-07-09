@@ -22,6 +22,40 @@ void MidiTrackRenderer::setInstrument(engine::Instrument* instrument) {
     m_instrument = instrument;
 }
 
+// Points this renderer at the bank's placements for its track, call before process
+void MidiTrackRenderer::setPatternSource(const PatternBank* bank, std::size_t trackIndex) {
+    m_patternBank = bank;
+    m_patternTrackIndex = trackIndex;
+}
+
+// [RT] Appends clip's due note on/off events into events, respecting its own length clamp
+void MidiTrackRenderer::collectClipEvents(int64_t placementStartTick, const MidiClip& clip, SampleCount pos,
+                                           SampleCount blockEnd, double samplesPerTick,
+                                           Event (&events)[kMaxEventsPerBlock], int& count) const noexcept {
+    for (const Note& note : clip.notes()) {
+        // Shortening the clip silences trailing notes without discarding them, they
+        // return the moment the clip is lengthened back past their start
+        if (note.startTick >= clip.lengthTicks()) {
+            continue;
+        }
+
+        const int64_t absoluteStartTick = placementStartTick + note.startTick;
+        const int64_t absoluteEndTick = absoluteStartTick + note.lengthTicks;
+
+        const auto noteStart = static_cast<SampleCount>(static_cast<double>(absoluteStartTick) * samplesPerTick);
+        const auto noteEnd = static_cast<SampleCount>(static_cast<double>(absoluteEndTick) * samplesPerTick);
+
+        if (noteStart >= pos && noteStart < blockEnd && count < kMaxEventsPerBlock) {
+            events[count] = Event { static_cast<int>(noteStart - pos), true, note.key, note.velocity };
+            ++count;
+        }
+        if (noteEnd >= pos && noteEnd < blockEnd && count < kMaxEventsPerBlock) {
+            events[count] = Event { static_cast<int>(noteEnd - pos), false, note.key, note.velocity };
+            ++count;
+        }
+    }
+}
+
 // [RT] Fills events with every note on/off due in this block, sorted by localOffset
 int MidiTrackRenderer::collectEvents(SampleCount pos, int numFrames, Event (&events)[kMaxEventsPerBlock]) const noexcept {
     const double tempo = m_transport.tempo();
@@ -34,27 +68,22 @@ int MidiTrackRenderer::collectEvents(SampleCount pos, int numFrames, Event (&eve
             continue;
         }
 
-        for (const Note& note : placement.clip.notes()) {
-            // Shortening the clip silences trailing notes without discarding them, they
-            // return the moment the clip is lengthened back past their start
-            if (note.startTick >= placement.clip.lengthTicks()) {
+        collectClipEvents(placement.startTick, placement.clip, pos, blockEnd, samplesPerTick, events, count);
+    }
+
+    if (m_patternBank != nullptr) {
+        for (const auto& placement : m_patternBank->placements()) {
+            if (placement.patternIndex >= m_patternBank->numPatterns()) {
                 continue;
             }
 
-            const int64_t absoluteStartTick = placement.startTick + note.startTick;
-            const int64_t absoluteEndTick = absoluteStartTick + note.lengthTicks;
-
-            const auto noteStart = static_cast<SampleCount>(static_cast<double>(absoluteStartTick) * samplesPerTick);
-            const auto noteEnd = static_cast<SampleCount>(static_cast<double>(absoluteEndTick) * samplesPerTick);
-
-            if (noteStart >= pos && noteStart < blockEnd && count < kMaxEventsPerBlock) {
-                events[count] = Event { static_cast<int>(noteStart - pos), true, note.key, note.velocity };
-                ++count;
+            const Pattern& pattern = m_patternBank->pattern(placement.patternIndex);
+            if (m_patternTrackIndex >= pattern.trackClips.size()) {
+                continue;
             }
-            if (noteEnd >= pos && noteEnd < blockEnd && count < kMaxEventsPerBlock) {
-                events[count] = Event { static_cast<int>(noteEnd - pos), false, note.key, note.velocity };
-                ++count;
-            }
+
+            collectClipEvents(placement.startTick, pattern.trackClips[m_patternTrackIndex], pos, blockEnd,
+                               samplesPerTick, events, count);
         }
     }
 

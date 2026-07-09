@@ -13,6 +13,7 @@
 #include "model/AudioTrackRenderer.h"
 #include "model/MidiTrackRenderer.h"
 #include "model/Mixer.h"
+#include "model/Pattern.h"
 #include "model/PreviewPlayer.h"
 #include "model/Session.h"
 #include "model/SessionTrackPlayer.h"
@@ -46,6 +47,9 @@ public:
 
     // Points session playback at the grid, off the audio thread, set before prepare
     void setSession(const Session* session);
+
+    // Points the node at the pattern bank, call before prepare
+    void setPatternBank(const PatternBank* bank);
 
     // Clears active and pending session playback so a render starts from pure arrangement state
     void resetSessionPlayback();
@@ -87,6 +91,7 @@ private:
     engine::Transport& m_transport;
     Arrangement& m_arrangement;
     const Session* m_session = nullptr;
+    const PatternBank* m_patternBank = nullptr;
 
     // Indexed by track, empty vector means not frozen
     std::vector<std::vector<std::vector<float>>> m_frozenChannels;

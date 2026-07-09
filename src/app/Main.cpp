@@ -242,6 +242,7 @@ public:
 
         auto arrangementNode = std::make_unique<model::ArrangementNode>(m_transport, m_arrangement);
         arrangementNode->setSession(&m_session);
+        arrangementNode->setPatternBank(&m_patterns);
         arrangementNode->setLiveNoteQueue(&m_midiInputHub.noteQueue());
         arrangementNode->setPreviewPlayer(&m_previewPlayer);
         arrangementNode->prepare(m_sampleRate, m_bufferSize, 2);

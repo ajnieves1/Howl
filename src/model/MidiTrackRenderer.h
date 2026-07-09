@@ -7,6 +7,9 @@
 #include "engine/Instrument.h"
 #include "engine/Transport.h"
 #include "model/Arrangement.h"
+#include "model/Pattern.h"
+
+#include <cstddef>
 
 namespace howl::model {
 
@@ -20,6 +23,9 @@ public:
 
     // Assigns the instrument this track renders through, may be nullptr
     void setInstrument(engine::Instrument* instrument);
+
+    // Points this renderer at the bank's placements for its track, call before process
+    void setPatternSource(const PatternBank* bank, std::size_t trackIndex);
 
     // [RT] Emits due note on/off to the instrument, then renders it into audio
     void process(AudioBlock& audio, SampleCount pos) noexcept;
@@ -38,6 +44,10 @@ private:
     // [RT] Fills events with every note on/off due in this block, sorted by localOffset
     int collectEvents(SampleCount pos, int numFrames, Event (&events)[kMaxEventsPerBlock]) const noexcept;
 
+    // [RT] Appends clip's due note on/off events into events, respecting its own length clamp
+    void collectClipEvents(int64_t placementStartTick, const MidiClip& clip, SampleCount pos, SampleCount blockEnd,
+                            double samplesPerTick, Event (&events)[kMaxEventsPerBlock], int& count) const noexcept;
+
     // [RT] Builds a view into audio starting at offset, length frames long, no allocation
     AudioBlock makeSubBlock(AudioBlock& audio, int offset, int length) noexcept;
 
@@ -46,6 +56,8 @@ private:
     engine::Instrument* m_instrument = nullptr;
     double m_sampleRate = 44100.0;
     float* m_channelPointers[kMaxChannels] {};
+    const PatternBank* m_patternBank = nullptr;
+    std::size_t m_patternTrackIndex = 0;
 };
 
 } // namespace howl::model
