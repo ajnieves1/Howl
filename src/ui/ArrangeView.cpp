@@ -294,7 +294,7 @@ void ArrangeView::paint(juce::Graphics& g) {
             const float x = tickToX(startTick);
             const float width = tickToX(startTick + placement.clip.lengthTicks()) - x;
             juce::Rectangle<float> r { x, y + 2.0f, juce::jmax(2.0f, width), height - 5.0f };
-            g.setColour(juce::Colours::orange);
+            g.setColour(placement.muted ? juce::Colours::orange.withAlpha(0.35f) : juce::Colours::orange);
             g.fillRect(r);
             g.setColour(isSelected(ClipKind::Midi, i, p) ? juce::Colours::yellow : juce::Colours::orange.darker(0.8f));
             g.drawRect(r, isSelected(ClipKind::Midi, i, p) ? 2.5f : 1.5f);
@@ -311,7 +311,7 @@ void ArrangeView::paint(juce::Graphics& g) {
             const float x = tickToX(startTick);
             const float width = tickToX(startTick + lengthTicks) - x;
             juce::Rectangle<float> r { x, y + 2.0f, juce::jmax(2.0f, width), height - 5.0f };
-            g.setColour(juce::Colours::steelblue);
+            g.setColour(placement.muted ? juce::Colours::steelblue.withAlpha(0.35f) : juce::Colours::steelblue);
             g.fillRect(r);
             g.setColour(isSelected(ClipKind::Audio, i, p) ? juce::Colours::yellow : juce::Colours::steelblue.darker(0.8f));
             g.drawRect(r, isSelected(ClipKind::Audio, i, p) ? 2.5f : 1.5f);
@@ -710,9 +710,15 @@ void ArrangeView::itemDropped(const juce::DragAndDropTarget::SourceDetails& drag
     onAudioFileDropped(file.getFullPathName(), trackIndex, snappedTick);
 }
 
-// Opens a "Delete Clip" popup for the given clip, with warp toggle and BPM entry for audio clips
+// Opens a "Delete Clip" popup for the given clip, with a mute toggle above it, plus
+// warp toggle and BPM entry for audio clips
 void ArrangeView::showDeleteClipMenu(const DraggedClip& target) {
+    const bool muted = target.kind == ClipKind::Midi
+        ? m_arrangement.track(target.trackIndex).midiClips[target.placementIndex].muted
+        : m_arrangement.track(target.trackIndex).audioClips[target.placementIndex].muted;
+
     juce::PopupMenu menu;
+    menu.addItem(4, "Mute Clip", true, muted);
     menu.addItem(1, "Delete Clip");
 
     if (target.kind == ClipKind::Audio) {
@@ -739,6 +745,12 @@ void ArrangeView::showDeleteClipMenu(const DraggedClip& target) {
             }
         } else if (result == 3 && target.kind == ClipKind::Audio) {
             showSetOriginalBpmDialog(target);
+        } else if (result == 4) {
+            const model::TrackKind kind = target.kind == ClipKind::Midi
+                ? model::TrackKind::Midi : model::TrackKind::Audio;
+            m_commandStack.perform(std::make_unique<model::ToggleClipMuteCommand>(
+                m_arrangement, kind, target.trackIndex, target.placementIndex));
+            repaint();
         }
     });
 }

@@ -4,6 +4,7 @@
 #include "engine/Instrument.h"
 #include "engine/Transport.h"
 #include "model/Arrangement.h"
+#include "model/AudioClip.h"
 #include "model/Commands.h"
 #include "model/MidiTrackRenderer.h"
 
@@ -26,8 +27,11 @@ using howl::model::MidiClip;
 using howl::model::MidiClipPlacement;
 using howl::model::MidiTrackRenderer;
 using howl::model::Note;
+using howl::model::AudioClip;
+using howl::model::AudioClipPlacement;
 using howl::model::RemoveMidiClipCommand;
 using howl::model::ResizeMidiClipCommand;
+using howl::model::ToggleClipMuteCommand;
 using howl::model::Track;
 using howl::model::TrackKind;
 
@@ -187,4 +191,72 @@ TEST_CASE("A composite of two same-track removals built descending round-trips c
     REQUIRE(arrangement.track(trackIndex).midiClips.size() == 2);
     REQUIRE(arrangement.track(trackIndex).midiClips[0].startTick == 0);
     REQUIRE(arrangement.track(trackIndex).midiClips[1].startTick == kTicksPerQuarter * 4);
+}
+
+TEST_CASE("ToggleClipMuteCommand flips a placement's muted flag and undo flips it back", "[model]") {
+    Arrangement arrangement;
+
+    const std::size_t midiTrack = arrangement.addTrack("Lead", TrackKind::Midi);
+    MidiClip midiClip;
+    midiClip.setLengthTicks(kTicksPerQuarter * 4);
+    arrangement.addMidiClipPlacement(midiTrack, MidiClipPlacement { 0, midiClip });
+
+    ToggleClipMuteCommand midiToggle(arrangement, TrackKind::Midi, midiTrack, 0);
+    REQUIRE_FALSE(arrangement.track(midiTrack).midiClips[0].muted);
+    midiToggle.execute();
+    REQUIRE(arrangement.track(midiTrack).midiClips[0].muted);
+    midiToggle.undo();
+    REQUIRE_FALSE(arrangement.track(midiTrack).midiClips[0].muted);
+
+    const std::size_t audioTrack = arrangement.addTrack("Vocals", TrackKind::Audio);
+    AudioClip audioClip;
+    arrangement.addAudioClipPlacement(audioTrack, AudioClipPlacement { 0, audioClip });
+
+    ToggleClipMuteCommand audioToggle(arrangement, TrackKind::Audio, audioTrack, 0);
+    REQUIRE_FALSE(arrangement.track(audioTrack).audioClips[0].muted);
+    audioToggle.execute();
+    REQUIRE(arrangement.track(audioTrack).audioClips[0].muted);
+    audioToggle.undo();
+    REQUIRE_FALSE(arrangement.track(audioTrack).audioClips[0].muted);
+}
+
+TEST_CASE("MidiTrackRenderer renders silence for a muted placement while an unmuted twin sounds", "[model]") {
+    const double sampleRate = 44100.0;
+    const int blockSize = 65536;
+
+    MidiClip mutedClip;
+    mutedClip.setLengthTicks(kTicksPerQuarter * 4);
+    mutedClip.addNote(Note { 60, 1.0f, 0, kTicksPerQuarter });
+
+    MidiClip soundingClip;
+    soundingClip.setLengthTicks(kTicksPerQuarter * 4);
+    soundingClip.addNote(Note { 61, 1.0f, 0, kTicksPerQuarter });
+
+    Track track;
+    track.name = "Lead";
+    track.kind = TrackKind::Midi;
+    track.midiClips.push_back(MidiClipPlacement { 0, mutedClip, true });
+    track.midiClips.push_back(MidiClipPlacement { kTicksPerQuarter * 2, soundingClip, false });
+
+    Transport transport;
+    transport.setTempo(120.0);
+    transport.play();
+
+    ProbeInstrument instrument;
+    instrument.prepare(sampleRate, blockSize);
+
+    MidiTrackRenderer renderer(transport, track);
+    renderer.prepare(sampleRate);
+    renderer.setInstrument(&instrument);
+
+    std::vector<float> buffer(static_cast<std::size_t>(blockSize), 0.0f);
+    float* channels[1] = { buffer.data() };
+    AudioBlock block { channels, 1, blockSize };
+
+    const SampleCount pos = transport.advance(blockSize);
+    REQUIRE(pos == 0);
+    renderer.process(block, pos);
+
+    REQUIRE(std::find(instrument.onKeys.begin(), instrument.onKeys.end(), 60) == instrument.onKeys.end());
+    REQUIRE(std::find(instrument.onKeys.begin(), instrument.onKeys.end(), 61) != instrument.onKeys.end());
 }

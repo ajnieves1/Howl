@@ -149,6 +149,32 @@ void ResizeMidiClipCommand::undo() {
     m_arrangement.track(m_trackIndex).midiClips[m_placementIndex].clip.setLengthTicks(m_oldLengthTicks);
 }
 
+// Stores the arrangement, clip kind, track, and placement index to flip on execute()
+ToggleClipMuteCommand::ToggleClipMuteCommand(Arrangement& arrangement, TrackKind kind, std::size_t trackIndex,
+                                              std::size_t placementIndex)
+    : m_arrangement(arrangement)
+    , m_kind(kind)
+    , m_trackIndex(trackIndex)
+    , m_placementIndex(placementIndex)
+{
+}
+
+// Flips the placement's muted flag
+void ToggleClipMuteCommand::execute() {
+    if (m_kind == TrackKind::Midi) {
+        bool& muted = m_arrangement.track(m_trackIndex).midiClips[m_placementIndex].muted;
+        muted = !muted;
+    } else {
+        bool& muted = m_arrangement.track(m_trackIndex).audioClips[m_placementIndex].muted;
+        muted = !muted;
+    }
+}
+
+// Flips the placement's muted flag back
+void ToggleClipMuteCommand::undo() {
+    execute();
+}
+
 // Returns the addressed clip, nullptr when the address no longer resolves. patterns is
 // nullptr until a later phase introduces the PatternBank, a Pattern-sourced address
 // always fails to resolve until then

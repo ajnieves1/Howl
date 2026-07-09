@@ -100,6 +100,7 @@ juce::var midiClipToVar(const model::MidiClipPlacement& placement) {
     auto* obj = new juce::DynamicObject();
     obj->setProperty("startTick", static_cast<juce::int64>(placement.startTick));
     obj->setProperty("lengthTicks", static_cast<juce::int64>(placement.clip.lengthTicks()));
+    obj->setProperty("muted", placement.muted);
 
     juce::Array<juce::var> notes;
     for (const auto& note : placement.clip.notes()) {
@@ -117,6 +118,7 @@ juce::var audioClipToVar(const model::AudioClipPlacement& placement) {
     obj->setProperty("sourcePath", juce::String(placement.clip.sourcePath()));
     obj->setProperty("originalBpm", placement.clip.originalBpm());
     obj->setProperty("warpEnabled", placement.clip.warpEnabled());
+    obj->setProperty("muted", placement.muted);
     return juce::var(obj);
 }
 
@@ -382,7 +384,8 @@ bool ProjectSerializer::load(const juce::String& json, model::Arrangement& arran
 
                     const int64_t startTick = static_cast<int64_t>(
                         static_cast<juce::int64>(clipVar.getProperty("startTick", 0)));
-                    arrangement.addMidiClipPlacement(trackIndex, model::MidiClipPlacement { startTick, clip });
+                    const bool muted = static_cast<bool>(clipVar.getProperty("muted", false));
+                    arrangement.addMidiClipPlacement(trackIndex, model::MidiClipPlacement { startTick, clip, muted });
                 }
             }
 
@@ -396,7 +399,8 @@ bool ProjectSerializer::load(const juce::String& json, model::Arrangement& arran
                     clip.setSourcePath(sourcePath);
                     clip.setOriginalBpm(static_cast<double>(clipVar.getProperty("originalBpm", 0.0)));
                     clip.setWarpEnabled(static_cast<bool>(clipVar.getProperty("warpEnabled", false)));
-                    arrangement.addAudioClipPlacement(trackIndex, model::AudioClipPlacement { startTick, clip });
+                    const bool muted = static_cast<bool>(clipVar.getProperty("muted", false));
+                    arrangement.addAudioClipPlacement(trackIndex, model::AudioClipPlacement { startTick, clip, muted });
                 }
             }
 

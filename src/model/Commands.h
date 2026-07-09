@@ -115,6 +115,24 @@ private:
     int64_t m_newLengthTicks;
 };
 
+// Flips a placed clip's mute flag, undo flips it back. kind selects which of the
+// track's two placement vectors (midiClips or audioClips) placementIndex addresses
+class ToggleClipMuteCommand : public Command {
+public:
+    // Stores the arrangement, clip kind, track, and placement index to flip on execute()
+    ToggleClipMuteCommand(Arrangement& arrangement, TrackKind kind, std::size_t trackIndex,
+                          std::size_t placementIndex);
+
+    void execute() override;
+    void undo() override;
+
+private:
+    Arrangement& m_arrangement;
+    TrackKind m_kind;
+    std::size_t m_trackIndex;
+    std::size_t m_placementIndex;
+};
+
 // Owns every pattern and their timeline placements, added in a later phase
 class PatternBank;
 
