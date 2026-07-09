@@ -10,6 +10,7 @@
 #include "model/CommandStack.h"
 #include "model/MidiClip.h"
 #include "model/Mixer.h"
+#include "model/Pattern.h"
 #include "model/Session.h"
 #include "plugins/IPluginInstance.h"
 #include "ui/ArrangeView.h"
@@ -35,9 +36,9 @@ class MainComponent : public juce::Component, public juce::MenuBarModel, public 
 public:
     MainComponent(model::Arrangement& arrangement, engine::Transport& transport,
                   model::CommandStack& commandStack, model::Mixer& mixer, model::Session& session,
-                  model::ArrangementNode& arrangementNode, engine::IEffectFactory& factory,
-                  plugins::IPluginHost* pluginHost, double sampleRate, int maxBlockSize,
-                  const juce::File& browserRoot);
+                  model::PatternBank& patterns, model::ArrangementNode& arrangementNode,
+                  engine::IEffectFactory& factory, plugins::IPluginHost* pluginHost, double sampleRate,
+                  int maxBlockSize, const juce::File& browserRoot);
 
     void resized() override;
 

@@ -11,6 +11,7 @@
 #include "model/MidiClip.h"
 #include "model/Mixer.h"
 #include "model/Note.h"
+#include "model/Pattern.h"
 #include "model/Session.h"
 
 #include <cstddef>
@@ -133,9 +134,6 @@ private:
     std::size_t m_placementIndex;
 };
 
-// Owns every pattern and their timeline placements, added in a later phase
-class PatternBank;
-
 // Where a MidiClip lives, so note commands can re-resolve it at execute/undo time
 // rather than storing a pointer that dangles once the owning container reallocates
 struct ClipAddress {
@@ -152,9 +150,9 @@ struct ClipAddress {
     std::size_t slotIndex;
 };
 
-// Returns the addressed clip, nullptr when the address no longer resolves. patterns is
-// nullptr until a later phase introduces the PatternBank, a Pattern-sourced address
-// always fails to resolve until then
+// Returns the addressed clip, nullptr when the address no longer resolves or patterns is
+// nullptr for a Pattern-sourced address. For Pattern, trackIndex selects the lane and
+// slotIndex is the pattern index
 MidiClip* resolveClip(Arrangement& arrangement, Session& session, PatternBank* patterns,
                        const ClipAddress& address);
 
@@ -309,49 +307,55 @@ private:
     Send m_removedSend {};
 };
 
-// Adds a track to the arrangement, a default strip to the mixer, and a session column,
-// undo removes all three
+// Adds a track to the arrangement, a default strip to the mixer, a session column, and a
+// pattern bank lane, undo removes all four
 class AddTrackCommand : public Command {
 public:
-    // Stores the arrangement, mixer, session, and the new track's name and kind
-    AddTrackCommand(Arrangement& arrangement, Mixer& mixer, Session& session, std::string name, TrackKind kind);
+    // Stores the arrangement, mixer, session, patterns, and the new track's name and kind
+    AddTrackCommand(Arrangement& arrangement, Mixer& mixer, Session& session, PatternBank& patterns,
+                     std::string name, TrackKind kind);
 
-    // arrangement.addTrack + mixer.insertTrackStrip + session.addTrackColumn, all at the new index
+    // arrangement.addTrack + mixer.insertTrackStrip + session.addTrackColumn + patterns.addTrackColumn
     void execute() override;
 
-    // arrangement.removeTrack + mixer.removeTrackStrip + session.removeTrackColumn
+    // arrangement.removeTrack + mixer.removeTrackStrip + session.removeTrackColumn + patterns.removeTrackColumn
     void undo() override;
 
 private:
     Arrangement& m_arrangement;
     Mixer& m_mixer;
     Session& m_session;
+    PatternBank& m_patterns;
     std::string m_name;
     TrackKind m_kind;
     std::size_t m_index = 0;
 };
 
-// Removes a track, its strip, and its session column; undo restores the track copy and
-// session column, and a DEFAULT strip (strip contents - FX, gain, sends - are not preserved
-// across remove/undo in v1, documented)
+// Removes a track, its strip, its session column, and its pattern bank lane; undo restores
+// the track copy, session column, and lane, and a DEFAULT strip (strip contents - FX, gain,
+// sends - are not preserved across remove/undo in v1, documented)
 class RemoveTrackCommand : public Command {
 public:
-    // Stores the arrangement, mixer, session, and the track index to remove on execute()
-    RemoveTrackCommand(Arrangement& arrangement, Mixer& mixer, Session& session, std::size_t trackIndex);
+    // Stores the arrangement, mixer, session, patterns, and the track index to remove on execute()
+    RemoveTrackCommand(Arrangement& arrangement, Mixer& mixer, Session& session, PatternBank& patterns,
+                        std::size_t trackIndex);
 
-    // Copies the Track (Track is copyable by design) and session column, then removes all three
+    // Copies the Track (Track is copyable by design), session column, and pattern lanes, then removes all four
     void execute() override;
 
     // arrangement.insertTrack(index, copy) + mixer.insertTrackStrip(index) + session.insertTrackColumn(index, copy)
+    // + patterns.insertTrackColumn(index, lanes)
     void undo() override;
 
 private:
     Arrangement& m_arrangement;
     Mixer& m_mixer;
     Session& m_session;
+    PatternBank& m_patterns;
     std::size_t m_index;
     Track m_removedTrack {};
     std::vector<ClipSlot> m_removedColumn;
+    std::vector<MidiClip> m_removedLanes;
 };
 
 // Adds an audio clip placement to a track, undo removes it
@@ -526,6 +530,52 @@ private:
     std::size_t m_laneIndex;
     AutomationPoint m_oldPoint;
     AutomationPoint m_newPoint;
+};
+
+// Adds a pattern placement to the timeline, undo removes it
+class AddPatternPlacementCommand : public Command {
+public:
+    // Stores the pattern bank and the placement to add on execute()
+    AddPatternPlacementCommand(PatternBank& patterns, PatternPlacement placement);
+
+    void execute() override;
+    void undo() override;
+
+private:
+    PatternBank& m_patterns;
+    PatternPlacement m_placement;
+    std::size_t m_placementIndex = 0;
+};
+
+// Removes a pattern placement at index, undo re adds it
+class RemovePatternPlacementCommand : public Command {
+public:
+    // Stores the pattern bank and the placement index to remove on execute()
+    RemovePatternPlacementCommand(PatternBank& patterns, std::size_t placementIndex);
+
+    void execute() override;
+    void undo() override;
+
+private:
+    PatternBank& m_patterns;
+    std::size_t m_placementIndex;
+    PatternPlacement m_removedPlacement {};
+};
+
+// Moves a pattern placement from oldTick to newTick, undo restores the old tick
+class MovePatternPlacementCommand : public Command {
+public:
+    // Stores the pattern bank, placement index, and both tick positions
+    MovePatternPlacementCommand(PatternBank& patterns, std::size_t placementIndex, int64_t oldTick, int64_t newTick);
+
+    void execute() override;
+    void undo() override;
+
+private:
+    PatternBank& m_patterns;
+    std::size_t m_placementIndex;
+    int64_t m_oldTick;
+    int64_t m_newTick;
 };
 
 // Groups child commands into one undo step, executed in order and undone in reverse

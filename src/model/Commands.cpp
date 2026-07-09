@@ -175,9 +175,9 @@ void ToggleClipMuteCommand::undo() {
     execute();
 }
 
-// Returns the addressed clip, nullptr when the address no longer resolves. patterns is
-// nullptr until a later phase introduces the PatternBank, a Pattern-sourced address
-// always fails to resolve until then
+// Returns the addressed clip, nullptr when the address no longer resolves or patterns is
+// nullptr for a Pattern-sourced address. For Pattern, trackIndex selects the lane and
+// slotIndex is the pattern index
 MidiClip* resolveClip(Arrangement& arrangement, Session& session, PatternBank* patterns,
                        const ClipAddress& address) {
     switch (address.source) {
@@ -201,10 +201,17 @@ MidiClip* resolveClip(Arrangement& arrangement, Session& session, PatternBank* p
             }
             return &slot.midiClip;
         }
-        case ClipAddress::Source::Pattern:
+        case ClipAddress::Source::Pattern: {
+            if (patterns == nullptr || address.slotIndex >= patterns->numPatterns()) {
+                return nullptr;
+            }
+            Pattern& pattern = patterns->pattern(address.slotIndex);
+            if (address.trackIndex >= pattern.trackClips.size()) {
+                return nullptr;
+            }
+            return &pattern.trackClips[address.trackIndex];
+        }
         default:
-            // No PatternBank exists yet, a Pattern-sourced address never resolves
-            (void)patterns;
             return nullptr;
     }
 }
@@ -475,52 +482,60 @@ void RemoveSendCommand::undo() {
 }
 
 // Stores the arrangement, mixer, session, and the new track's name and kind
-AddTrackCommand::AddTrackCommand(Arrangement& arrangement, Mixer& mixer, Session& session, std::string name,
-                                  TrackKind kind)
+AddTrackCommand::AddTrackCommand(Arrangement& arrangement, Mixer& mixer, Session& session, PatternBank& patterns,
+                                  std::string name, TrackKind kind)
     : m_arrangement(arrangement)
     , m_mixer(mixer)
     , m_session(session)
+    , m_patterns(patterns)
     , m_name(std::move(name))
     , m_kind(kind)
 {
 }
 
-// arrangement.addTrack + mixer.insertTrackStrip + session.addTrackColumn, all at the new index
+// arrangement.addTrack + mixer.insertTrackStrip + session.addTrackColumn + patterns.addTrackColumn
 void AddTrackCommand::execute() {
     m_index = m_arrangement.addTrack(m_name, m_kind);
     m_mixer.insertTrackStrip(m_index);
     m_session.addTrackColumn();
+    m_patterns.addTrackColumn();
 }
 
-// arrangement.removeTrack + mixer.removeTrackStrip + session.removeTrackColumn
+// arrangement.removeTrack + mixer.removeTrackStrip + session.removeTrackColumn + patterns.removeTrackColumn
 void AddTrackCommand::undo() {
     m_arrangement.removeTrack(m_index);
     m_mixer.removeTrackStrip(m_index);
     m_session.removeTrackColumn(m_index);
+    m_patterns.removeTrackColumn(m_index);
 }
 
-// Stores the arrangement, mixer, session, and the track index to remove on execute()
-RemoveTrackCommand::RemoveTrackCommand(Arrangement& arrangement, Mixer& mixer, Session& session, std::size_t trackIndex)
+// Stores the arrangement, mixer, session, patterns, and the track index to remove on execute()
+RemoveTrackCommand::RemoveTrackCommand(Arrangement& arrangement, Mixer& mixer, Session& session, PatternBank& patterns,
+                                        std::size_t trackIndex)
     : m_arrangement(arrangement)
     , m_mixer(mixer)
     , m_session(session)
+    , m_patterns(patterns)
     , m_index(trackIndex)
 {
 }
 
-// Copies the Track (Track is copyable by design) and session column, then removes all three
+// Copies the Track (Track is copyable by design), session column, and pattern lanes, then removes all four
 void RemoveTrackCommand::execute() {
     m_removedTrack = m_arrangement.track(m_index);
     m_removedColumn = m_session.removeTrackColumn(m_index);
+    m_removedLanes = m_patterns.removeTrackColumn(m_index);
     m_arrangement.removeTrack(m_index);
     m_mixer.removeTrackStrip(m_index);
 }
 
 // arrangement.insertTrack(index, copy) + mixer.insertTrackStrip(index) + session.insertTrackColumn(index, copy)
+// + patterns.insertTrackColumn(index, lanes)
 void RemoveTrackCommand::undo() {
     m_arrangement.insertTrack(m_index, m_removedTrack);
     m_mixer.insertTrackStrip(m_index);
     m_session.insertTrackColumn(m_index, m_removedColumn);
+    m_patterns.insertTrackColumn(m_index, m_removedLanes);
 }
 
 // Stores the arrangement, track, and placement to add on execute()
@@ -775,6 +790,64 @@ void MoveAutomationPointCommand::undo() {
         }
     }
     lane.addPoint(m_oldPoint);
+}
+
+// Stores the pattern bank and the placement to add on execute()
+AddPatternPlacementCommand::AddPatternPlacementCommand(PatternBank& patterns, PatternPlacement placement)
+    : m_patterns(patterns)
+    , m_placement(placement)
+{
+}
+
+// Appends the stored placement, remembers where it landed
+void AddPatternPlacementCommand::execute() {
+    m_placementIndex = m_patterns.addPlacement(m_placement);
+}
+
+// Removes the placement this command added
+void AddPatternPlacementCommand::undo() {
+    m_patterns.removePlacementAt(m_placementIndex);
+}
+
+// Stores the pattern bank and the placement index to remove on execute()
+RemovePatternPlacementCommand::RemovePatternPlacementCommand(PatternBank& patterns, std::size_t placementIndex)
+    : m_patterns(patterns)
+    , m_placementIndex(placementIndex)
+{
+}
+
+// Remembers the placement's data, then removes it
+void RemovePatternPlacementCommand::execute() {
+    m_removedPlacement = m_patterns.removePlacementAt(m_placementIndex);
+}
+
+// Re adds the removed placement at its original index
+void RemovePatternPlacementCommand::undo() {
+    m_patterns.addPlacement(m_removedPlacement);
+}
+
+// Stores the pattern bank, placement index, and both tick positions
+MovePatternPlacementCommand::MovePatternPlacementCommand(PatternBank& patterns, std::size_t placementIndex,
+                                                          int64_t oldTick, int64_t newTick)
+    : m_patterns(patterns)
+    , m_placementIndex(placementIndex)
+    , m_oldTick(oldTick)
+    , m_newTick(newTick)
+{
+}
+
+// Replaces the placement's startTick with newTick
+void MovePatternPlacementCommand::execute() {
+    PatternPlacement placement = m_patterns.placements()[m_placementIndex];
+    placement.startTick = m_newTick;
+    m_patterns.replacePlacementAt(m_placementIndex, placement);
+}
+
+// Replaces the placement's startTick with oldTick
+void MovePatternPlacementCommand::undo() {
+    PatternPlacement placement = m_patterns.placements()[m_placementIndex];
+    placement.startTick = m_oldTick;
+    m_patterns.replacePlacementAt(m_placementIndex, placement);
 }
 
 // Appends a child, call before the composite is performed

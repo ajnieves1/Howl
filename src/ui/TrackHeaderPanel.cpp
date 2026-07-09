@@ -33,10 +33,11 @@ void TrackHeaderPanel::InstrumentButton::mouseDown(const juce::MouseEvent& event
 
 // Stores references, builds the initial rows, starts the 30 Hz mirroring timer
 TrackHeaderPanel::TrackHeaderPanel(model::Arrangement& arrangement, model::Mixer& mixer, model::Session& session,
-                                    model::CommandStack& commandStack)
+                                    model::PatternBank& patterns, model::CommandStack& commandStack)
     : m_arrangement(arrangement)
     , m_mixer(mixer)
     , m_session(session)
+    , m_patterns(patterns)
     , m_commandStack(commandStack)
 {
     m_addTrackButton.onClick = [this] {
@@ -236,7 +237,8 @@ void TrackHeaderPanel::showRemoveTrackMenu(std::size_t trackIndex) {
 
     menu.showMenuAsync(juce::PopupMenu::Options(), [this, trackIndex, frozen](int result) {
         if (result == 1) {
-            m_commandStack.perform(std::make_unique<model::RemoveTrackCommand>(m_arrangement, m_mixer, m_session, trackIndex));
+            m_commandStack.perform(std::make_unique<model::RemoveTrackCommand>(
+                m_arrangement, m_mixer, m_session, m_patterns, trackIndex));
             refreshFromModel();
 
             m_selectedTrack = -1;
@@ -303,7 +305,7 @@ void TrackHeaderPanel::showAddTrackMenu() {
         const juce::String name = "Track " + juce::String(m_arrangement.numTracks() + 1);
 
         m_commandStack.perform(std::make_unique<model::AddTrackCommand>(
-            m_arrangement, m_mixer, m_session, name.toStdString(), kind));
+            m_arrangement, m_mixer, m_session, m_patterns, name.toStdString(), kind));
         refreshFromModel();
 
         m_selectedTrack = -1;

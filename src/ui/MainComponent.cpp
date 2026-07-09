@@ -8,9 +8,9 @@ namespace howl::ui {
 // Builds the transport bar, arrange view, session view, and mixer, wires their callbacks
 MainComponent::MainComponent(model::Arrangement& arrangement, engine::Transport& transport,
                               model::CommandStack& commandStack, model::Mixer& mixer, model::Session& session,
-                              model::ArrangementNode& arrangementNode, engine::IEffectFactory& factory,
-                              plugins::IPluginHost* pluginHost, double sampleRate, int maxBlockSize,
-                              const juce::File& browserRoot)
+                              model::PatternBank& patterns, model::ArrangementNode& arrangementNode,
+                              engine::IEffectFactory& factory, plugins::IPluginHost* pluginHost, double sampleRate,
+                              int maxBlockSize, const juce::File& browserRoot)
     : m_arrangement(arrangement)
     , m_transport(transport)
     , m_commandStack(commandStack)
@@ -18,7 +18,7 @@ MainComponent::MainComponent(model::Arrangement& arrangement, engine::Transport&
     , m_sampleRate(sampleRate)
     , m_transportBar(transport, commandStack, sampleRate)
     , m_browserPanel(browserRoot)
-    , m_trackHeaderPanel(arrangement, mixer, session, commandStack)
+    , m_trackHeaderPanel(arrangement, mixer, session, patterns, commandStack)
     , m_arrangeView(arrangement, transport, commandStack, sampleRate, [this] { return m_snapDivision; })
 {
     // Without this, keyPressed never fires anywhere in the shell (the P5-T10 lesson)

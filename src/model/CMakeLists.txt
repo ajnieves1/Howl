@@ -11,6 +11,7 @@ add_library(HowlModel STATIC
     MidiTrackRenderer.cpp
     Mixer.cpp
     OfflineRenderer.cpp
+    Pattern.cpp
     PreviewPlayer.cpp
     SequencerNode.cpp
     Session.cpp

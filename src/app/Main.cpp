@@ -20,6 +20,7 @@
 #include "model/MidiClip.h"
 #include "model/Note.h"
 #include "model/OfflineRenderer.h"
+#include "model/Pattern.h"
 #include "model/PreviewPlayer.h"
 #include "model/Session.h"
 #include "model/TrackFreezer.h"
@@ -156,8 +157,9 @@ class MainWindow : public juce::DocumentWindow {
 public:
     // Creates and shows a window hosting the whole app shell (MainComponent)
     MainWindow(model::Arrangement& arrangement, engine::Transport& transport, model::CommandStack& commandStack,
-               model::Mixer& mixer, model::Session& session, model::ArrangementNode& arrangementNode,
-               engine::IEffectFactory& factory, plugins::IPluginHost* pluginHost, double sampleRate, int maxBlockSize,
+               model::Mixer& mixer, model::Session& session, model::PatternBank& patterns,
+               model::ArrangementNode& arrangementNode, engine::IEffectFactory& factory,
+               plugins::IPluginHost* pluginHost, double sampleRate, int maxBlockSize,
                const juce::File& browserRoot)
         : DocumentWindow(
               "Howl",
@@ -166,7 +168,7 @@ public:
               DocumentWindow::allButtons)
     {
         setUsingNativeTitleBar(true);
-        m_mainComponent = new ui::MainComponent(arrangement, transport, commandStack, mixer, session,
+        m_mainComponent = new ui::MainComponent(arrangement, transport, commandStack, mixer, session, patterns,
             arrangementNode, factory, pluginHost, sampleRate, maxBlockSize, browserRoot);
         setContentOwned(m_mainComponent, true);
         setMenuBar(m_mainComponent);
@@ -255,7 +257,7 @@ public:
 
         const juce::File browserRoot(m_settings->getValue("browserRoot"));
         m_mainWindow = std::make_unique<MainWindow>(m_arrangement, m_transport, m_commandStack,
-            m_arrangementNode->mixer(), m_session, *m_arrangementNode, m_effectFactory, &m_pluginHost,
+            m_arrangementNode->mixer(), m_session, m_patterns, *m_arrangementNode, m_effectFactory, &m_pluginHost,
             m_sampleRate, m_bufferSize, browserRoot);
 
         ui::MainComponent* mainComponent = m_mainWindow->mainComponent();
@@ -685,7 +687,7 @@ private:
 
         const std::size_t newIndex = m_arrangement.numTracks();
         m_commandStack.perform(std::make_unique<model::AddTrackCommand>(
-            m_arrangement, m_arrangementNode->mixer(), m_session, "Audio 1", model::TrackKind::Audio));
+            m_arrangement, m_arrangementNode->mixer(), m_session, m_patterns, "Audio 1", model::TrackKind::Audio));
         reconcileTrackInstruments();
         return newIndex;
     }
@@ -1292,6 +1294,7 @@ private:
     engine::Transport m_transport;
     model::Arrangement m_arrangement;
     model::Session m_session;
+    model::PatternBank m_patterns;
     model::CommandStack m_commandStack;
     dsp::BuiltInEffectFactory m_effectFactory;
     plugins::PluginHost m_pluginHost;
