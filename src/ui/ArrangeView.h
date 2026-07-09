@@ -35,13 +35,17 @@ public:
     // Draws the ruler, one lane per track, each clip as a block, and the playhead
     void paint(juce::Graphics& g) override;
 
-    // Begins a move drag if the click landed on a clip, opens a delete menu on right-click
+    // Begins a move or resize drag if the click landed on a clip, opens a delete menu on right-click
     void mouseDown(const juce::MouseEvent& event) override;
 
-    // Continues a move drag once the mouse has moved past a small threshold
+    // Continues a move or resize drag once the mouse has moved past a small threshold
     void mouseDrag(const juce::MouseEvent& event) override;
 
-    // Issues the move-clip command for a completed drag, or fires onMidiClipSelected for a plain click
+    // Shows a left-right resize cursor when hovering a MIDI clip's right edge
+    void mouseMove(const juce::MouseEvent& event) override;
+
+    // Issues the move or resize clip command for a completed drag, or fires onMidiClipSelected
+    // for a plain click
     void mouseUp(const juce::MouseEvent& event) override;
 
     // Creates a new 4-bar MIDI clip on an empty MIDI lane, snapped to the bar
@@ -84,6 +88,7 @@ public:
 private:
     static constexpr int64_t kMinimumVisibleTicks = model::kTicksPerQuarter * 16; // 4 bars at 4/4
     static constexpr int kDragThresholdPixels = 4;
+    static constexpr int kResizeHandlePixels = 6;
     static constexpr int kRulerHeight = 20;
     static constexpr double kMinZoom = 1.0;
     static constexpr double kMaxZoom = 64.0;
@@ -91,6 +96,12 @@ private:
     enum class ClipKind {
         Midi,
         Audio
+    };
+
+    enum class ClipDragMode {
+        None,
+        Move,
+        Resize
     };
 
     struct DraggedClip {
@@ -133,6 +144,13 @@ private:
     // Finds the clip under (trackIndex, tick), fills found and returns true on a hit
     bool hitTestClip(std::size_t trackIndex, int64_t tick, DraggedClip& found) const;
 
+    // True when x sits within kResizeHandlePixels of clip's right edge, always false for audio
+    bool isNearResizeHandle(const DraggedClip& clip, int x) const;
+
+    // The snap unit resize clamps to, 240 (a step) rather than a beat when the division is Off,
+    // per this task's own contract, deliberately not the same "Beat when Off" convention P9 uses
+    int64_t minimumResizeLengthTicks(model::SnapDivision division) const;
+
     // Opens a "Delete Clip" popup for the given clip, with warp toggle and BPM entry for audio clips
     void showDeleteClipMenu(const DraggedClip& target);
 
@@ -154,9 +172,13 @@ private:
     double m_zoom = 1.0;
     int64_t m_scrollTick = 0;
 
-    bool m_dragging = false;
+    ClipDragMode m_clipDragMode = ClipDragMode::None;
     DraggedClip m_draggedClip {};
     int64_t m_dragCurrentTick = 0;
+    // Resize only: the length at mouseDown (the command's "before") and the live, already
+    // mutated length as the drag progresses (the command's "after" once mouseUp commits it)
+    int64_t m_dragOriginalLengthTicks = 0;
+    int64_t m_dragCurrentLengthTicks = 0;
     juce::Point<int> m_mouseDownPosition;
     bool m_hasDraggedBeyondThreshold = false;
 

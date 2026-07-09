@@ -10,6 +10,7 @@ add_executable(HowlTests
     AutomationPlaybackTests.cpp
     ChannelStripTests.cpp
     ClapAdapterTests.cpp
+    ClipEditCommandTests.cpp
     CommandStackTests.cpp
     CompressorTests.cpp
     DelayTests.cpp

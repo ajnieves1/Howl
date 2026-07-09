@@ -89,6 +89,24 @@ private:
     int64_t m_oldStartTick = 0;
 };
 
+// Sets a placed MIDI clip's length, undo restores the old length
+class ResizeMidiClipCommand : public Command {
+public:
+    // Stores the placement address and both lengths
+    ResizeMidiClipCommand(Arrangement& arrangement, std::size_t trackIndex, std::size_t placementIndex,
+                          int64_t oldLengthTicks, int64_t newLengthTicks);
+
+    void execute() override;
+    void undo() override;
+
+private:
+    Arrangement& m_arrangement;
+    std::size_t m_trackIndex;
+    std::size_t m_placementIndex;
+    int64_t m_oldLengthTicks;
+    int64_t m_newLengthTicks;
+};
+
 // Owns every pattern and their timeline placements, added in a later phase
 class PatternBank;
 

@@ -31,6 +31,12 @@ int MidiTrackRenderer::collectEvents(SampleCount pos, int numFrames, Event (&eve
     int count = 0;
     for (const auto& placement : m_track.midiClips) {
         for (const Note& note : placement.clip.notes()) {
+            // Shortening the clip silences trailing notes without discarding them, they
+            // return the moment the clip is lengthened back past their start
+            if (note.startTick >= placement.clip.lengthTicks()) {
+                continue;
+            }
+
             const int64_t absoluteStartTick = placement.startTick + note.startTick;
             const int64_t absoluteEndTick = absoluteStartTick + note.lengthTicks;
 

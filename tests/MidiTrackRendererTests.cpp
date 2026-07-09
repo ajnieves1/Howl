@@ -28,6 +28,7 @@ TEST_CASE("MidiTrackRenderer fires noteOn at the placement's absolute sample off
     const int blockSize = 32768;
 
     MidiClip clip;
+    clip.setLengthTicks(kTicksPerQuarter * 4); // P10-T2's renderer trims notes past this, give it room
     clip.addNote(Note { 69, 1.0f, 0, kTicksPerQuarter }); // note right at the clip's own start
 
     Track track;

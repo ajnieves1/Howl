@@ -5,6 +5,7 @@
 
 #include "model/Commands.h"
 
+#include <cmath>
 #include <memory>
 
 namespace howl::ui {
@@ -146,6 +147,24 @@ bool ArrangeView::hitTestClip(std::size_t trackIndex, int64_t tick, DraggedClip&
     return false;
 }
 
+// True when x sits within kResizeHandlePixels of clip's right edge, always false for audio
+bool ArrangeView::isNearResizeHandle(const DraggedClip& clip, int x) const {
+    if (clip.kind != ClipKind::Midi) {
+        return false;
+    }
+
+    const auto& midiClip = m_arrangement.track(clip.trackIndex).midiClips[clip.placementIndex].clip;
+    const float rightEdgeX = tickToX(clip.originalStartTick + midiClip.lengthTicks());
+    return std::abs(static_cast<float>(x) - rightEdgeX) <= static_cast<float>(kResizeHandlePixels);
+}
+
+// The snap unit resize clamps to, 240 (a step) rather than a beat when the division is Off,
+// per this task's own contract, deliberately not the same "Beat when Off" convention P9 uses
+int64_t ArrangeView::minimumResizeLengthTicks(model::SnapDivision division) const {
+    return division == model::SnapDivision::Off
+        ? model::snapUnitTicks(model::SnapDivision::Step) : model::snapUnitTicks(division);
+}
+
 // Draws the ruler, one lane per track, each clip as a block, and the playhead
 void ArrangeView::paint(juce::Graphics& g) {
     g.fillAll(juce::Colours::black);
@@ -207,7 +226,7 @@ void ArrangeView::paint(juce::Graphics& g) {
         for (std::size_t p = 0; p < track.midiClips.size(); ++p) {
             const auto& placement = track.midiClips[p];
             int64_t startTick = placement.startTick;
-            if (m_dragging && m_draggedClip.kind == ClipKind::Midi
+            if (m_clipDragMode == ClipDragMode::Move && m_draggedClip.kind == ClipKind::Midi
                 && m_draggedClip.trackIndex == i && m_draggedClip.placementIndex == p) {
                 startTick = m_dragCurrentTick;
             }
@@ -224,7 +243,7 @@ void ArrangeView::paint(juce::Graphics& g) {
         for (std::size_t p = 0; p < track.audioClips.size(); ++p) {
             const auto& placement = track.audioClips[p];
             int64_t startTick = placement.startTick;
-            if (m_dragging && m_draggedClip.kind == ClipKind::Audio
+            if (m_clipDragMode == ClipDragMode::Move && m_draggedClip.kind == ClipKind::Audio
                 && m_draggedClip.trackIndex == i && m_draggedClip.placementIndex == p) {
                 startTick = m_dragCurrentTick;
             }
@@ -248,11 +267,11 @@ void ArrangeView::paint(juce::Graphics& g) {
     g.drawVerticalLine(static_cast<int>(playheadX), 0.0f, static_cast<float>(getHeight()));
 }
 
-// Begins a move drag if the click landed on a clip, opens a delete menu on right-click
+// Begins a move or resize drag if the click landed on a clip, opens a delete menu on right-click
 void ArrangeView::mouseDown(const juce::MouseEvent& event) {
     m_mouseDownPosition = event.getPosition();
     m_hasDraggedBeyondThreshold = false;
-    m_dragging = false;
+    m_clipDragMode = ClipDragMode::None;
 
     if (event.y < kRulerHeight) {
         if (event.mods.isPopupMenu()) {
@@ -285,11 +304,20 @@ void ArrangeView::mouseDown(const juce::MouseEvent& event) {
     }
 
     m_draggedClip = found;
+
+    if (isNearResizeHandle(found, event.x)) {
+        m_dragOriginalLengthTicks = m_arrangement.track(found.trackIndex).midiClips[found.placementIndex].clip.lengthTicks();
+        m_dragCurrentLengthTicks = m_dragOriginalLengthTicks;
+        m_clipDragMode = ClipDragMode::Resize;
+        return;
+    }
+
     m_dragCurrentTick = found.originalStartTick;
-    m_dragging = true;
+    m_clipDragMode = ClipDragMode::Move;
 }
 
-// Continues a move drag once the mouse has moved past a small threshold
+// Continues a move drag (a visual preview only, committed on mouseUp) or a resize drag (which
+// mutates the clip's length live, the gesture rule) once the mouse has moved past a small threshold
 void ArrangeView::mouseDrag(const juce::MouseEvent& event) {
     if (m_rulerDragging) {
         const int64_t tick = xToTick(event.x);
@@ -298,7 +326,7 @@ void ArrangeView::mouseDrag(const juce::MouseEvent& event) {
         return;
     }
 
-    if (!m_dragging) {
+    if (m_clipDragMode == ClipDragMode::None) {
         return;
     }
 
@@ -309,12 +337,42 @@ void ArrangeView::mouseDrag(const juce::MouseEvent& event) {
         return;
     }
 
-    const int64_t newTick = xToTick(event.x);
-    m_dragCurrentTick = model::snapTick(juce::jmax<int64_t>(0, newTick), snapDivision());
+    if (m_clipDragMode == ClipDragMode::Resize) {
+        const model::SnapDivision division = snapDivision();
+        const int64_t rawLength = xToTick(event.x) - m_draggedClip.originalStartTick;
+        const int64_t snappedLength = model::snapTick(rawLength, division);
+        m_dragCurrentLengthTicks = juce::jmax(minimumResizeLengthTicks(division), snappedLength);
+
+        m_arrangement.track(m_draggedClip.trackIndex).midiClips[m_draggedClip.placementIndex]
+            .clip.setLengthTicks(m_dragCurrentLengthTicks);
+    } else {
+        const int64_t newTick = xToTick(event.x);
+        m_dragCurrentTick = model::snapTick(juce::jmax<int64_t>(0, newTick), snapDivision());
+    }
+
     repaint();
 }
 
-// Issues the move-clip command for a completed drag, or fires onMidiClipSelected for a plain click
+// Shows a left-right resize cursor when hovering a MIDI clip's right edge
+void ArrangeView::mouseMove(const juce::MouseEvent& event) {
+    if (m_arrangement.numTracks() == 0 || event.y < kRulerHeight) {
+        setMouseCursor(juce::MouseCursor::NormalCursor);
+        return;
+    }
+
+    const std::size_t trackIndex = yToTrackIndex(event.y);
+    const int64_t tick = xToTick(event.x);
+
+    DraggedClip found {};
+    if (hitTestClip(trackIndex, tick, found) && isNearResizeHandle(found, event.x)) {
+        setMouseCursor(juce::MouseCursor::LeftRightResizeCursor);
+    } else {
+        setMouseCursor(juce::MouseCursor::NormalCursor);
+    }
+}
+
+// Issues the move or resize clip command for a completed drag (resize already mutated the
+// clip live, this just makes it undoable), or fires onMidiClipSelected for a plain click
 void ArrangeView::mouseUp(const juce::MouseEvent&) {
     if (m_rulerDragging) {
         m_rulerDragging = false;
@@ -334,12 +392,16 @@ void ArrangeView::mouseUp(const juce::MouseEvent&) {
         return;
     }
 
-    if (!m_dragging) {
+    if (m_clipDragMode == ClipDragMode::None) {
         return;
     }
 
     if (m_hasDraggedBeyondThreshold) {
-        if (m_draggedClip.kind == ClipKind::Midi) {
+        if (m_clipDragMode == ClipDragMode::Resize) {
+            m_commandStack.perform(std::make_unique<model::ResizeMidiClipCommand>(m_arrangement,
+                m_draggedClip.trackIndex, m_draggedClip.placementIndex,
+                m_dragOriginalLengthTicks, m_dragCurrentLengthTicks));
+        } else if (m_draggedClip.kind == ClipKind::Midi) {
             m_commandStack.perform(std::make_unique<model::MoveMidiClipCommand>(
                 m_arrangement, m_draggedClip.trackIndex, m_draggedClip.placementIndex, m_dragCurrentTick));
         } else {
@@ -350,7 +412,7 @@ void ArrangeView::mouseUp(const juce::MouseEvent&) {
         onMidiClipSelected(m_draggedClip.trackIndex, m_draggedClip.placementIndex);
     }
 
-    m_dragging = false;
+    m_clipDragMode = ClipDragMode::None;
     repaint();
 }
 
