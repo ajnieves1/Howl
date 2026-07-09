@@ -11,11 +11,13 @@ namespace howl::ui {
 
 // Stores references to the arrangement, transport, and command stack, starts the playhead timer
 ArrangeView::ArrangeView(model::Arrangement& arrangement, engine::Transport& transport,
-                          model::CommandStack& commandStack, double sampleRate)
+                          model::CommandStack& commandStack, double sampleRate,
+                          std::function<model::SnapDivision()> snapProvider)
     : m_arrangement(arrangement)
     , m_transport(transport)
     , m_commandStack(commandStack)
     , m_sampleRate(sampleRate)
+    , m_snapProvider(std::move(snapProvider))
 {
     // Without this, grabKeyboardFocus and click-to-focus are no-ops and keyPressed never fires
     setWantsKeyboardFocus(true);
@@ -30,6 +32,11 @@ ArrangeView::~ArrangeView() {
 // Repaints so the playhead position stays current during playback
 void ArrangeView::timerCallback() {
     repaint();
+}
+
+// Returns the current global snap division, Step when no provider is set
+model::SnapDivision ArrangeView::snapDivision() const {
+    return m_snapProvider ? m_snapProvider() : model::SnapDivision::Step;
 }
 
 // Samples per tick from the transport's current tempo and this view's sample rate
@@ -253,9 +260,8 @@ void ArrangeView::mouseDown(const juce::MouseEvent& event) {
             return;
         }
 
-        const int64_t barTicks = model::kTicksPerQuarter * 4;
         const int64_t tick = xToTick(event.x);
-        m_rulerAnchorTick = tick - (tick % barTicks);
+        m_rulerAnchorTick = model::snapTick(tick, snapDivision());
         m_rulerCurrentTick = m_rulerAnchorTick;
         m_rulerDragging = true;
         return;
@@ -286,9 +292,8 @@ void ArrangeView::mouseDown(const juce::MouseEvent& event) {
 // Continues a move drag once the mouse has moved past a small threshold
 void ArrangeView::mouseDrag(const juce::MouseEvent& event) {
     if (m_rulerDragging) {
-        const int64_t barTicks = model::kTicksPerQuarter * 4;
         const int64_t tick = xToTick(event.x);
-        m_rulerCurrentTick = tick - (tick % barTicks);
+        m_rulerCurrentTick = model::snapTick(tick, snapDivision());
         repaint();
         return;
     }
@@ -305,7 +310,7 @@ void ArrangeView::mouseDrag(const juce::MouseEvent& event) {
     }
 
     const int64_t newTick = xToTick(event.x);
-    m_dragCurrentTick = newTick < 0 ? 0 : newTick;
+    m_dragCurrentTick = model::snapTick(juce::jmax<int64_t>(0, newTick), snapDivision());
     repaint();
 }
 
@@ -369,8 +374,7 @@ void ArrangeView::mouseDoubleClick(const juce::MouseEvent& event) {
         return;
     }
 
-    const int64_t barTicks = model::kTicksPerQuarter * 4;
-    const int64_t snappedTick = tick - (tick % barTicks);
+    const int64_t snappedTick = model::snapTickFloor(tick, snapDivision());
 
     model::MidiClip clip;
     clip.setLengthTicks(model::kTicksPerQuarter * 16);
@@ -418,8 +422,7 @@ void ArrangeView::filesDropped(const juce::StringArray& files, int x, int y) {
 
     const std::size_t trackIndex = yToTrackIndex(y);
     const int64_t tick = xToTick(x);
-    const int64_t barTicks = model::kTicksPerQuarter * 4;
-    const int64_t snappedTick = tick - (tick % barTicks);
+    const int64_t snappedTick = model::snapTickFloor(tick, snapDivision());
 
     for (const auto& file : files) {
         if (file.endsWithIgnoreCase(".wav") && onAudioFileDropped) {
@@ -450,8 +453,7 @@ void ArrangeView::itemDropped(const juce::DragAndDropTarget::SourceDetails& drag
 
     const std::size_t trackIndex = yToTrackIndex(dragSourceDetails.localPosition.y);
     const int64_t tick = xToTick(dragSourceDetails.localPosition.x);
-    const int64_t barTicks = model::kTicksPerQuarter * 4;
-    const int64_t snappedTick = tick - (tick % barTicks);
+    const int64_t snappedTick = model::snapTickFloor(tick, snapDivision());
 
     onAudioFileDropped(file.getFullPathName(), trackIndex, snappedTick);
 }

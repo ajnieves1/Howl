@@ -6,6 +6,7 @@
 #include "engine/Transport.h"
 #include "model/Arrangement.h"
 #include "model/CommandStack.h"
+#include "model/SnapGrid.h"
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
@@ -25,7 +26,8 @@ class ArrangeView : public juce::Component, public juce::FileDragAndDropTarget,
 public:
     // Stores references to the arrangement, transport, and command stack, starts the playhead timer
     ArrangeView(model::Arrangement& arrangement, engine::Transport& transport,
-                model::CommandStack& commandStack, double sampleRate);
+                model::CommandStack& commandStack, double sampleRate,
+                std::function<model::SnapDivision()> snapProvider);
 
     // Stops the playhead timer
     ~ArrangeView() override;
@@ -140,10 +142,14 @@ private:
     // Opens a one-item "Loop: On/Off" menu for the ruler, toggles looping without moving the region
     void showRulerMenu();
 
+    // Returns the current global snap division, Step when no provider is set
+    model::SnapDivision snapDivision() const;
+
     model::Arrangement& m_arrangement;
     engine::Transport& m_transport;
     model::CommandStack& m_commandStack;
     double m_sampleRate;
+    std::function<model::SnapDivision()> m_snapProvider;
 
     double m_zoom = 1.0;
     int64_t m_scrollTick = 0;
