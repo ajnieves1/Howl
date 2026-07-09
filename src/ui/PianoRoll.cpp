@@ -330,6 +330,23 @@ void PianoRoll::mouseDown(const juce::MouseEvent& event) {
     const int key = yToKey(event.y);
     const int index = hitTestNote(*clip, tick, key);
 
+    if (event.mods.isAltDown()) {
+        if (index >= 0) {
+            const model::Note target = clip->notes()[static_cast<std::size_t>(index)];
+            const int64_t splitTick = model::snapTick(tick, snapDivision());
+            if (splitTick > target.startTick && splitTick < target.startTick + target.lengthTicks) {
+                m_commandStack.perform(std::make_unique<model::SplitNoteCommand>(
+                    m_arrangement, m_session, nullptr, m_address, target, splitTick));
+                repaint();
+            }
+            // A split point that snaps onto either edge is a no-op, per the Steps rule
+        }
+
+        m_dragMode = DragMode::None;
+        m_dragNoteIndex = -1;
+        return;
+    }
+
     if (index < 0) {
         if (event.mods.isCommandDown()) {
             m_marqueeActive = true;
@@ -471,6 +488,21 @@ void PianoRoll::mouseDrag(const juce::MouseEvent& event) {
     }
 
     repaint();
+}
+
+// Shows an I-beam cursor while Alt is held over a note, the slice gesture's cue
+void PianoRoll::mouseMove(const juce::MouseEvent& event) {
+    model::MidiClip* clip = resolveClip();
+    if (clip == nullptr || !event.mods.isAltDown() || static_cast<float>(event.y) >= keyGridHeight()) {
+        setMouseCursor(juce::MouseCursor::NormalCursor);
+        return;
+    }
+
+    const int64_t tick = xToTick(event.x, clip->lengthTicks());
+    const int key = yToKey(event.y);
+    const bool overNote = hitTestNote(*clip, tick, key) >= 0;
+
+    setMouseCursor(overNote ? juce::MouseCursor::IBeamCursor : juce::MouseCursor::NormalCursor);
 }
 
 // Finalizes a marquee selection, or performs one ReplaceNotesCommand for a completed drag (the

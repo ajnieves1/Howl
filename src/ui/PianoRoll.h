@@ -40,11 +40,15 @@ public:
     // Draws the key grid, notes, playhead, velocity lane, selection borders, and marquee
     void paint(juce::Graphics& g) override;
 
-    // Begins adding a note, a move/resize/velocity drag, a marquee, or updates selection
+    // Alt+click on a note performs SplitNoteCommand at the snapped click tick, otherwise
+    // begins adding a note, a move/resize/velocity drag, a marquee, or updates selection
     void mouseDown(const juce::MouseEvent& event) override;
 
     // Continues a drag or a marquee once the mouse has moved past a small threshold
     void mouseDrag(const juce::MouseEvent& event) override;
+
+    // Shows an I-beam cursor while Alt is held over a note, the slice gesture's cue
+    void mouseMove(const juce::MouseEvent& event) override;
 
     // Finalizes a marquee selection, or performs one ReplaceNotesCommand for a completed drag
     void mouseUp(const juce::MouseEvent& event) override;
