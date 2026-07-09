@@ -15,6 +15,38 @@ bool sameValue(float a, float b) {
     return std::memcmp(&a, &b, sizeof(float)) == 0;
 }
 
+// Exact field match between two notes, velocity compared bit-exact like sameValue
+bool sameNote(const Note& a, const Note& b) {
+    return a.key == b.key && a.startTick == b.startTick && a.lengthTicks == b.lengthTicks
+        && sameValue(a.velocity, b.velocity);
+}
+
+// Finds note by exact field match, returns its index or notes().size() when absent
+std::size_t findNoteIndex(const MidiClip& clip, const Note& note) {
+    const auto& notes = clip.notes();
+    for (std::size_t i = 0; i < notes.size(); ++i) {
+        if (sameNote(notes[i], note)) {
+            return i;
+        }
+    }
+    return notes.size();
+}
+
+// Removes note from clip if an exact match is present, otherwise does nothing
+void removeNoteIfPresent(MidiClip& clip, const Note& note) {
+    const std::size_t index = findNoteIndex(clip, note);
+    if (index < clip.notes().size()) {
+        clip.removeNoteAt(index);
+    }
+}
+
+// Adds note to clip unless an exact match is already present
+void addNoteIfAbsent(MidiClip& clip, const Note& note) {
+    if (findNoteIndex(clip, note) == clip.notes().size()) {
+        clip.addNote(note);
+    }
+}
+
 } // namespace
 
 // Stores the arrangement, track, and placement to add on execute()
@@ -96,48 +128,220 @@ void MoveAudioClipCommand::undo() {
     m_placementIndex = m_arrangement.moveAudioClipPlacementAt(m_trackIndex, m_placementIndex, m_oldStartTick);
 }
 
-// Stores the arrangement, track, placement, and note to add on execute()
-AddNoteCommand::AddNoteCommand(Arrangement& arrangement, std::size_t trackIndex, std::size_t placementIndex, Note note)
+// Returns the addressed clip, nullptr when the address no longer resolves. patterns is
+// nullptr until a later phase introduces the PatternBank, a Pattern-sourced address
+// always fails to resolve until then
+MidiClip* resolveClip(Arrangement& arrangement, Session& session, PatternBank* patterns,
+                       const ClipAddress& address) {
+    switch (address.source) {
+        case ClipAddress::Source::Arrangement: {
+            if (address.trackIndex >= arrangement.numTracks()) {
+                return nullptr;
+            }
+            Track& track = arrangement.track(address.trackIndex);
+            if (address.slotIndex >= track.midiClips.size()) {
+                return nullptr;
+            }
+            return &track.midiClips[address.slotIndex].clip;
+        }
+        case ClipAddress::Source::Session: {
+            if (address.trackIndex >= session.numTracks() || address.slotIndex >= session.numScenes()) {
+                return nullptr;
+            }
+            ClipSlot& slot = session.slot(address.trackIndex, address.slotIndex);
+            if (slot.content != SlotContent::Midi) {
+                return nullptr;
+            }
+            return &slot.midiClip;
+        }
+        case ClipAddress::Source::Pattern:
+        default:
+            // No PatternBank exists yet, a Pattern-sourced address never resolves
+            (void)patterns;
+            return nullptr;
+    }
+}
+
+// Stores the containers, the clip address, and the note to add on execute()
+AddNoteCommand::AddNoteCommand(Arrangement& arrangement, Session& session, PatternBank* patterns,
+                                ClipAddress address, Note note)
     : m_arrangement(arrangement)
-    , m_trackIndex(trackIndex)
-    , m_placementIndex(placementIndex)
+    , m_session(session)
+    , m_patterns(patterns)
+    , m_address(address)
     , m_note(note)
 {
 }
 
-// Inserts the stored note into the placed clip, remembers where it landed
+// Adds the stored note to the resolved clip, no-op when the address does not resolve
 void AddNoteCommand::execute() {
-    MidiClip& clip = m_arrangement.track(m_trackIndex).midiClips[m_placementIndex].clip;
-    m_noteIndex = clip.addNote(m_note);
+    MidiClip* clip = resolveClip(m_arrangement, m_session, m_patterns, m_address);
+    if (clip == nullptr) {
+        m_applied = false;
+        return;
+    }
+
+    addNoteIfAbsent(*clip, m_note);
+    m_applied = true;
 }
 
-// Removes the note this command added
+// Removes the added note by exact field match, no-op when execute() never applied
 void AddNoteCommand::undo() {
-    MidiClip& clip = m_arrangement.track(m_trackIndex).midiClips[m_placementIndex].clip;
-    clip.removeNoteAt(m_noteIndex);
+    if (!m_applied) {
+        return;
+    }
+
+    MidiClip* clip = resolveClip(m_arrangement, m_session, m_patterns, m_address);
+    if (clip == nullptr) {
+        return;
+    }
+
+    removeNoteIfPresent(*clip, m_note);
 }
 
-// Stores the arrangement, track, placement, and note index to remove on execute()
-RemoveNoteCommand::RemoveNoteCommand(Arrangement& arrangement, std::size_t trackIndex, std::size_t placementIndex,
-                                      std::size_t noteIndex)
+// Stores the containers, the clip address, and the note to remove on execute()
+RemoveNoteCommand::RemoveNoteCommand(Arrangement& arrangement, Session& session, PatternBank* patterns,
+                                      ClipAddress address, Note note)
     : m_arrangement(arrangement)
-    , m_trackIndex(trackIndex)
-    , m_placementIndex(placementIndex)
-    , m_noteIndex(noteIndex)
+    , m_session(session)
+    , m_patterns(patterns)
+    , m_address(address)
+    , m_note(note)
 {
 }
 
-// Remembers the note's data, then removes it
+// Removes the note by exact field match, no-op when the address does not resolve or
+// the note is not found (already removed by something else)
 void RemoveNoteCommand::execute() {
-    MidiClip& clip = m_arrangement.track(m_trackIndex).midiClips[m_placementIndex].clip;
-    m_removedNote = clip.notes()[m_noteIndex];
-    clip.removeNoteAt(m_noteIndex);
+    MidiClip* clip = resolveClip(m_arrangement, m_session, m_patterns, m_address);
+    if (clip == nullptr) {
+        m_applied = false;
+        return;
+    }
+
+    const std::size_t index = findNoteIndex(*clip, m_note);
+    if (index >= clip->notes().size()) {
+        m_applied = false;
+        return;
+    }
+
+    clip->removeNoteAt(index);
+    m_applied = true;
 }
 
-// Re-adds the removed note, remembers its new index
+// Re-adds the removed note, no-op when execute() never applied
 void RemoveNoteCommand::undo() {
-    MidiClip& clip = m_arrangement.track(m_trackIndex).midiClips[m_placementIndex].clip;
-    m_noteIndex = clip.addNote(m_removedNote);
+    if (!m_applied) {
+        return;
+    }
+
+    MidiClip* clip = resolveClip(m_arrangement, m_session, m_patterns, m_address);
+    if (clip == nullptr) {
+        return;
+    }
+
+    addNoteIfAbsent(*clip, m_note);
+}
+
+// Stores the containers, the clip address, and the before/after note sets
+ReplaceNotesCommand::ReplaceNotesCommand(Arrangement& arrangement, Session& session, PatternBank* patterns,
+                                          ClipAddress address, std::vector<Note> before, std::vector<Note> after)
+    : m_arrangement(arrangement)
+    , m_session(session)
+    , m_patterns(patterns)
+    , m_address(address)
+    , m_before(std::move(before))
+    , m_after(std::move(after))
+{
+}
+
+// Removes every before note present, then adds every after note absent. Both steps are
+// presence checked rather than unconditional, so calling this on a clip a live drag
+// already moved into the after state is a harmless no-op, not a duplicate or a crash
+void ReplaceNotesCommand::execute() {
+    MidiClip* clip = resolveClip(m_arrangement, m_session, m_patterns, m_address);
+    if (clip == nullptr) {
+        return;
+    }
+
+    for (const Note& note : m_before) {
+        removeNoteIfPresent(*clip, note);
+    }
+    for (const Note& note : m_after) {
+        addNoteIfAbsent(*clip, note);
+    }
+}
+
+// Runs the same presence checked swap in reverse: removes after notes, restores before notes
+void ReplaceNotesCommand::undo() {
+    MidiClip* clip = resolveClip(m_arrangement, m_session, m_patterns, m_address);
+    if (clip == nullptr) {
+        return;
+    }
+
+    for (const Note& note : m_after) {
+        removeNoteIfPresent(*clip, note);
+    }
+    for (const Note& note : m_before) {
+        addNoteIfAbsent(*clip, note);
+    }
+}
+
+// Stores the containers, the clip address, the note to split, and the split point
+SplitNoteCommand::SplitNoteCommand(Arrangement& arrangement, Session& session, PatternBank* patterns,
+                                    ClipAddress address, Note original, int64_t splitTick)
+    : m_arrangement(arrangement)
+    , m_session(session)
+    , m_patterns(patterns)
+    , m_address(address)
+    , m_original(original)
+    , m_splitTick(splitTick)
+{
+}
+
+// Removes the original note and adds its two halves, no-op when the address does not
+// resolve, the split point does not lie strictly inside the note, or the note is not found
+void SplitNoteCommand::execute() {
+    MidiClip* clip = resolveClip(m_arrangement, m_session, m_patterns, m_address);
+    if (clip == nullptr) {
+        m_applied = false;
+        return;
+    }
+
+    if (m_splitTick <= m_original.startTick || m_splitTick >= m_original.startTick + m_original.lengthTicks) {
+        m_applied = false;
+        return;
+    }
+
+    if (findNoteIndex(*clip, m_original) >= clip->notes().size()) {
+        m_applied = false;
+        return;
+    }
+
+    removeNoteIfPresent(*clip, m_original);
+    addNoteIfAbsent(*clip, Note { m_original.key, m_original.velocity, m_original.startTick,
+        m_splitTick - m_original.startTick });
+    addNoteIfAbsent(*clip, Note { m_original.key, m_original.velocity, m_splitTick,
+        m_original.startTick + m_original.lengthTicks - m_splitTick });
+    m_applied = true;
+}
+
+// Removes both halves and restores the original note, no-op when execute() never applied
+void SplitNoteCommand::undo() {
+    if (!m_applied) {
+        return;
+    }
+
+    MidiClip* clip = resolveClip(m_arrangement, m_session, m_patterns, m_address);
+    if (clip == nullptr) {
+        return;
+    }
+
+    removeNoteIfPresent(*clip, Note { m_original.key, m_original.velocity, m_original.startTick,
+        m_splitTick - m_original.startTick });
+    removeNoteIfPresent(*clip, Note { m_original.key, m_original.velocity, m_splitTick,
+        m_original.startTick + m_original.lengthTicks - m_splitTick });
+    addNoteIfAbsent(*clip, m_original);
 }
 
 // Takes the mixer, the target strip, and ownership of the effect to add

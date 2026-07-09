@@ -129,6 +129,9 @@ MainComponent::MainComponent(model::Arrangement& arrangement, engine::Transport&
             onRewarpRequested();
         }
     };
+    m_transportBar.onSnapChanged = [this](model::SnapDivision division) {
+        m_snapDivision = division;
+    };
 
     m_mixerView = std::make_unique<MixerView>(mixer, arrangement, factory, pluginHost,
         commandStack, sampleRate, maxBlockSize);
@@ -230,13 +233,13 @@ bool MainComponent::keyPressed(const juce::KeyPress& key) {
 
 // Shows the piano roll for a clip in the bottom panel (replaces whatever is there)
 void MainComponent::showPianoRollFor(std::size_t trackIndex, std::size_t placementIndex) {
-    model::MidiClip& clip = m_arrangement.track(trackIndex).midiClips[placementIndex].clip;
-
     if (m_pianoRoll != nullptr) {
         removeChildComponent(m_pianoRoll.get());
     }
 
-    m_pianoRoll = std::make_unique<PianoRoll>(clip, m_transport, m_sampleRate);
+    const model::ClipAddress address { model::ClipAddress::Source::Arrangement, trackIndex, placementIndex };
+    m_pianoRoll = std::make_unique<PianoRoll>(m_arrangement, m_session, address, m_commandStack, m_transport,
+        m_sampleRate, [this] { return m_snapDivision; });
     addAndMakeVisible(*m_pianoRoll);
 
     m_bottomPanel = BottomPanel::PianoRoll;
@@ -246,8 +249,7 @@ void MainComponent::showPianoRollFor(std::size_t trackIndex, std::size_t placeme
 
 // Shows the piano roll for a session slot's MIDI clip in the bottom panel
 void MainComponent::showPianoRollForSession(std::size_t trackIndex, std::size_t sceneIndex) {
-    model::ClipSlot& slot = m_session.slot(trackIndex, sceneIndex);
-    if (slot.content != model::SlotContent::Midi) {
+    if (m_session.slot(trackIndex, sceneIndex).content != model::SlotContent::Midi) {
         return;
     }
 
@@ -255,7 +257,9 @@ void MainComponent::showPianoRollForSession(std::size_t trackIndex, std::size_t 
         removeChildComponent(m_pianoRoll.get());
     }
 
-    m_pianoRoll = std::make_unique<PianoRoll>(slot.midiClip, m_transport, m_sampleRate);
+    const model::ClipAddress address { model::ClipAddress::Source::Session, trackIndex, sceneIndex };
+    m_pianoRoll = std::make_unique<PianoRoll>(m_arrangement, m_session, address, m_commandStack, m_transport,
+        m_sampleRate, [this] { return m_snapDivision; });
     addAndMakeVisible(*m_pianoRoll);
 
     m_bottomPanel = BottomPanel::PianoRoll;

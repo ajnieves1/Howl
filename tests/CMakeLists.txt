@@ -28,6 +28,7 @@ add_executable(HowlTests
     MixerCommandTests.cpp
     MixerPdcTests.cpp
     MixerTests.cpp
+    NoteCommandTests.cpp
     OfflineStretcherTests.cpp
     PluginEffectTests.cpp
     PluginHostTests.cpp
@@ -39,6 +40,7 @@ add_executable(HowlTests
     SequencerNodeTests.cpp
     SessionPlaybackTests.cpp
     SessionTests.cpp
+    SnapGridTests.cpp
     SubtractiveSynthTests.cpp
     TrackCommandTests.cpp
     TrackFreezerTests.cpp

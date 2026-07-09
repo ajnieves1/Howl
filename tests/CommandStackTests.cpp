@@ -12,7 +12,6 @@
 #include <vector>
 
 using howl::model::AddMidiClipCommand;
-using howl::model::AddNoteCommand;
 using howl::model::Arrangement;
 using howl::model::AudioClip;
 using howl::model::AudioClipPlacement;
@@ -23,7 +22,6 @@ using howl::model::MoveAudioClipCommand;
 using howl::model::MoveMidiClipCommand;
 using howl::model::Note;
 using howl::model::RemoveMidiClipCommand;
-using howl::model::RemoveNoteCommand;
 using howl::model::TrackKind;
 
 TEST_CASE("CommandStack performs, undoes, and redoes an add-clip command", "[model]") {
@@ -132,36 +130,5 @@ TEST_CASE("MoveAudioClipCommand changes a placement's start tick and undo restor
     REQUIRE(arrangement.track(trackIndex).audioClips[0].startTick == 1920);
 }
 
-TEST_CASE("AddNoteCommand adds a note to a placed clip and undo removes it", "[model]") {
-    Arrangement arrangement;
-    const std::size_t trackIndex = arrangement.addTrack("Lead", TrackKind::Midi);
-
-    MidiClip clip;
-    arrangement.addMidiClipPlacement(trackIndex, MidiClipPlacement { 0, clip });
-
-    CommandStack stack;
-    stack.perform(std::make_unique<AddNoteCommand>(arrangement, trackIndex, 0, Note { 60, 1.0f, 0, 480 }));
-
-    REQUIRE(arrangement.track(trackIndex).midiClips[0].clip.notes().size() == 1);
-
-    stack.undo();
-    REQUIRE(arrangement.track(trackIndex).midiClips[0].clip.notes().empty());
-}
-
-TEST_CASE("RemoveNoteCommand removes a note from a placed clip and undo restores it", "[model]") {
-    Arrangement arrangement;
-    const std::size_t trackIndex = arrangement.addTrack("Lead", TrackKind::Midi);
-
-    MidiClip clip;
-    clip.addNote(Note { 60, 1.0f, 0, 480 });
-    arrangement.addMidiClipPlacement(trackIndex, MidiClipPlacement { 0, clip });
-
-    CommandStack stack;
-    stack.perform(std::make_unique<RemoveNoteCommand>(arrangement, trackIndex, 0, 0));
-
-    REQUIRE(arrangement.track(trackIndex).midiClips[0].clip.notes().empty());
-
-    stack.undo();
-    REQUIRE(arrangement.track(trackIndex).midiClips[0].clip.notes().size() == 1);
-    REQUIRE(arrangement.track(trackIndex).midiClips[0].clip.notes()[0].key == 60);
-}
+// AddNoteCommand and RemoveNoteCommand moved to NoteCommandTests.cpp, they now take a
+// ClipAddress instead of a raw placement index (P9-T2)

@@ -89,39 +89,110 @@ private:
     int64_t m_oldStartTick = 0;
 };
 
-// Adds a note to a placed MIDI clip, undo removes it
-class AddNoteCommand : public Command {
-public:
-    // Stores the arrangement, track, placement, and note to add on execute()
-    AddNoteCommand(Arrangement& arrangement, std::size_t trackIndex, std::size_t placementIndex, Note note);
+// Owns every pattern and their timeline placements, added in a later phase
+class PatternBank;
 
-    void execute() override;
-    void undo() override;
+// Where a MidiClip lives, so note commands can re-resolve it at execute/undo time
+// rather than storing a pointer that dangles once the owning container reallocates
+struct ClipAddress {
+    // Which container owns the clip
+    enum class Source {
+        Arrangement,
+        Session,
+        Pattern
+    };
 
-private:
-    Arrangement& m_arrangement;
-    std::size_t m_trackIndex;
-    std::size_t m_placementIndex;
-    Note m_note;
-    std::size_t m_noteIndex = 0;
+    Source source;
+    std::size_t trackIndex;
+    // Placement index for Arrangement, scene index for Session, pattern index for Pattern
+    std::size_t slotIndex;
 };
 
-// Removes a note from a placed MIDI clip, undo re-adds it
-class RemoveNoteCommand : public Command {
+// Returns the addressed clip, nullptr when the address no longer resolves. patterns is
+// nullptr until a later phase introduces the PatternBank, a Pattern-sourced address
+// always fails to resolve until then
+MidiClip* resolveClip(Arrangement& arrangement, Session& session, PatternBank* patterns,
+                       const ClipAddress& address);
+
+// Adds a note to the addressed clip, undo removes it by exact field match
+class AddNoteCommand : public Command {
 public:
-    // Stores the arrangement, track, placement, and note index to remove on execute()
-    RemoveNoteCommand(Arrangement& arrangement, std::size_t trackIndex, std::size_t placementIndex,
-                       std::size_t noteIndex);
+    // Stores the containers, the clip address, and the note to add on execute()
+    AddNoteCommand(Arrangement& arrangement, Session& session, PatternBank* patterns,
+                   ClipAddress address, Note note);
 
     void execute() override;
     void undo() override;
 
 private:
     Arrangement& m_arrangement;
-    std::size_t m_trackIndex;
-    std::size_t m_placementIndex;
-    std::size_t m_noteIndex;
-    Note m_removedNote {};
+    Session& m_session;
+    PatternBank* m_patterns;
+    ClipAddress m_address;
+    Note m_note;
+    bool m_applied = false;
+};
+
+// Removes a note matching an exact field match from the addressed clip, undo re-adds it
+class RemoveNoteCommand : public Command {
+public:
+    // Stores the containers, the clip address, and the note to remove on execute()
+    RemoveNoteCommand(Arrangement& arrangement, Session& session, PatternBank* patterns,
+                       ClipAddress address, Note note);
+
+    void execute() override;
+    void undo() override;
+
+private:
+    Arrangement& m_arrangement;
+    Session& m_session;
+    PatternBank* m_patterns;
+    ClipAddress m_address;
+    Note m_note;
+    bool m_applied = false;
+};
+
+// Removes every note in before then adds every note in after, both by exact field match,
+// tolerating notes already moved by a live drag: a before note already gone is skipped, an
+// after note already present is not duplicated. Undo runs the same operation in reverse.
+// One command covers a single note move/resize (one element vectors), a group move, deletion
+// (after empty), and duplication (before empty)
+class ReplaceNotesCommand : public Command {
+public:
+    // Stores the containers, the clip address, and the before/after note sets
+    ReplaceNotesCommand(Arrangement& arrangement, Session& session, PatternBank* patterns,
+                         ClipAddress address, std::vector<Note> before, std::vector<Note> after);
+
+    void execute() override;
+    void undo() override;
+
+private:
+    Arrangement& m_arrangement;
+    Session& m_session;
+    PatternBank* m_patterns;
+    ClipAddress m_address;
+    std::vector<Note> m_before;
+    std::vector<Note> m_after;
+};
+
+// Splits a note in two at splitTick, which must lie strictly inside it, undo restores the original
+class SplitNoteCommand : public Command {
+public:
+    // Stores the containers, the clip address, the note to split, and the split point
+    SplitNoteCommand(Arrangement& arrangement, Session& session, PatternBank* patterns,
+                      ClipAddress address, Note original, int64_t splitTick);
+
+    void execute() override;
+    void undo() override;
+
+private:
+    Arrangement& m_arrangement;
+    Session& m_session;
+    PatternBank* m_patterns;
+    ClipAddress m_address;
+    Note m_original;
+    int64_t m_splitTick;
+    bool m_applied = false;
 };
 
 // Adds a created effect to a strip's chain, undo takes it back out and holds it
