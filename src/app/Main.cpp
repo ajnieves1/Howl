@@ -4,6 +4,7 @@
 #include "core/Types.h"
 #include "dsp/BuiltInEffectFactory.h"
 #include "dsp/OfflineStretcher.h"
+#include "dsp/SamplerInstrument.h"
 #include "dsp/SubtractiveSynth.h"
 #include "engine/Graph.h"
 #include "engine/Instrument.h"
@@ -467,6 +468,7 @@ private:
     {
         juce::PopupMenu menu;
         menu.addItem(1, "Subtractive Synth");
+        menu.addItem(2, "Sampler");
 
         std::vector<plugins::PluginDescriptor> instrumentPlugins;
         for (const auto& descriptor : m_pluginHost.list()) {
@@ -479,7 +481,7 @@ private:
             // The same plugin can appear once per format (VST3 and CLAP unified in one
             // picker), the format label is the only thing that tells those two apart
             const juce::String label = juce::String(instrumentPlugins[i].name) + " (" + instrumentPlugins[i].format + ")";
-            menu.addItem(static_cast<int>(i + 2), label);
+            menu.addItem(static_cast<int>(i + 3), label);
         }
 
         menu.showMenuAsync(juce::PopupMenu::Options(), [this, trackIndex, instrumentPlugins](int result) {
@@ -493,8 +495,12 @@ private:
             if (result == 1) {
                 instrument = std::make_unique<dsp::SubtractiveSynth>();
                 name = "Subtractive Synth";
+            } else if (result == 2) {
+                // No sample assigned yet, silent until the channel rack assigns one
+                instrument = std::make_unique<dsp::SamplerInstrument>();
+                name = "Sampler";
             } else {
-                const std::size_t pluginIndex = static_cast<std::size_t>(result - 2);
+                const std::size_t pluginIndex = static_cast<std::size_t>(result - 3);
                 if (pluginIndex < instrumentPlugins.size()) {
                     auto pluginInstance = m_pluginHost.instantiate(instrumentPlugins[pluginIndex]);
                     if (pluginInstance != nullptr) {
@@ -1005,6 +1011,15 @@ private:
                 continue;
             }
 
+            if (auto* samplerInstrument = dynamic_cast<dsp::SamplerInstrument*>(instrument)) {
+                auto* obj = new juce::DynamicObject();
+                obj->setProperty("kind", "sampler");
+                obj->setProperty("path", juce::String(samplerInstrument->sourcePath()));
+                obj->setProperty("level", static_cast<double>(samplerInstrument->getParameter(0)));
+                instruments.add(juce::var(obj));
+                continue;
+            }
+
             auto* obj = new juce::DynamicObject();
             obj->setProperty("kind", "subtractive");
             juce::Array<juce::var> params;
@@ -1210,6 +1225,8 @@ private:
                     m_instrumentNames[trackIndex] = "Subtractive Synth";
                 } else if (kind == "plugin") {
                     assignPluginInstrumentFromVar(entry, trackIndex);
+                } else if (kind == "sampler") {
+                    assignSamplerInstrumentFromVar(entry, trackIndex);
                 }
             }
         }
@@ -1266,6 +1283,44 @@ private:
         instrument->prepare(m_sampleRate, m_bufferSize);
         m_trackInstruments[trackIndex] = std::move(instrument);
         m_instrumentNames[trackIndex] = instrumentName;
+    }
+
+    // Re-reads the wav at path into a SamplerInstrument, same read path as importAudioFile; a
+    // missing file leaves it sample-less and silent, remembering the path for a future re-save
+    void assignSamplerInstrumentFromVar(const juce::var& entry, std::size_t trackIndex)
+    {
+        const juce::String path = entry.getProperty("path", juce::var()).toString();
+        const float level = static_cast<float>(static_cast<double>(entry.getProperty("level", 0.8)));
+
+        auto sampler = std::make_unique<dsp::SamplerInstrument>();
+        sampler->prepare(m_sampleRate, m_bufferSize);
+
+        io::AudioFileReader reader;
+        if (path.isNotEmpty() && reader.open(path.toStdString())) {
+            const int numChannels = reader.numChannels();
+            const auto lengthSamples = static_cast<int>(reader.lengthInSamples());
+
+            std::vector<std::vector<float>> channelData(static_cast<std::size_t>(numChannels),
+                std::vector<float>(static_cast<std::size_t>(lengthSamples), 0.0f));
+            std::vector<float*> channelPointers(static_cast<std::size_t>(numChannels));
+            for (int channel = 0; channel < numChannels; ++channel) {
+                channelPointers[static_cast<std::size_t>(channel)] = channelData[static_cast<std::size_t>(channel)].data();
+            }
+
+            AudioBlock block { channelPointers.data(), numChannels, lengthSamples };
+            reader.read(block, 0);
+
+            sampler->setSample(std::move(channelData), path.toStdString());
+        } else {
+            if (path.isNotEmpty()) {
+                juce::Logger::writeToLog("Howl: sampler sample missing, staying silent: " + path);
+            }
+            sampler->setSample({}, path.toStdString());
+        }
+
+        sampler->setParameter(0, level);
+        m_trackInstruments[trackIndex] = std::move(sampler);
+        m_instrumentNames[trackIndex] = "Sampler";
     }
 
     // Loads the built-in default session: one MIDI track "Lead", one empty 4-bar clip, one
