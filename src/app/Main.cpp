@@ -311,6 +311,18 @@ public:
             }
             importAudioFile(juce::File(path), targetTrack, tick);
         };
+        mainComponent->onSampleAssignRequested = [this](std::size_t trackIndex, juce::File file) {
+            assignSampleToTrack(trackIndex, file);
+        };
+        mainComponent->onStepPreviewRequested = [this](std::size_t trackIndex) {
+            if (m_transport.isPlaying()) {
+                return;
+            }
+
+            m_arrangementNode->setLiveTargetTrack(static_cast<std::ptrdiff_t>(trackIndex));
+            m_midiInputHub.pushNoteEvent(MidiEvent { MidiEvent::Type::NoteOn, 60, 1.0f });
+            m_midiInputHub.pushNoteEvent(MidiEvent { MidiEvent::Type::NoteOff, 60, 0.0f });
+        };
         mainComponent->onNewProjectRequested = [this] {
             newProject();
         };
@@ -1321,6 +1333,45 @@ private:
         sampler->setParameter(0, level);
         m_trackInstruments[trackIndex] = std::move(sampler);
         m_instrumentNames[trackIndex] = "Sampler";
+    }
+
+    // Reads file's wav data into a fresh SamplerInstrument and installs it on trackIndex,
+    // device paused, the same tail the instrument picker uses for every other pick
+    void assignSampleToTrack(std::size_t trackIndex, const juce::File& file)
+    {
+        io::AudioFileReader reader;
+        if (!reader.open(file.getFullPathName().toStdString())) {
+            juce::Logger::writeToLog("Howl: failed to load sample " + file.getFullPathName());
+            return;
+        }
+
+        const int numChannels = reader.numChannels();
+        const auto lengthSamples = static_cast<int>(reader.lengthInSamples());
+
+        std::vector<std::vector<float>> channelData(static_cast<std::size_t>(numChannels),
+            std::vector<float>(static_cast<std::size_t>(lengthSamples), 0.0f));
+        std::vector<float*> channelPointers(static_cast<std::size_t>(numChannels));
+        for (int channel = 0; channel < numChannels; ++channel) {
+            channelPointers[static_cast<std::size_t>(channel)] = channelData[static_cast<std::size_t>(channel)].data();
+        }
+
+        AudioBlock block { channelPointers.data(), numChannels, lengthSamples };
+        reader.read(block, 0);
+
+        auto sampler = std::make_unique<dsp::SamplerInstrument>();
+        sampler->prepare(m_sampleRate, m_bufferSize);
+        sampler->setSample(std::move(channelData), file.getFullPathName().toStdString());
+
+        if (trackIndex >= m_trackInstruments.size()) {
+            m_trackInstruments.resize(trackIndex + 1);
+            m_instrumentNames.resize(trackIndex + 1);
+        }
+
+        m_trackInstruments[trackIndex] = std::move(sampler);
+        m_instrumentNames[trackIndex] = "Sampler";
+
+        rebuildAudioGraph();
+        m_mainWindow->mainComponent()->refreshAllViews();
     }
 
     // Loads the built-in default session: one MIDI track "Lead", one empty 4-bar clip, one

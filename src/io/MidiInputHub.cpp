@@ -32,6 +32,13 @@ bool MidiInputHub::popCcEvent(MidiEvent& out) {
     return m_ccQueue.pop(out);
 }
 
+// Pushes a note event from the message thread through the same mutex real device
+// callbacks use, so a step preview can never race a real MIDI event into the queue
+bool MidiInputHub::pushNoteEvent(const MidiEvent& event) {
+    const std::lock_guard<std::mutex> lock(m_pushMutex);
+    return m_noteQueue.push(event);
+}
+
 // Normalizes one raw device message and pushes it to the right queue
 void MidiInputHub::handleIncomingMidiMessage(juce::MidiInput*, const juce::MidiMessage& message) {
     const std::lock_guard<std::mutex> lock(m_pushMutex);

@@ -7,6 +7,7 @@
 #include "model/Arrangement.h"
 #include "model/CommandStack.h"
 #include "model/Commands.h"
+#include "model/Pattern.h"
 #include "model/Session.h"
 #include "model/SnapGrid.h"
 
@@ -30,9 +31,9 @@ namespace howl::ui {
 class PianoRoll : public juce::Component, private juce::Timer {
 public:
     // Stores references, the clip address, and the snap division provider, starts the playhead timer
-    PianoRoll(model::Arrangement& arrangement, model::Session& session, model::ClipAddress address,
-              model::CommandStack& commandStack, engine::Transport& transport, double sampleRate,
-              std::function<model::SnapDivision()> snapProvider);
+    PianoRoll(model::Arrangement& arrangement, model::Session& session, model::PatternBank& patterns,
+              model::ClipAddress address, model::CommandStack& commandStack, engine::Transport& transport,
+              double sampleRate, std::function<model::SnapDivision()> snapProvider);
 
     // Stops the playhead timer
     ~PianoRoll() override;
@@ -127,6 +128,7 @@ private:
 
     model::Arrangement& m_arrangement;
     model::Session& m_session;
+    model::PatternBank& m_patterns;
     model::ClipAddress m_address;
     model::CommandStack& m_commandStack;
     engine::Transport& m_transport;

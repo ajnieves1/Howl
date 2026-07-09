@@ -27,11 +27,12 @@ bool sameNote(const model::Note& a, const model::Note& b) {
 } // namespace
 
 // Stores references, the clip address, and the snap division provider, starts the playhead timer
-PianoRoll::PianoRoll(model::Arrangement& arrangement, model::Session& session, model::ClipAddress address,
-                      model::CommandStack& commandStack, engine::Transport& transport, double sampleRate,
-                      std::function<model::SnapDivision()> snapProvider)
+PianoRoll::PianoRoll(model::Arrangement& arrangement, model::Session& session, model::PatternBank& patterns,
+                      model::ClipAddress address, model::CommandStack& commandStack, engine::Transport& transport,
+                      double sampleRate, std::function<model::SnapDivision()> snapProvider)
     : m_arrangement(arrangement)
     , m_session(session)
+    , m_patterns(patterns)
     , m_address(address)
     , m_commandStack(commandStack)
     , m_transport(transport)
@@ -52,10 +53,9 @@ void PianoRoll::timerCallback() {
     repaint();
 }
 
-// Resolves the addressed clip fresh, nullptr when it no longer resolves. patterns is always
-// nullptr, a Pattern-sourced address never resolves until a later phase introduces PatternBank
+// Resolves the addressed clip fresh, nullptr when it no longer resolves
 model::MidiClip* PianoRoll::resolveClip() const {
-    return model::resolveClip(m_arrangement, m_session, nullptr, m_address);
+    return model::resolveClip(m_arrangement, m_session, &m_patterns, m_address);
 }
 
 // Height of the key grid, the component's height less the velocity lane
@@ -336,7 +336,7 @@ void PianoRoll::mouseDown(const juce::MouseEvent& event) {
             const int64_t splitTick = model::snapTick(tick, snapDivision());
             if (splitTick > target.startTick && splitTick < target.startTick + target.lengthTicks) {
                 m_commandStack.perform(std::make_unique<model::SplitNoteCommand>(
-                    m_arrangement, m_session, nullptr, m_address, target, splitTick));
+                    m_arrangement, m_session, &m_patterns, m_address, target, splitTick));
                 repaint();
             }
             // A split point that snaps onto either edge is a no-op, per the Steps rule
@@ -365,7 +365,7 @@ void PianoRoll::mouseDown(const juce::MouseEvent& event) {
         const model::Note note { key, 1.0f, startTick, lengthTicks };
 
         m_commandStack.perform(std::make_unique<model::AddNoteCommand>(
-            m_arrangement, m_session, nullptr, m_address, note));
+            m_arrangement, m_session, &m_patterns, m_address, note));
 
         // Growing the clip to fit a note placed past its current end is not undoable,
         // matching the pre-existing behavior this task carries forward unchanged
@@ -459,7 +459,7 @@ void PianoRoll::mouseDrag(const juce::MouseEvent& event) {
             maxEndTick = juce::jmax(maxEndTick, moved.startTick + moved.lengthTicks);
         }
 
-        model::ReplaceNotesCommand preview(m_arrangement, m_session, nullptr, m_address, m_dragCurrentNotes, candidates);
+        model::ReplaceNotesCommand preview(m_arrangement, m_session, &m_patterns, m_address, m_dragCurrentNotes, candidates);
         preview.execute();
         m_dragCurrentNotes = std::move(candidates);
 
@@ -525,11 +525,11 @@ void PianoRoll::mouseUp(const juce::MouseEvent&) {
     if (clip != nullptr && m_hasDraggedBeyondThreshold) {
         if (m_dragMode == DragMode::Move) {
             m_commandStack.perform(std::make_unique<model::ReplaceNotesCommand>(
-                m_arrangement, m_session, nullptr, m_address, m_dragOriginalSelection, m_dragCurrentNotes));
+                m_arrangement, m_session, &m_patterns, m_address, m_dragOriginalSelection, m_dragCurrentNotes));
             m_selection = m_dragCurrentNotes;
         } else {
             const model::Note finalNote = clip->notes()[static_cast<std::size_t>(m_dragNoteIndex)];
-            m_commandStack.perform(std::make_unique<model::ReplaceNotesCommand>(m_arrangement, m_session, nullptr,
+            m_commandStack.perform(std::make_unique<model::ReplaceNotesCommand>(m_arrangement, m_session, &m_patterns,
                 m_address, std::vector<model::Note> { m_dragOriginalNote }, std::vector<model::Note> { finalNote }));
         }
         repaint();
@@ -558,7 +558,7 @@ bool PianoRoll::keyPressed(const juce::KeyPress& key) {
 
     if (key == juce::KeyPress::deleteKey || key == juce::KeyPress::backspaceKey) {
         m_commandStack.perform(std::make_unique<model::ReplaceNotesCommand>(
-            m_arrangement, m_session, nullptr, m_address, m_selection, std::vector<model::Note> {}));
+            m_arrangement, m_session, &m_patterns, m_address, m_selection, std::vector<model::Note> {}));
         m_selection.clear();
         repaint();
         return true;
@@ -586,7 +586,7 @@ bool PianoRoll::keyPressed(const juce::KeyPress& key) {
         }
 
         m_commandStack.perform(std::make_unique<model::ReplaceNotesCommand>(
-            m_arrangement, m_session, nullptr, m_address, std::vector<model::Note> {}, copies));
+            m_arrangement, m_session, &m_patterns, m_address, std::vector<model::Note> {}, copies));
 
         // Growing the clip to fit the duplicated notes is not undoable, matching AddNoteCommand
         model::MidiClip* clip = resolveClip();
@@ -611,7 +611,7 @@ bool PianoRoll::keyPressed(const juce::KeyPress& key) {
         }
 
         m_commandStack.perform(std::make_unique<model::ReplaceNotesCommand>(
-            m_arrangement, m_session, nullptr, m_address, m_selection, nudged));
+            m_arrangement, m_session, &m_patterns, m_address, m_selection, nudged));
         m_selection = std::move(nudged);
         repaint();
         return true;
@@ -629,7 +629,7 @@ bool PianoRoll::keyPressed(const juce::KeyPress& key) {
         }
 
         m_commandStack.perform(std::make_unique<model::ReplaceNotesCommand>(
-            m_arrangement, m_session, nullptr, m_address, m_selection, transposed));
+            m_arrangement, m_session, &m_patterns, m_address, m_selection, transposed));
         m_selection = std::move(transposed);
         repaint();
         return true;

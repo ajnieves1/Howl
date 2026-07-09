@@ -15,6 +15,7 @@ MainComponent::MainComponent(model::Arrangement& arrangement, engine::Transport&
     , m_transport(transport)
     , m_commandStack(commandStack)
     , m_session(session)
+    , m_patterns(patterns)
     , m_sampleRate(sampleRate)
     , m_transportBar(transport, commandStack, sampleRate)
     , m_browserPanel(browserRoot)
@@ -47,6 +48,25 @@ MainComponent::MainComponent(model::Arrangement& arrangement, engine::Transport&
     };
     m_sessionView->onSessionEdited = [this] {
         refreshAllViews();
+    };
+
+    m_channelRackPanel = std::make_unique<ChannelRackPanel>(arrangement, session, patterns, commandStack);
+    addChildComponent(*m_channelRackPanel);
+    m_channelRackPanel->onSlotEditRequested = [this](model::ClipAddress address) {
+        showPianoRollForPattern(address);
+    };
+    m_channelRackPanel->onSampleAssignRequested = [this](std::size_t trackIndex, juce::File file) {
+        if (onSampleAssignRequested) {
+            onSampleAssignRequested(trackIndex, file);
+        }
+    };
+    m_channelRackPanel->onStepPreviewRequested = [this](std::size_t trackIndex) {
+        if (onStepPreviewRequested) {
+            onStepPreviewRequested(trackIndex);
+        }
+    };
+    m_channelRackPanel->browserFileProvider = [this] {
+        return m_browserPanel.selectedFile();
     };
 
     m_trackHeaderPanel.onTracksChanged = [this] {
@@ -187,6 +207,7 @@ void MainComponent::resized() {
     m_trackHeaderPanel.setBounds(bounds.removeFromLeft(kTrackHeaderWidth));
     m_arrangeView.setBounds(bounds);
     m_sessionView->setBounds(bounds);
+    m_channelRackPanel->setBounds(bounds);
 }
 
 // Space toggles play/stop, M toggles the mixer panel, Tab toggles arrange/session view,
@@ -238,8 +259,8 @@ void MainComponent::showPianoRollFor(std::size_t trackIndex, std::size_t placeme
     }
 
     const model::ClipAddress address { model::ClipAddress::Source::Arrangement, trackIndex, placementIndex };
-    m_pianoRoll = std::make_unique<PianoRoll>(m_arrangement, m_session, address, m_commandStack, m_transport,
-        m_sampleRate, [this] { return m_snapDivision; });
+    m_pianoRoll = std::make_unique<PianoRoll>(m_arrangement, m_session, m_patterns, address, m_commandStack,
+        m_transport, m_sampleRate, [this] { return m_snapDivision; });
     addAndMakeVisible(*m_pianoRoll);
 
     m_bottomPanel = BottomPanel::PianoRoll;
@@ -258,8 +279,23 @@ void MainComponent::showPianoRollForSession(std::size_t trackIndex, std::size_t 
     }
 
     const model::ClipAddress address { model::ClipAddress::Source::Session, trackIndex, sceneIndex };
-    m_pianoRoll = std::make_unique<PianoRoll>(m_arrangement, m_session, address, m_commandStack, m_transport,
-        m_sampleRate, [this] { return m_snapDivision; });
+    m_pianoRoll = std::make_unique<PianoRoll>(m_arrangement, m_session, m_patterns, address, m_commandStack,
+        m_transport, m_sampleRate, [this] { return m_snapDivision; });
+    addAndMakeVisible(*m_pianoRoll);
+
+    m_bottomPanel = BottomPanel::PianoRoll;
+    updateBottomPanelVisibility();
+    resized();
+}
+
+// Shows the piano roll for a pattern lane's MIDI clip in the bottom panel
+void MainComponent::showPianoRollForPattern(model::ClipAddress address) {
+    if (m_pianoRoll != nullptr) {
+        removeChildComponent(m_pianoRoll.get());
+    }
+
+    m_pianoRoll = std::make_unique<PianoRoll>(m_arrangement, m_session, m_patterns, address, m_commandStack,
+        m_transport, m_sampleRate, [this] { return m_snapDivision; });
     addAndMakeVisible(*m_pianoRoll);
 
     m_bottomPanel = BottomPanel::PianoRoll;
@@ -306,18 +342,26 @@ void MainComponent::toggleBrowser() {
     resized();
 }
 
-// Flips the center view between the arrange view and the session view
+// Cycles the center view Arrange -> Session -> Rack -> Arrange
 void MainComponent::toggleCenterView() {
-    m_centerView = m_centerView == CenterView::Arrange ? CenterView::Session : CenterView::Arrange;
+    if (m_centerView == CenterView::Arrange) {
+        m_centerView = CenterView::Session;
+    } else if (m_centerView == CenterView::Session) {
+        m_centerView = CenterView::Rack;
+    } else {
+        m_centerView = CenterView::Arrange;
+    }
+
     updateCenterViewVisibility();
 }
 
-// Repaints the arrange view, refreshes mixer strips, track headers, and the session view,
-// closes any open effect editors
+// Repaints the arrange view, refreshes mixer strips, track headers, the session view, and the
+// channel rack, closes any open effect editors
 void MainComponent::refreshAllViews() {
     m_arrangeView.repaint();
     m_trackHeaderPanel.refreshFromModel();
     m_sessionView->refreshFromModel();
+    m_channelRackPanel->refreshFromModel();
 
     if (m_mixerView != nullptr) {
         m_mixerView->refreshStrips();
@@ -348,6 +392,7 @@ juce::PopupMenu MainComponent::getMenuForIndex(int topLevelMenuIndex, const juce
         menu.addItem(4, "Toggle Mixer");
         menu.addItem(9, "Toggle Session View");
         menu.addItem(12, "Browser");
+        menu.addItem(13, "Channel Rack");
     } else if (topLevelMenuIndex == 3) {
         const bool sandboxOn = isSandboxEnabled ? isSandboxEnabled() : true;
         menu.addItem(11, "Sandbox Plugins", true, sandboxOn);
@@ -412,6 +457,10 @@ void MainComponent::menuItemSelected(int menuItemID, int) {
         case 12:
             toggleBrowser();
             break;
+        case 13:
+            m_centerView = CenterView::Rack;
+            updateCenterViewVisibility();
+            break;
         default:
             break;
     }
@@ -432,10 +481,11 @@ void MainComponent::updateBottomPanelVisibility() {
     }
 }
 
-// Shows only the component matching m_centerView, hides the other
+// Shows only the component matching m_centerView, hides the others
 void MainComponent::updateCenterViewVisibility() {
     m_arrangeView.setVisible(m_centerView == CenterView::Arrange);
     m_sessionView->setVisible(m_centerView == CenterView::Session);
+    m_channelRackPanel->setVisible(m_centerView == CenterView::Rack);
 }
 
 } // namespace howl::ui
