@@ -101,7 +101,8 @@ private:
     enum class ClipDragMode {
         None,
         Move,
-        Resize
+        Resize,
+        Duplicate
     };
 
     struct DraggedClip {

@@ -258,6 +258,25 @@ void ArrangeView::paint(juce::Graphics& g) {
             g.drawRect(r, 1.5f);
         }
 
+        // Duplicate ghost: the original clip stays exactly where it is, this outline alone follows the drag
+        if (m_clipDragMode == ClipDragMode::Duplicate && m_draggedClip.trackIndex == i) {
+            int64_t ghostLengthTicks = 0;
+            if (m_draggedClip.kind == ClipKind::Midi) {
+                ghostLengthTicks = track.midiClips[m_draggedClip.placementIndex].clip.lengthTicks();
+            } else {
+                const auto& audioPlacement = track.audioClips[m_draggedClip.placementIndex];
+                ghostLengthTicks = static_cast<int64_t>(static_cast<double>(audioPlacement.clip.activeLengthSamples()) / spt);
+            }
+
+            const float ghostX = tickToX(m_dragCurrentTick);
+            const float ghostWidth = tickToX(m_dragCurrentTick + ghostLengthTicks) - ghostX;
+            juce::Rectangle<float> ghost { ghostX, y + 2.0f, juce::jmax(2.0f, ghostWidth), height - 5.0f };
+            g.setColour(juce::Colours::white.withAlpha(0.3f));
+            g.fillRect(ghost);
+            g.setColour(juce::Colours::white.withAlpha(0.8f));
+            g.drawRect(ghost, 1.5f);
+        }
+
         g.setColour(juce::Colours::white.withAlpha(0.7f));
         g.drawText(track.name, 4, static_cast<int>(y) + 2, 200, 14, juce::Justification::topLeft);
     }
@@ -304,6 +323,12 @@ void ArrangeView::mouseDown(const juce::MouseEvent& event) {
     }
 
     m_draggedClip = found;
+
+    if (event.mods.isCommandDown()) {
+        m_dragCurrentTick = found.originalStartTick;
+        m_clipDragMode = ClipDragMode::Duplicate;
+        return;
+    }
 
     if (isNearResizeHandle(found, event.x)) {
         m_dragOriginalLengthTicks = m_arrangement.track(found.trackIndex).midiClips[found.placementIndex].clip.lengthTicks();
@@ -397,7 +422,19 @@ void ArrangeView::mouseUp(const juce::MouseEvent&) {
     }
 
     if (m_hasDraggedBeyondThreshold) {
-        if (m_clipDragMode == ClipDragMode::Resize) {
+        if (m_clipDragMode == ClipDragMode::Duplicate) {
+            if (m_draggedClip.kind == ClipKind::Midi) {
+                const model::MidiClip source = m_arrangement.track(m_draggedClip.trackIndex)
+                    .midiClips[m_draggedClip.placementIndex].clip;
+                m_commandStack.perform(std::make_unique<model::AddMidiClipCommand>(m_arrangement,
+                    m_draggedClip.trackIndex, model::MidiClipPlacement { m_dragCurrentTick, source }));
+            } else {
+                const model::AudioClip source = m_arrangement.track(m_draggedClip.trackIndex)
+                    .audioClips[m_draggedClip.placementIndex].clip;
+                m_commandStack.perform(std::make_unique<model::AddAudioClipCommand>(m_arrangement,
+                    m_draggedClip.trackIndex, model::AudioClipPlacement { m_dragCurrentTick, source }));
+            }
+        } else if (m_clipDragMode == ClipDragMode::Resize) {
             m_commandStack.perform(std::make_unique<model::ResizeMidiClipCommand>(m_arrangement,
                 m_draggedClip.trackIndex, m_draggedClip.placementIndex,
                 m_dragOriginalLengthTicks, m_dragCurrentLengthTicks));
@@ -408,7 +445,7 @@ void ArrangeView::mouseUp(const juce::MouseEvent&) {
             m_commandStack.perform(std::make_unique<model::MoveAudioClipCommand>(
                 m_arrangement, m_draggedClip.trackIndex, m_draggedClip.placementIndex, m_dragCurrentTick));
         }
-    } else if (m_draggedClip.kind == ClipKind::Midi && onMidiClipSelected) {
+    } else if (m_clipDragMode != ClipDragMode::Duplicate && m_draggedClip.kind == ClipKind::Midi && onMidiClipSelected) {
         onMidiClipSelected(m_draggedClip.trackIndex, m_draggedClip.placementIndex);
     }
 
