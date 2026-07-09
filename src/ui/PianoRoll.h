@@ -56,11 +56,15 @@ private:
     static constexpr int64_t kDefaultNoteLengthTicks = model::kTicksPerQuarter;
     static constexpr int kResizeHandlePixels = 6;
     static constexpr int kDragThresholdPixels = 4;
+    static constexpr int kVelocityLaneHeight = 60;
+    static constexpr int kVelocityBarWidth = 5;
+    static constexpr int kVelocityHitPixels = 6;
 
     enum class DragMode {
         None,
         Move,
-        Resize
+        Resize,
+        Velocity
     };
 
     // Repaints so the playhead position stays current during playback
@@ -68,6 +72,9 @@ private:
 
     // Resolves the addressed clip fresh, nullptr when it no longer resolves
     model::MidiClip* resolveClip() const;
+
+    // Height of the key grid, the component's height less the velocity lane
+    float keyGridHeight() const;
 
     // Ticks spanned by the visible grid, at least 4 beats even for an empty or unresolved clip
     int64_t visibleTickSpan(int64_t clipLengthTicks) const;
@@ -86,6 +93,10 @@ private:
 
     // Returns the index of the note at (tick, key), or -1 if none, hit-testing is unsnapped
     int hitTestNote(const model::MidiClip& clip, int64_t tick, int key) const;
+
+    // Returns the index of the note whose velocity bar is nearest x within kVelocityHitPixels,
+    // or -1 if none; notes sharing a start tick break the tie toward the higher key
+    int hitTestVelocityBar(const model::MidiClip& clip, int x) const;
 
     // Returns the current transport position converted to ticks
     double playheadTick() const;
