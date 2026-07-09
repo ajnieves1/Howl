@@ -13,6 +13,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <vector>
 
 namespace howl::ui {
 
@@ -112,6 +113,15 @@ private:
         int64_t originalStartTick;
     };
 
+    // A selected clip, held by (kind, track, placement index). A move re-sorts placements by
+    // tick same as note commands re-sort by tick, so the index alone is not stable across a
+    // move; the selection is rebuilt afterward from each command's own resulting index
+    struct ClipRef {
+        ClipKind kind;
+        std::size_t trackIndex;
+        std::size_t placementIndex;
+    };
+
     // Repaints so the playhead position stays current during playback
     void timerCallback() override;
 
@@ -152,6 +162,18 @@ private:
     // per this task's own contract, deliberately not the same "Beat when Off" convention P9 uses
     int64_t minimumResizeLengthTicks(model::SnapDivision division) const;
 
+    // True when (kind, trackIndex, placementIndex) matches an entry in m_selection
+    bool isSelected(ClipKind kind, std::size_t trackIndex, std::size_t placementIndex) const;
+
+    // Selects every clip (both kinds, any track) intersecting the marquee rectangle, replacing
+    // the current selection; an empty sweep (a plain click that never dragged) clears it
+    void finalizeClipMarquee();
+
+    // Fills outStartTick with the group-move preview position for (kind, trackIndex,
+    // placementIndex) and returns true, or returns false when it is not part of the drag
+    bool findGroupPreviewTick(ClipKind kind, std::size_t trackIndex, std::size_t placementIndex,
+                              int64_t& outStartTick) const;
+
     // Opens a "Delete Clip" popup for the given clip, with warp toggle and BPM entry for audio clips
     void showDeleteClipMenu(const DraggedClip& target);
 
@@ -187,6 +209,18 @@ private:
     bool m_rulerDragging = false;
     int64_t m_rulerAnchorTick = 0;
     int64_t m_rulerCurrentTick = 0;
+
+    // The persistent multi-selection, independent of any drag in progress
+    std::vector<ClipRef> m_selection;
+
+    // True while a mouse gesture is sweeping a clip-selection marquee across empty lane space
+    bool m_clipMarqueeActive = false;
+    juce::Point<int> m_clipMarqueeStart;
+    juce::Point<int> m_clipMarqueeCurrent;
+
+    // Move only: the whole selection's values at mouseDown (the command's "before" set),
+    // used to compute every member's live preview position from one shared tick delta
+    std::vector<DraggedClip> m_dragGroupOriginal;
 };
 
 } // namespace howl::ui

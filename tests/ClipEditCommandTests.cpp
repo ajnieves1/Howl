@@ -10,6 +10,8 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <algorithm>
+#include <memory>
+#include <string>
 #include <vector>
 
 using howl::AudioBlock;
@@ -17,11 +19,14 @@ using howl::SampleCount;
 using howl::engine::Instrument;
 using howl::engine::Transport;
 using howl::model::Arrangement;
+using howl::model::Command;
+using howl::model::CompositeCommand;
 using howl::model::kTicksPerQuarter;
 using howl::model::MidiClip;
 using howl::model::MidiClipPlacement;
 using howl::model::MidiTrackRenderer;
 using howl::model::Note;
+using howl::model::RemoveMidiClipCommand;
 using howl::model::ResizeMidiClipCommand;
 using howl::model::Track;
 using howl::model::TrackKind;
@@ -65,6 +70,25 @@ public:
     }
 
     std::vector<int> onKeys;
+};
+
+// Records "executeN"/"undoN" into a shared log, for verifying CompositeCommand's ordering
+class ProbeCommand : public Command {
+public:
+    ProbeCommand(int id, std::vector<std::string>& log) : m_id(id), m_log(log) {
+    }
+
+    void execute() override {
+        m_log.push_back("execute" + std::to_string(m_id));
+    }
+
+    void undo() override {
+        m_log.push_back("undo" + std::to_string(m_id));
+    }
+
+private:
+    int m_id;
+    std::vector<std::string>& m_log;
 };
 
 } // namespace
@@ -121,4 +145,46 @@ TEST_CASE("MidiTrackRenderer drops notes starting past the clip end and keeps on
 
     REQUIRE(std::find(instrument.onKeys.begin(), instrument.onKeys.end(), 60) != instrument.onKeys.end());
     REQUIRE(std::find(instrument.onKeys.begin(), instrument.onKeys.end(), 61) == instrument.onKeys.end());
+}
+
+TEST_CASE("CompositeCommand executes children in order and undoes in reverse", "[model]") {
+    std::vector<std::string> log;
+    CompositeCommand composite;
+    composite.add(std::make_unique<ProbeCommand>(1, log));
+    composite.add(std::make_unique<ProbeCommand>(2, log));
+    composite.add(std::make_unique<ProbeCommand>(3, log));
+    REQUIRE(composite.size() == 3);
+
+    composite.execute();
+    REQUIRE(log == std::vector<std::string> { "execute1", "execute2", "execute3" });
+
+    log.clear();
+    composite.undo();
+    REQUIRE(log == std::vector<std::string> { "undo3", "undo2", "undo1" });
+}
+
+TEST_CASE("A composite of two same-track removals built descending round-trips cleanly", "[model]") {
+    Arrangement arrangement;
+    const std::size_t trackIndex = arrangement.addTrack("Lead", TrackKind::Midi);
+
+    MidiClip clipA;
+    clipA.setLengthTicks(kTicksPerQuarter);
+    MidiClip clipB;
+    clipB.setLengthTicks(kTicksPerQuarter);
+    arrangement.addMidiClipPlacement(trackIndex, MidiClipPlacement { 0, clipA });
+    arrangement.addMidiClipPlacement(trackIndex, MidiClipPlacement { kTicksPerQuarter * 4, clipB });
+    REQUIRE(arrangement.track(trackIndex).midiClips.size() == 2);
+
+    // Built descending, index 1 removed before index 0, the pinned trap this task calls out
+    CompositeCommand composite;
+    composite.add(std::make_unique<RemoveMidiClipCommand>(arrangement, trackIndex, 1));
+    composite.add(std::make_unique<RemoveMidiClipCommand>(arrangement, trackIndex, 0));
+
+    composite.execute();
+    REQUIRE(arrangement.track(trackIndex).midiClips.empty());
+
+    composite.undo();
+    REQUIRE(arrangement.track(trackIndex).midiClips.size() == 2);
+    REQUIRE(arrangement.track(trackIndex).midiClips[0].startTick == 0);
+    REQUIRE(arrangement.track(trackIndex).midiClips[1].startTick == kTicksPerQuarter * 4);
 }

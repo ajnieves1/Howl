@@ -751,4 +751,28 @@ void MoveAutomationPointCommand::undo() {
     lane.addPoint(m_oldPoint);
 }
 
+// Appends a child, call before the composite is performed
+void CompositeCommand::add(std::unique_ptr<Command> command) {
+    m_children.push_back(std::move(command));
+}
+
+// Returns the number of children, an empty composite is a legal no-op
+std::size_t CompositeCommand::size() const {
+    return m_children.size();
+}
+
+// Executes every child in order
+void CompositeCommand::execute() {
+    for (auto& child : m_children) {
+        child->execute();
+    }
+}
+
+// Undoes every child in reverse order
+void CompositeCommand::undo() {
+    for (auto it = m_children.rbegin(); it != m_children.rend(); ++it) {
+        (*it)->undo();
+    }
+}
+
 } // namespace howl::model
