@@ -17,13 +17,16 @@
 
 namespace howl::ui {
 
-// v1 scope: click empty space to add a note, click an existing note without dragging to
-// delete it, drag its body to move it or its right edge to resize it, both snapped to the
-// global division. Editing is only tested with the transport stopped, edits made during
-// playback are not specially guarded against but are not this task's concern. Every edit
-// resolves its clip fresh through a ClipAddress rather than holding a MidiClip& directly,
-// so the view stays safe across container reallocation; an address that stops resolving
-// (the track, scene, or clip it pointed at is gone) draws an empty grid and ignores mice
+// v1 scope: click empty space to add a note, drag its body to move it (dragging any selected
+// note moves the whole selection) or its right edge to resize it, both snapped to the global
+// division. Ctrl+drag an empty stretch of grid marquees a selection, Ctrl+Shift+drag adds to
+// it; Shift+click toggles one note; Delete/Backspace removes the selection; arrow keys nudge
+// or transpose it; Ctrl+D duplicates it. Editing is only tested with the transport stopped,
+// edits made during playback are not specially guarded against but are not this task's
+// concern. Every edit resolves its clip fresh through a ClipAddress rather than holding a
+// MidiClip& directly, so the view stays safe across container reallocation; an address that
+// stops resolving (the track, scene, or clip it pointed at is gone) draws an empty grid and
+// ignores mice and keys
 class PianoRoll : public juce::Component, private juce::Timer {
 public:
     // Stores references, the clip address, and the snap division provider, starts the playhead timer
@@ -34,19 +37,20 @@ public:
     // Stops the playhead timer
     ~PianoRoll() override;
 
-    // Draws the key grid, notes, and playhead, an empty grid when the address does not resolve
+    // Draws the key grid, notes, playhead, velocity lane, selection borders, and marquee
     void paint(juce::Graphics& g) override;
 
-    // Begins adding a note (performs AddNoteCommand), or begins a move or resize drag
+    // Begins adding a note, a move/resize/velocity drag, a marquee, or updates selection
     void mouseDown(const juce::MouseEvent& event) override;
 
-    // Continues a move or resize drag once the mouse has moved past a small threshold
+    // Continues a drag or a marquee once the mouse has moved past a small threshold
     void mouseDrag(const juce::MouseEvent& event) override;
 
-    // Performs ReplaceNotesCommand for a completed drag, or RemoveNoteCommand for a plain click
+    // Finalizes a marquee selection, or performs one ReplaceNotesCommand for a completed drag
     void mouseUp(const juce::MouseEvent& event) override;
 
-    // Toggles the transport between play and stop when space is pressed
+    // Space toggles play/stop; with a non-empty selection: Delete/Backspace removes it, arrow
+    // keys nudge or transpose it, Ctrl+D duplicates it
     bool keyPressed(const juce::KeyPress& key) override;
 
 private:
@@ -104,6 +108,19 @@ private:
     // Returns the current global snap division, Step when no provider is set
     model::SnapDivision snapDivision() const;
 
+    // The division's own unit, Beat's unit when the division is Off (Off has no unit of its own)
+    int64_t effectiveUnitTicks(model::SnapDivision division) const;
+
+    // True when note matches an entry in m_selection by exact field value
+    bool isSelected(const model::Note& note) const;
+
+    // Adds note to the selection if absent, removes it if present
+    void toggleSelection(const model::Note& note);
+
+    // Selects every note intersecting the marquee rectangle, replacing or adding to the
+    // current selection depending on whether Shift was held when the marquee began
+    void finalizeMarquee();
+
     model::Arrangement& m_arrangement;
     model::Session& m_session;
     model::ClipAddress m_address;
@@ -112,13 +129,30 @@ private:
     double m_sampleRate;
     std::function<model::SnapDivision()> m_snapProvider;
 
+    // Notes currently selected, held by value and re-matched to the clip's own notes on demand,
+    // since indices shift as the clip's own vector re-sorts on every startTick change
+    std::vector<model::Note> m_selection;
+
     DragMode m_dragMode = DragMode::None;
     int m_dragNoteIndex = -1;
     int64_t m_dragTickOffset = 0;
     // The note's value at mouseDown, before any live drag mutation, the command's "before"
+    // for a single note Resize or Velocity drag, and the Move drag's delta reference note
     model::Note m_dragOriginalNote {};
+    // Move only: the whole selection's values at mouseDown (the command's "before") and their
+    // live current values as the drag progresses (updated every frame, never the command's after
+    // until mouseUp, since the drag itself may end short of the pointer's final position)
+    std::vector<model::Note> m_dragOriginalSelection;
+    std::vector<model::Note> m_dragCurrentNotes;
+
     juce::Point<int> m_mouseDownPosition;
     bool m_hasDraggedBeyondThreshold = false;
+
+    // Ctrl+drag on empty grid space
+    bool m_marqueeActive = false;
+    bool m_marqueeAdditive = false;
+    juce::Point<int> m_marqueeStart;
+    juce::Point<int> m_marqueeCurrent;
 };
 
 } // namespace howl::ui
