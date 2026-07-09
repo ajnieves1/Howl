@@ -20,7 +20,8 @@ MainComponent::MainComponent(model::Arrangement& arrangement, engine::Transport&
     , m_transportBar(transport, commandStack, sampleRate)
     , m_browserPanel(browserRoot)
     , m_trackHeaderPanel(arrangement, mixer, session, patterns, commandStack)
-    , m_arrangeView(arrangement, transport, commandStack, sampleRate, [this] { return m_snapDivision; })
+    , m_arrangeView(arrangement, transport, commandStack, patterns, sampleRate, [this] { return m_snapDivision; },
+          [this] { return m_channelRackPanel->currentPatternIndex(); })
 {
     // Without this, keyPressed never fires anywhere in the shell (the P5-T10 lesson)
     setWantsKeyboardFocus(true);
