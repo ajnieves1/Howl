@@ -20,6 +20,7 @@
 #include "model/MidiClip.h"
 #include "model/Note.h"
 #include "model/OfflineRenderer.h"
+#include "model/PreviewPlayer.h"
 #include "model/Session.h"
 #include "model/TrackFreezer.h"
 #include "plugins/PluginEffect.h"
@@ -118,28 +119,37 @@ model::StripKind stripKindFromString(const juce::String& kindString) {
     return model::StripKind::Master;
 }
 
-// Drains the MIDI input hub's CC queue at 30 Hz, message thread only
+// Drains the MIDI input hub's CC queue at 30 Hz, message thread only, then runs
+// a second callback every tick regardless (the preview player's garbage collection rides
+// this same timer rather than starting a dedicated one)
 class MidiLearnTimer : public juce::Timer {
 public:
-    // Stores the hub to drain and the callback to run for each CC event
-    MidiLearnTimer(io::MidiInputHub& hub, std::function<void(const MidiEvent&)> onCcEvent)
+    // Stores the hub to drain, the callback to run for each CC event, and the per-tick callback
+    MidiLearnTimer(io::MidiInputHub& hub, std::function<void(const MidiEvent&)> onCcEvent,
+                    std::function<void()> onTick)
         : m_hub(hub)
         , m_onCcEvent(std::move(onCcEvent))
+        , m_onTick(std::move(onTick))
     {
         startTimerHz(30);
     }
 
-    // Pops every pending CC event and runs the callback for each
+    // Pops every pending CC event and runs the callback for each, then runs the tick callback
     void timerCallback() override {
         MidiEvent event {};
         while (m_hub.popCcEvent(event)) {
             m_onCcEvent(event);
+        }
+
+        if (m_onTick) {
+            m_onTick();
         }
     }
 
 private:
     io::MidiInputHub& m_hub;
     std::function<void(const MidiEvent&)> m_onCcEvent;
+    std::function<void()> m_onTick;
 };
 
 class MainWindow : public juce::DocumentWindow {
@@ -147,7 +157,8 @@ public:
     // Creates and shows a window hosting the whole app shell (MainComponent)
     MainWindow(model::Arrangement& arrangement, engine::Transport& transport, model::CommandStack& commandStack,
                model::Mixer& mixer, model::Session& session, model::ArrangementNode& arrangementNode,
-               engine::IEffectFactory& factory, plugins::IPluginHost* pluginHost, double sampleRate, int maxBlockSize)
+               engine::IEffectFactory& factory, plugins::IPluginHost* pluginHost, double sampleRate, int maxBlockSize,
+               const juce::File& browserRoot)
         : DocumentWindow(
               "Howl",
               juce::Desktop::getInstance().getDefaultLookAndFeel()
@@ -156,7 +167,7 @@ public:
     {
         setUsingNativeTitleBar(true);
         m_mainComponent = new ui::MainComponent(arrangement, transport, commandStack, mixer, session,
-            arrangementNode, factory, pluginHost, sampleRate, maxBlockSize);
+            arrangementNode, factory, pluginHost, sampleRate, maxBlockSize, browserRoot);
         setContentOwned(m_mainComponent, true);
         setMenuBar(m_mainComponent);
         setResizable(true, true);
@@ -204,6 +215,13 @@ public:
     // Builds the arrangement, opens the app shell, starts the audio device, and starts the xrun watcher
     void initialise(const juce::String&) override
     {
+        juce::PropertiesFile::Options settingsOptions;
+        settingsOptions.applicationName = "Howl";
+        settingsOptions.filenameSuffix = "xml";
+        settingsOptions.folderName = "Howl";
+        settingsOptions.osxLibrarySubFolder = "Application Support";
+        m_settings = std::make_unique<juce::PropertiesFile>(settingsOptions);
+
         if (!m_audioDevice.open()) {
             juce::Logger::writeToLog("Howl: failed to open audio device");
             return;
@@ -223,6 +241,7 @@ public:
         auto arrangementNode = std::make_unique<model::ArrangementNode>(m_transport, m_arrangement);
         arrangementNode->setSession(&m_session);
         arrangementNode->setLiveNoteQueue(&m_midiInputHub.noteQueue());
+        arrangementNode->setPreviewPlayer(&m_previewPlayer);
         arrangementNode->prepare(m_sampleRate, m_bufferSize, 2);
         m_arrangementNode = arrangementNode.get();
         m_graph.addNode(std::move(arrangementNode));
@@ -234,9 +253,10 @@ public:
         reconcileTrackInstruments();
         applyTrackInstruments();
 
+        const juce::File browserRoot(m_settings->getValue("browserRoot"));
         m_mainWindow = std::make_unique<MainWindow>(m_arrangement, m_transport, m_commandStack,
             m_arrangementNode->mixer(), m_session, *m_arrangementNode, m_effectFactory, &m_pluginHost,
-            m_sampleRate, m_bufferSize);
+            m_sampleRate, m_bufferSize, browserRoot);
 
         ui::MainComponent* mainComponent = m_mainWindow->mainComponent();
         mainComponent->onTracksChanged = [this] {
@@ -271,6 +291,13 @@ public:
         };
         mainComponent->onImportAudioRequested = [this] {
             showImportAudioFileChooser();
+        };
+        mainComponent->onBrowserRootChanged = [this](juce::File root) {
+            m_settings->setValue("browserRoot", root.getFullPathName());
+            m_settings->saveIfNeeded();
+        };
+        mainComponent->onBrowserFileClicked = [this](juce::File file) {
+            startSamplePreview(file);
         };
         mainComponent->onAudioFileDropped = [this](juce::String path, std::size_t trackIndex, int64_t tick) {
             std::size_t targetTrack = trackIndex;
@@ -361,6 +388,8 @@ public:
 
         m_midiLearnTimer = std::make_unique<MidiLearnTimer>(m_midiInputHub, [this](const MidiEvent& event) {
             handleMidiCcEvent(event);
+        }, [this] {
+            m_previewPlayer.collectGarbage();
         });
     }
 
@@ -371,6 +400,9 @@ public:
         m_xrunWatcher.reset();
         m_audioDevice.close();
         m_mainWindow.reset();
+        if (m_settings != nullptr) {
+            m_settings->saveIfNeeded();
+        }
     }
 
     // Quits the app when the OS or window asks it to
@@ -689,6 +721,33 @@ private:
 
         rebuildAudioGraph();
         m_mainWindow->mainComponent()->refreshAllViews();
+    }
+
+    // Reads a wav file fully into memory and posts it to the preview player, message thread only
+    void startSamplePreview(const juce::File& file)
+    {
+        io::AudioFileReader reader;
+        if (!reader.open(file.getFullPathName().toStdString())) {
+            juce::Logger::writeToLog("Howl: failed to preview audio file " + file.getFullPathName());
+            return;
+        }
+
+        const int numChannels = reader.numChannels();
+        const auto lengthSamples = static_cast<int>(reader.lengthInSamples());
+
+        auto preview = std::make_unique<model::PreviewBuffer>();
+        preview->channels.assign(static_cast<std::size_t>(numChannels),
+            std::vector<float>(static_cast<std::size_t>(lengthSamples), 0.0f));
+
+        std::vector<float*> channelPointers(static_cast<std::size_t>(numChannels));
+        for (int channel = 0; channel < numChannels; ++channel) {
+            channelPointers[static_cast<std::size_t>(channel)] = preview->channels[static_cast<std::size_t>(channel)].data();
+        }
+
+        AudioBlock block { channelPointers.data(), numChannels, lengthSamples };
+        reader.read(block, 0);
+
+        m_previewPlayer.post(std::move(preview));
     }
 
     // Re-reads one audio clip's source file in place, preserving sourcePath/originalBpm/
@@ -1239,6 +1298,7 @@ private:
     bool m_sandboxEnabled = true;
     io::AudioDevice m_audioDevice;
     io::MidiInputHub m_midiInputHub;
+    model::PreviewPlayer m_previewPlayer;
     std::unique_ptr<MidiLearnTimer> m_midiLearnTimer;
     std::vector<MidiMapping> m_midiMappings;
     std::optional<MidiLearnTarget> m_midiLearnTarget;
@@ -1252,6 +1312,7 @@ private:
     std::unique_ptr<ui::PluginWindow> m_instrumentEditorWindow;
     std::unique_ptr<MainWindow> m_mainWindow;
     std::unique_ptr<XrunWatcher> m_xrunWatcher;
+    std::unique_ptr<juce::PropertiesFile> m_settings;
 };
 
 } // namespace howl

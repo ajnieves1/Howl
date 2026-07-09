@@ -32,6 +32,7 @@ add_executable(HowlTests
     PluginEffectTests.cpp
     PluginHostTests.cpp
     PluginInstrumentTests.cpp
+    PreviewPlayerTests.cpp
     ProjectSerializerTests.cpp
     ReverbTests.cpp
     SandboxProtocolTests.cpp

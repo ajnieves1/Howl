@@ -13,6 +13,7 @@
 #include "model/AudioTrackRenderer.h"
 #include "model/MidiTrackRenderer.h"
 #include "model/Mixer.h"
+#include "model/PreviewPlayer.h"
 #include "model/Session.h"
 #include "model/SessionTrackPlayer.h"
 
@@ -76,6 +77,9 @@ public:
     // Selects which track live notes play into, -1 for none, callable from any thread
     void setLiveTargetTrack(std::ptrdiff_t trackIndex);
 
+    // Points the node at the app's preview player, call before prepare
+    void setPreviewPlayer(PreviewPlayer* player);
+
     // [RT] Renders every track into its own buffer, then mixes them into audio
     void process(AudioBlock& audio, SampleCount pos) noexcept override;
 
@@ -93,6 +97,7 @@ private:
 
     LockFreeQueue<MidiEvent, 256>* m_liveNoteQueue = nullptr;
     std::atomic<std::ptrdiff_t> m_liveTargetTrack { -1 };
+    PreviewPlayer* m_previewPlayer = nullptr;
 
     // Indexed by track, exactly one of the pair is non-null per index
     std::vector<std::unique_ptr<MidiTrackRenderer>> m_midiRenderers;

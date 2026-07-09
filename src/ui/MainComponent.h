@@ -14,6 +14,7 @@
 #include "plugins/IPluginInstance.h"
 #include "ui/ArrangeView.h"
 #include "ui/AutomationEditor.h"
+#include "ui/FileBrowserPanel.h"
 #include "ui/MixerView.h"
 #include "ui/PianoRoll.h"
 #include "ui/SessionView.h"
@@ -30,12 +31,13 @@
 namespace howl::ui {
 
 // The whole app shell: transport bar top, arrange view center, piano roll or mixer bottom
-class MainComponent : public juce::Component, public juce::MenuBarModel {
+class MainComponent : public juce::Component, public juce::MenuBarModel, public juce::DragAndDropContainer {
 public:
     MainComponent(model::Arrangement& arrangement, engine::Transport& transport,
                   model::CommandStack& commandStack, model::Mixer& mixer, model::Session& session,
                   model::ArrangementNode& arrangementNode, engine::IEffectFactory& factory,
-                  plugins::IPluginHost* pluginHost, double sampleRate, int maxBlockSize);
+                  plugins::IPluginHost* pluginHost, double sampleRate, int maxBlockSize,
+                  const juce::File& browserRoot);
 
     void resized() override;
 
@@ -57,6 +59,9 @@ public:
 
     // Flips the center view between the arrange view and the session view
     void toggleCenterView();
+
+    // Shows or hides the sample browser's left column
+    void toggleBrowser();
 
     // Repaints the arrange view, refreshes mixer strips, track headers, and the session view,
     // closes any open effect editors
@@ -100,6 +105,12 @@ public:
     // Fired when "Import Audio..." is picked, the app shows a FileChooser
     std::function<void()> onImportAudioRequested;
 
+    // Fired when the browser's root folder changes, the app persists it
+    std::function<void(juce::File)> onBrowserRootChanged;
+
+    // Fired when a .wav file is clicked in the browser, the app starts a preview
+    std::function<void(juce::File)> onBrowserFileClicked;
+
     // Fired with (path, trackIndex, tick) when a .wav file is dropped onto the arrange view
     std::function<void(juce::String, std::size_t, int64_t)> onAudioFileDropped;
 
@@ -140,6 +151,7 @@ private:
     static constexpr int kTransportHeight = 36;
     static constexpr int kBottomPanelHeight = 300;
     static constexpr int kTrackHeaderWidth = TrackHeaderPanel::kWidth;
+    static constexpr int kBrowserWidth = 220;
 
     enum class BottomPanel {
         None,
@@ -166,6 +178,7 @@ private:
     double m_sampleRate;
 
     TransportBar m_transportBar;
+    FileBrowserPanel m_browserPanel;
     TrackHeaderPanel m_trackHeaderPanel;
     ArrangeView m_arrangeView;
     std::unique_ptr<SessionView> m_sessionView; // created once in the ctor
@@ -174,6 +187,7 @@ private:
     std::unique_ptr<AutomationEditor> m_automationEditor; // recreated per requested track
     BottomPanel m_bottomPanel = BottomPanel::None;
     CenterView m_centerView = CenterView::Arrange;
+    bool m_browserVisible = false;
 };
 
 } // namespace howl::ui

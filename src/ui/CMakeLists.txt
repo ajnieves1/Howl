@@ -3,6 +3,7 @@ add_library(HowlUi STATIC
     AutomationEditor.cpp
     ChannelStripComponent.cpp
     EffectEditorWindow.cpp
+    FileBrowserPanel.cpp
     MainComponent.cpp
     MixerView.cpp
     PianoRoll.cpp
