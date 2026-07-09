@@ -5,17 +5,21 @@
 
 #include "model/Commands.h"
 
+#include <algorithm>
+#include <cmath>
 #include <memory>
 
 namespace howl::ui {
 
 // Stores references to the arrangement, transport, and command stack, starts the playhead timer
 ArrangeView::ArrangeView(model::Arrangement& arrangement, engine::Transport& transport,
-                          model::CommandStack& commandStack, double sampleRate)
+                          model::CommandStack& commandStack, double sampleRate,
+                          std::function<model::SnapDivision()> snapProvider)
     : m_arrangement(arrangement)
     , m_transport(transport)
     , m_commandStack(commandStack)
     , m_sampleRate(sampleRate)
+    , m_snapProvider(std::move(snapProvider))
 {
     // Without this, grabKeyboardFocus and click-to-focus are no-ops and keyPressed never fires
     setWantsKeyboardFocus(true);
@@ -30,6 +34,11 @@ ArrangeView::~ArrangeView() {
 // Repaints so the playhead position stays current during playback
 void ArrangeView::timerCallback() {
     repaint();
+}
+
+// Returns the current global snap division, Step when no provider is set
+model::SnapDivision ArrangeView::snapDivision() const {
+    return m_snapProvider ? m_snapProvider() : model::SnapDivision::Step;
 }
 
 // Samples per tick from the transport's current tempo and this view's sample rate
@@ -139,6 +148,84 @@ bool ArrangeView::hitTestClip(std::size_t trackIndex, int64_t tick, DraggedClip&
     return false;
 }
 
+// True when x sits within kResizeHandlePixels of clip's right edge, always false for audio
+bool ArrangeView::isNearResizeHandle(const DraggedClip& clip, int x) const {
+    if (clip.kind != ClipKind::Midi) {
+        return false;
+    }
+
+    const auto& midiClip = m_arrangement.track(clip.trackIndex).midiClips[clip.placementIndex].clip;
+    const float rightEdgeX = tickToX(clip.originalStartTick + midiClip.lengthTicks());
+    return std::abs(static_cast<float>(x) - rightEdgeX) <= static_cast<float>(kResizeHandlePixels);
+}
+
+// The snap unit resize clamps to, 240 (a step) rather than a beat when the division is Off,
+// per this task's own contract, deliberately not the same "Beat when Off" convention P9 uses
+int64_t ArrangeView::minimumResizeLengthTicks(model::SnapDivision division) const {
+    return division == model::SnapDivision::Off
+        ? model::snapUnitTicks(model::SnapDivision::Step) : model::snapUnitTicks(division);
+}
+
+// True when (kind, trackIndex, placementIndex) matches an entry in m_selection
+bool ArrangeView::isSelected(ClipKind kind, std::size_t trackIndex, std::size_t placementIndex) const {
+    return std::any_of(m_selection.begin(), m_selection.end(), [&](const ClipRef& ref) {
+        return ref.kind == kind && ref.trackIndex == trackIndex && ref.placementIndex == placementIndex;
+    });
+}
+
+// Selects every clip (both kinds, any track) intersecting the marquee rectangle, replacing
+// the current selection; an empty sweep (a plain click that never dragged) clears it, since
+// nothing can intersect a marquee whose start and end are the same empty-space point
+void ArrangeView::finalizeClipMarquee() {
+    const int64_t tickA = xToTick(m_clipMarqueeStart.x);
+    const int64_t tickB = xToTick(m_clipMarqueeCurrent.x);
+    const int64_t minTick = juce::jmin(tickA, tickB);
+    const int64_t maxTick = juce::jmax(tickA, tickB);
+
+    const std::size_t trackA = yToTrackIndex(m_clipMarqueeStart.y);
+    const std::size_t trackB = yToTrackIndex(m_clipMarqueeCurrent.y);
+    const std::size_t minTrack = juce::jmin(trackA, trackB);
+    const std::size_t maxTrack = juce::jmax(trackA, trackB);
+
+    const double spt = samplesPerTick();
+
+    m_selection.clear();
+    for (std::size_t t = minTrack; t <= maxTrack && t < m_arrangement.numTracks(); ++t) {
+        const model::Track& track = m_arrangement.track(t);
+
+        for (std::size_t p = 0; p < track.midiClips.size(); ++p) {
+            const auto& placement = track.midiClips[p];
+            const int64_t endTick = placement.startTick + placement.clip.lengthTicks();
+            if (placement.startTick < maxTick && endTick > minTick) {
+                m_selection.push_back(ClipRef { ClipKind::Midi, t, p });
+            }
+        }
+
+        for (std::size_t p = 0; p < track.audioClips.size(); ++p) {
+            const auto& placement = track.audioClips[p];
+            const auto lengthTicks = static_cast<int64_t>(static_cast<double>(placement.clip.activeLengthSamples()) / spt);
+            const int64_t endTick = placement.startTick + lengthTicks;
+            if (placement.startTick < maxTick && endTick > minTick) {
+                m_selection.push_back(ClipRef { ClipKind::Audio, t, p });
+            }
+        }
+    }
+}
+
+// Fills outStartTick with the group-move preview position for (kind, trackIndex,
+// placementIndex) and returns true, or returns false when it is not part of the drag
+bool ArrangeView::findGroupPreviewTick(ClipKind kind, std::size_t trackIndex, std::size_t placementIndex,
+                                       int64_t& outStartTick) const {
+    for (const auto& member : m_dragGroupOriginal) {
+        if (member.kind == kind && member.trackIndex == trackIndex && member.placementIndex == placementIndex) {
+            const int64_t tickDelta = m_dragCurrentTick - m_draggedClip.originalStartTick;
+            outStartTick = juce::jmax<int64_t>(0, member.originalStartTick + tickDelta);
+            return true;
+        }
+    }
+    return false;
+}
+
 // Draws the ruler, one lane per track, each clip as a block, and the playhead
 void ArrangeView::paint(juce::Graphics& g) {
     g.fillAll(juce::Colours::black);
@@ -200,36 +287,53 @@ void ArrangeView::paint(juce::Graphics& g) {
         for (std::size_t p = 0; p < track.midiClips.size(); ++p) {
             const auto& placement = track.midiClips[p];
             int64_t startTick = placement.startTick;
-            if (m_dragging && m_draggedClip.kind == ClipKind::Midi
-                && m_draggedClip.trackIndex == i && m_draggedClip.placementIndex == p) {
-                startTick = m_dragCurrentTick;
+            if (m_clipDragMode == ClipDragMode::Move) {
+                findGroupPreviewTick(ClipKind::Midi, i, p, startTick);
             }
 
             const float x = tickToX(startTick);
             const float width = tickToX(startTick + placement.clip.lengthTicks()) - x;
             juce::Rectangle<float> r { x, y + 2.0f, juce::jmax(2.0f, width), height - 5.0f };
-            g.setColour(juce::Colours::orange);
+            g.setColour(placement.muted ? juce::Colours::orange.withAlpha(0.35f) : juce::Colours::orange);
             g.fillRect(r);
-            g.setColour(juce::Colours::orange.darker(0.8f));
-            g.drawRect(r, 1.5f);
+            g.setColour(isSelected(ClipKind::Midi, i, p) ? juce::Colours::yellow : juce::Colours::orange.darker(0.8f));
+            g.drawRect(r, isSelected(ClipKind::Midi, i, p) ? 2.5f : 1.5f);
         }
 
         for (std::size_t p = 0; p < track.audioClips.size(); ++p) {
             const auto& placement = track.audioClips[p];
             int64_t startTick = placement.startTick;
-            if (m_dragging && m_draggedClip.kind == ClipKind::Audio
-                && m_draggedClip.trackIndex == i && m_draggedClip.placementIndex == p) {
-                startTick = m_dragCurrentTick;
+            if (m_clipDragMode == ClipDragMode::Move) {
+                findGroupPreviewTick(ClipKind::Audio, i, p, startTick);
             }
 
             const auto lengthTicks = static_cast<int64_t>(static_cast<double>(placement.clip.activeLengthSamples()) / spt);
             const float x = tickToX(startTick);
             const float width = tickToX(startTick + lengthTicks) - x;
             juce::Rectangle<float> r { x, y + 2.0f, juce::jmax(2.0f, width), height - 5.0f };
-            g.setColour(juce::Colours::steelblue);
+            g.setColour(placement.muted ? juce::Colours::steelblue.withAlpha(0.35f) : juce::Colours::steelblue);
             g.fillRect(r);
-            g.setColour(juce::Colours::steelblue.darker(0.8f));
-            g.drawRect(r, 1.5f);
+            g.setColour(isSelected(ClipKind::Audio, i, p) ? juce::Colours::yellow : juce::Colours::steelblue.darker(0.8f));
+            g.drawRect(r, isSelected(ClipKind::Audio, i, p) ? 2.5f : 1.5f);
+        }
+
+        // Duplicate ghost: the original clip stays exactly where it is, this outline alone follows the drag
+        if (m_clipDragMode == ClipDragMode::Duplicate && m_draggedClip.trackIndex == i) {
+            int64_t ghostLengthTicks = 0;
+            if (m_draggedClip.kind == ClipKind::Midi) {
+                ghostLengthTicks = track.midiClips[m_draggedClip.placementIndex].clip.lengthTicks();
+            } else {
+                const auto& audioPlacement = track.audioClips[m_draggedClip.placementIndex];
+                ghostLengthTicks = static_cast<int64_t>(static_cast<double>(audioPlacement.clip.activeLengthSamples()) / spt);
+            }
+
+            const float ghostX = tickToX(m_dragCurrentTick);
+            const float ghostWidth = tickToX(m_dragCurrentTick + ghostLengthTicks) - ghostX;
+            juce::Rectangle<float> ghost { ghostX, y + 2.0f, juce::jmax(2.0f, ghostWidth), height - 5.0f };
+            g.setColour(juce::Colours::white.withAlpha(0.3f));
+            g.fillRect(ghost);
+            g.setColour(juce::Colours::white.withAlpha(0.8f));
+            g.drawRect(ghost, 1.5f);
         }
 
         g.setColour(juce::Colours::white.withAlpha(0.7f));
@@ -239,13 +343,22 @@ void ArrangeView::paint(juce::Graphics& g) {
     g.setColour(juce::Colours::white);
     const auto playheadX = tickToX(static_cast<int64_t>(playheadTick()));
     g.drawVerticalLine(static_cast<int>(playheadX), 0.0f, static_cast<float>(getHeight()));
+
+    // Clip marquee, a translucent rectangle over the region being swept
+    if (m_clipMarqueeActive) {
+        const auto marqueeBounds = juce::Rectangle<int>(m_clipMarqueeStart, m_clipMarqueeCurrent);
+        g.setColour(juce::Colours::lightblue.withAlpha(0.2f));
+        g.fillRect(marqueeBounds);
+        g.setColour(juce::Colours::lightblue.withAlpha(0.6f));
+        g.drawRect(marqueeBounds, 1.0f);
+    }
 }
 
-// Begins a move drag if the click landed on a clip, opens a delete menu on right-click
+// Begins a move or resize drag if the click landed on a clip, opens a delete menu on right-click
 void ArrangeView::mouseDown(const juce::MouseEvent& event) {
     m_mouseDownPosition = event.getPosition();
     m_hasDraggedBeyondThreshold = false;
-    m_dragging = false;
+    m_clipDragMode = ClipDragMode::None;
 
     if (event.y < kRulerHeight) {
         if (event.mods.isPopupMenu()) {
@@ -253,9 +366,8 @@ void ArrangeView::mouseDown(const juce::MouseEvent& event) {
             return;
         }
 
-        const int64_t barTicks = model::kTicksPerQuarter * 4;
         const int64_t tick = xToTick(event.x);
-        m_rulerAnchorTick = tick - (tick % barTicks);
+        m_rulerAnchorTick = model::snapTick(tick, snapDivision());
         m_rulerCurrentTick = m_rulerAnchorTick;
         m_rulerDragging = true;
         return;
@@ -270,6 +382,11 @@ void ArrangeView::mouseDown(const juce::MouseEvent& event) {
 
     DraggedClip found {};
     if (!hitTestClip(trackIndex, tick, found)) {
+        if (!event.mods.isPopupMenu()) {
+            m_clipMarqueeActive = true;
+            m_clipMarqueeStart = event.getPosition();
+            m_clipMarqueeCurrent = m_clipMarqueeStart;
+        }
         return;
     }
 
@@ -279,21 +396,55 @@ void ArrangeView::mouseDown(const juce::MouseEvent& event) {
     }
 
     m_draggedClip = found;
+
+    if (event.mods.isCommandDown()) {
+        m_dragCurrentTick = found.originalStartTick;
+        m_clipDragMode = ClipDragMode::Duplicate;
+        return;
+    }
+
+    if (isNearResizeHandle(found, event.x)) {
+        m_dragOriginalLengthTicks = m_arrangement.track(found.trackIndex).midiClips[found.placementIndex].clip.lengthTicks();
+        m_dragCurrentLengthTicks = m_dragOriginalLengthTicks;
+        m_clipDragMode = ClipDragMode::Resize;
+        return;
+    }
+
+    // Click rules: a click on an already selected clip keeps the whole selection so a group
+    // drag can start, a click on an unselected clip selects only it
+    if (!isSelected(found.kind, found.trackIndex, found.placementIndex)) {
+        m_selection = { ClipRef { found.kind, found.trackIndex, found.placementIndex } };
+    }
+
     m_dragCurrentTick = found.originalStartTick;
-    m_dragging = true;
+    m_clipDragMode = ClipDragMode::Move;
+
+    m_dragGroupOriginal.clear();
+    for (const ClipRef& ref : m_selection) {
+        const int64_t originalStartTick = ref.kind == ClipKind::Midi
+            ? m_arrangement.track(ref.trackIndex).midiClips[ref.placementIndex].startTick
+            : m_arrangement.track(ref.trackIndex).audioClips[ref.placementIndex].startTick;
+        m_dragGroupOriginal.push_back(DraggedClip { ref.kind, ref.trackIndex, ref.placementIndex, originalStartTick });
+    }
 }
 
-// Continues a move drag once the mouse has moved past a small threshold
+// Continues a move drag (a visual preview only, committed on mouseUp) or a resize drag (which
+// mutates the clip's length live, the gesture rule) once the mouse has moved past a small threshold
 void ArrangeView::mouseDrag(const juce::MouseEvent& event) {
     if (m_rulerDragging) {
-        const int64_t barTicks = model::kTicksPerQuarter * 4;
         const int64_t tick = xToTick(event.x);
-        m_rulerCurrentTick = tick - (tick % barTicks);
+        m_rulerCurrentTick = model::snapTick(tick, snapDivision());
         repaint();
         return;
     }
 
-    if (!m_dragging) {
+    if (m_clipMarqueeActive) {
+        m_clipMarqueeCurrent = event.getPosition();
+        repaint();
+        return;
+    }
+
+    if (m_clipDragMode == ClipDragMode::None) {
         return;
     }
 
@@ -304,12 +455,43 @@ void ArrangeView::mouseDrag(const juce::MouseEvent& event) {
         return;
     }
 
-    const int64_t newTick = xToTick(event.x);
-    m_dragCurrentTick = newTick < 0 ? 0 : newTick;
+    if (m_clipDragMode == ClipDragMode::Resize) {
+        const model::SnapDivision division = snapDivision();
+        const int64_t rawLength = xToTick(event.x) - m_draggedClip.originalStartTick;
+        const int64_t snappedLength = model::snapTick(rawLength, division);
+        m_dragCurrentLengthTicks = juce::jmax(minimumResizeLengthTicks(division), snappedLength);
+
+        m_arrangement.track(m_draggedClip.trackIndex).midiClips[m_draggedClip.placementIndex]
+            .clip.setLengthTicks(m_dragCurrentLengthTicks);
+    } else {
+        const int64_t newTick = xToTick(event.x);
+        m_dragCurrentTick = model::snapTick(juce::jmax<int64_t>(0, newTick), snapDivision());
+    }
+
     repaint();
 }
 
-// Issues the move-clip command for a completed drag, or fires onMidiClipSelected for a plain click
+// Shows a left-right resize cursor when hovering a MIDI clip's right edge
+void ArrangeView::mouseMove(const juce::MouseEvent& event) {
+    if (m_arrangement.numTracks() == 0 || event.y < kRulerHeight) {
+        setMouseCursor(juce::MouseCursor::NormalCursor);
+        return;
+    }
+
+    const std::size_t trackIndex = yToTrackIndex(event.y);
+    const int64_t tick = xToTick(event.x);
+
+    DraggedClip found {};
+    if (hitTestClip(trackIndex, tick, found) && isNearResizeHandle(found, event.x)) {
+        setMouseCursor(juce::MouseCursor::LeftRightResizeCursor);
+    } else {
+        setMouseCursor(juce::MouseCursor::NormalCursor);
+    }
+}
+
+// Finalizes a clip marquee, or issues the move/resize/duplicate clip command for a completed
+// drag (resize already mutated the clip live, this just makes it undoable), or fires
+// onMidiClipSelected for a plain click
 void ArrangeView::mouseUp(const juce::MouseEvent&) {
     if (m_rulerDragging) {
         m_rulerDragging = false;
@@ -329,23 +511,98 @@ void ArrangeView::mouseUp(const juce::MouseEvent&) {
         return;
     }
 
-    if (!m_dragging) {
+    if (m_clipMarqueeActive) {
+        m_clipMarqueeActive = false;
+        finalizeClipMarquee();
+        repaint();
+        return;
+    }
+
+    if (m_clipDragMode == ClipDragMode::None) {
         return;
     }
 
     if (m_hasDraggedBeyondThreshold) {
-        if (m_draggedClip.kind == ClipKind::Midi) {
-            m_commandStack.perform(std::make_unique<model::MoveMidiClipCommand>(
-                m_arrangement, m_draggedClip.trackIndex, m_draggedClip.placementIndex, m_dragCurrentTick));
+        if (m_clipDragMode == ClipDragMode::Duplicate) {
+            if (m_draggedClip.kind == ClipKind::Midi) {
+                const model::MidiClip source = m_arrangement.track(m_draggedClip.trackIndex)
+                    .midiClips[m_draggedClip.placementIndex].clip;
+                m_commandStack.perform(std::make_unique<model::AddMidiClipCommand>(m_arrangement,
+                    m_draggedClip.trackIndex, model::MidiClipPlacement { m_dragCurrentTick, source }));
+            } else {
+                const model::AudioClip source = m_arrangement.track(m_draggedClip.trackIndex)
+                    .audioClips[m_draggedClip.placementIndex].clip;
+                m_commandStack.perform(std::make_unique<model::AddAudioClipCommand>(m_arrangement,
+                    m_draggedClip.trackIndex, model::AudioClipPlacement { m_dragCurrentTick, source }));
+            }
+        } else if (m_clipDragMode == ClipDragMode::Resize) {
+            m_commandStack.perform(std::make_unique<model::ResizeMidiClipCommand>(m_arrangement,
+                m_draggedClip.trackIndex, m_draggedClip.placementIndex,
+                m_dragOriginalLengthTicks, m_dragCurrentLengthTicks));
         } else {
-            m_commandStack.perform(std::make_unique<model::MoveAudioClipCommand>(
-                m_arrangement, m_draggedClip.trackIndex, m_draggedClip.placementIndex, m_dragCurrentTick));
+            // Group move: one CompositeCommand for the whole selection, sharing the reference
+            // clip's tick delta. Moves re-sort placements by tick same as note commands re-sort
+            // by tick, so the selection is rebuilt from each child's own resulting index rather
+            // than assumed to still match the indices captured at mouseDown
+            auto composite = std::make_unique<model::CompositeCommand>();
+            const int64_t tickDelta = m_dragCurrentTick - m_draggedClip.originalStartTick;
+
+            // Moving the highest original index in a track+kind bucket first (same trap the
+            // delete gesture pins descending order for) means an unselected clip sitting between
+            // two selected ones can never invalidate a not-yet-executed sibling's captured
+            // index: everything with a lower original index is still exactly where it started
+            // until its own turn comes. A uniform delta cannot reorder the selected members
+            // relative to each other, only relative to what is between and around them, and
+            // this ordering is what keeps that safe
+            std::vector<DraggedClip> processingOrder = m_dragGroupOriginal;
+            std::sort(processingOrder.begin(), processingOrder.end(), [](const DraggedClip& a, const DraggedClip& b) {
+                if (a.trackIndex != b.trackIndex) {
+                    return a.trackIndex < b.trackIndex;
+                }
+                if (a.kind != b.kind) {
+                    return a.kind < b.kind;
+                }
+                return a.placementIndex > b.placementIndex;
+            });
+
+            struct TrackedMove {
+                ClipKind kind;
+                std::size_t trackIndex;
+                model::MoveMidiClipCommand* midi = nullptr;
+                model::MoveAudioClipCommand* audio = nullptr;
+            };
+            std::vector<TrackedMove> tracked;
+            tracked.reserve(processingOrder.size());
+
+            for (const auto& member : processingOrder) {
+                const int64_t newTick = juce::jmax<int64_t>(0, member.originalStartTick + tickDelta);
+                if (member.kind == ClipKind::Midi) {
+                    auto move = std::make_unique<model::MoveMidiClipCommand>(
+                        m_arrangement, member.trackIndex, member.placementIndex, newTick);
+                    tracked.push_back(TrackedMove { ClipKind::Midi, member.trackIndex, move.get(), nullptr });
+                    composite->add(std::move(move));
+                } else {
+                    auto move = std::make_unique<model::MoveAudioClipCommand>(
+                        m_arrangement, member.trackIndex, member.placementIndex, newTick);
+                    tracked.push_back(TrackedMove { ClipKind::Audio, member.trackIndex, nullptr, move.get() });
+                    composite->add(std::move(move));
+                }
+            }
+
+            m_commandStack.perform(std::move(composite));
+
+            m_selection.clear();
+            for (const TrackedMove& move : tracked) {
+                const std::size_t resultIndex = move.kind == ClipKind::Midi
+                    ? move.midi->placementIndex() : move.audio->placementIndex();
+                m_selection.push_back(ClipRef { move.kind, move.trackIndex, resultIndex });
+            }
         }
-    } else if (m_draggedClip.kind == ClipKind::Midi && onMidiClipSelected) {
+    } else if (m_clipDragMode != ClipDragMode::Duplicate && m_draggedClip.kind == ClipKind::Midi && onMidiClipSelected) {
         onMidiClipSelected(m_draggedClip.trackIndex, m_draggedClip.placementIndex);
     }
 
-    m_dragging = false;
+    m_clipDragMode = ClipDragMode::None;
     repaint();
 }
 
@@ -369,8 +626,7 @@ void ArrangeView::mouseDoubleClick(const juce::MouseEvent& event) {
         return;
     }
 
-    const int64_t barTicks = model::kTicksPerQuarter * 4;
-    const int64_t snappedTick = tick - (tick % barTicks);
+    const int64_t snappedTick = model::snapTickFloor(tick, snapDivision());
 
     model::MidiClip clip;
     clip.setLengthTicks(model::kTicksPerQuarter * 16);
@@ -418,8 +674,7 @@ void ArrangeView::filesDropped(const juce::StringArray& files, int x, int y) {
 
     const std::size_t trackIndex = yToTrackIndex(y);
     const int64_t tick = xToTick(x);
-    const int64_t barTicks = model::kTicksPerQuarter * 4;
-    const int64_t snappedTick = tick - (tick % barTicks);
+    const int64_t snappedTick = model::snapTickFloor(tick, snapDivision());
 
     for (const auto& file : files) {
         if (file.endsWithIgnoreCase(".wav") && onAudioFileDropped) {
@@ -450,15 +705,20 @@ void ArrangeView::itemDropped(const juce::DragAndDropTarget::SourceDetails& drag
 
     const std::size_t trackIndex = yToTrackIndex(dragSourceDetails.localPosition.y);
     const int64_t tick = xToTick(dragSourceDetails.localPosition.x);
-    const int64_t barTicks = model::kTicksPerQuarter * 4;
-    const int64_t snappedTick = tick - (tick % barTicks);
+    const int64_t snappedTick = model::snapTickFloor(tick, snapDivision());
 
     onAudioFileDropped(file.getFullPathName(), trackIndex, snappedTick);
 }
 
-// Opens a "Delete Clip" popup for the given clip, with warp toggle and BPM entry for audio clips
+// Opens a "Delete Clip" popup for the given clip, with a mute toggle above it, plus
+// warp toggle and BPM entry for audio clips
 void ArrangeView::showDeleteClipMenu(const DraggedClip& target) {
+    const bool muted = target.kind == ClipKind::Midi
+        ? m_arrangement.track(target.trackIndex).midiClips[target.placementIndex].muted
+        : m_arrangement.track(target.trackIndex).audioClips[target.placementIndex].muted;
+
     juce::PopupMenu menu;
+    menu.addItem(4, "Mute Clip", true, muted);
     menu.addItem(1, "Delete Clip");
 
     if (target.kind == ClipKind::Audio) {
@@ -485,6 +745,12 @@ void ArrangeView::showDeleteClipMenu(const DraggedClip& target) {
             }
         } else if (result == 3 && target.kind == ClipKind::Audio) {
             showSetOriginalBpmDialog(target);
+        } else if (result == 4) {
+            const model::TrackKind kind = target.kind == ClipKind::Midi
+                ? model::TrackKind::Midi : model::TrackKind::Audio;
+            m_commandStack.perform(std::make_unique<model::ToggleClipMuteCommand>(
+                m_arrangement, kind, target.trackIndex, target.placementIndex));
+            repaint();
         }
     });
 }
@@ -533,6 +799,36 @@ bool ArrangeView::keyPressed(const juce::KeyPress& key) {
 
     if (key == juce::KeyPress::homeKey) {
         m_transport.setPosition(0);
+        repaint();
+        return true;
+    }
+
+    if ((key == juce::KeyPress::deleteKey || key == juce::KeyPress::backspaceKey) && !m_selection.empty()) {
+        // Same trap as a group move: removing a placement shifts every later index in its
+        // own track+kind array, so descending order within each bucket is the only order
+        // that keeps every not-yet-removed sibling's captured index valid
+        std::vector<ClipRef> descending = m_selection;
+        std::sort(descending.begin(), descending.end(), [](const ClipRef& a, const ClipRef& b) {
+            if (a.trackIndex != b.trackIndex) {
+                return a.trackIndex < b.trackIndex;
+            }
+            if (a.kind != b.kind) {
+                return a.kind < b.kind;
+            }
+            return a.placementIndex > b.placementIndex;
+        });
+
+        auto composite = std::make_unique<model::CompositeCommand>();
+        for (const ClipRef& ref : descending) {
+            if (ref.kind == ClipKind::Midi) {
+                composite->add(std::make_unique<model::RemoveMidiClipCommand>(m_arrangement, ref.trackIndex, ref.placementIndex));
+            } else {
+                composite->add(std::make_unique<model::RemoveAudioClipCommand>(m_arrangement, ref.trackIndex, ref.placementIndex));
+            }
+        }
+
+        m_commandStack.perform(std::move(composite));
+        m_selection.clear();
         repaint();
         return true;
     }

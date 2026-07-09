@@ -128,6 +128,53 @@ void MoveAudioClipCommand::undo() {
     m_placementIndex = m_arrangement.moveAudioClipPlacementAt(m_trackIndex, m_placementIndex, m_oldStartTick);
 }
 
+// Stores the placement address and both lengths
+ResizeMidiClipCommand::ResizeMidiClipCommand(Arrangement& arrangement, std::size_t trackIndex,
+                                              std::size_t placementIndex, int64_t oldLengthTicks, int64_t newLengthTicks)
+    : m_arrangement(arrangement)
+    , m_trackIndex(trackIndex)
+    , m_placementIndex(placementIndex)
+    , m_oldLengthTicks(oldLengthTicks)
+    , m_newLengthTicks(newLengthTicks)
+{
+}
+
+// Sets the placement's clip to the new length
+void ResizeMidiClipCommand::execute() {
+    m_arrangement.track(m_trackIndex).midiClips[m_placementIndex].clip.setLengthTicks(m_newLengthTicks);
+}
+
+// Restores the clip's length to what it had before execute()
+void ResizeMidiClipCommand::undo() {
+    m_arrangement.track(m_trackIndex).midiClips[m_placementIndex].clip.setLengthTicks(m_oldLengthTicks);
+}
+
+// Stores the arrangement, clip kind, track, and placement index to flip on execute()
+ToggleClipMuteCommand::ToggleClipMuteCommand(Arrangement& arrangement, TrackKind kind, std::size_t trackIndex,
+                                              std::size_t placementIndex)
+    : m_arrangement(arrangement)
+    , m_kind(kind)
+    , m_trackIndex(trackIndex)
+    , m_placementIndex(placementIndex)
+{
+}
+
+// Flips the placement's muted flag
+void ToggleClipMuteCommand::execute() {
+    if (m_kind == TrackKind::Midi) {
+        bool& muted = m_arrangement.track(m_trackIndex).midiClips[m_placementIndex].muted;
+        muted = !muted;
+    } else {
+        bool& muted = m_arrangement.track(m_trackIndex).audioClips[m_placementIndex].muted;
+        muted = !muted;
+    }
+}
+
+// Flips the placement's muted flag back
+void ToggleClipMuteCommand::undo() {
+    execute();
+}
+
 // Returns the addressed clip, nullptr when the address no longer resolves. patterns is
 // nullptr until a later phase introduces the PatternBank, a Pattern-sourced address
 // always fails to resolve until then
@@ -728,6 +775,30 @@ void MoveAutomationPointCommand::undo() {
         }
     }
     lane.addPoint(m_oldPoint);
+}
+
+// Appends a child, call before the composite is performed
+void CompositeCommand::add(std::unique_ptr<Command> command) {
+    m_children.push_back(std::move(command));
+}
+
+// Returns the number of children, an empty composite is a legal no-op
+std::size_t CompositeCommand::size() const {
+    return m_children.size();
+}
+
+// Executes every child in order
+void CompositeCommand::execute() {
+    for (auto& child : m_children) {
+        child->execute();
+    }
+}
+
+// Undoes every child in reverse order
+void CompositeCommand::undo() {
+    for (auto it = m_children.rbegin(); it != m_children.rend(); ++it) {
+        (*it)->undo();
+    }
 }
 
 } // namespace howl::model

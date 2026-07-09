@@ -63,6 +63,10 @@ public:
     void execute() override;
     void undo() override;
 
+    // The placement's current index, re-sorted by startTick after execute()/undo(); a group
+    // move rebuilds its selection from this rather than assuming the index never changed
+    std::size_t placementIndex() const noexcept { return m_placementIndex; }
+
 private:
     Arrangement& m_arrangement;
     std::size_t m_trackIndex;
@@ -81,12 +85,52 @@ public:
     void execute() override;
     void undo() override;
 
+    // The placement's current index, re-sorted by startTick after execute()/undo(); a group
+    // move rebuilds its selection from this rather than assuming the index never changed
+    std::size_t placementIndex() const noexcept { return m_placementIndex; }
+
 private:
     Arrangement& m_arrangement;
     std::size_t m_trackIndex;
     std::size_t m_placementIndex;
     int64_t m_newStartTick;
     int64_t m_oldStartTick = 0;
+};
+
+// Sets a placed MIDI clip's length, undo restores the old length
+class ResizeMidiClipCommand : public Command {
+public:
+    // Stores the placement address and both lengths
+    ResizeMidiClipCommand(Arrangement& arrangement, std::size_t trackIndex, std::size_t placementIndex,
+                          int64_t oldLengthTicks, int64_t newLengthTicks);
+
+    void execute() override;
+    void undo() override;
+
+private:
+    Arrangement& m_arrangement;
+    std::size_t m_trackIndex;
+    std::size_t m_placementIndex;
+    int64_t m_oldLengthTicks;
+    int64_t m_newLengthTicks;
+};
+
+// Flips a placed clip's mute flag, undo flips it back. kind selects which of the
+// track's two placement vectors (midiClips or audioClips) placementIndex addresses
+class ToggleClipMuteCommand : public Command {
+public:
+    // Stores the arrangement, clip kind, track, and placement index to flip on execute()
+    ToggleClipMuteCommand(Arrangement& arrangement, TrackKind kind, std::size_t trackIndex,
+                          std::size_t placementIndex);
+
+    void execute() override;
+    void undo() override;
+
+private:
+    Arrangement& m_arrangement;
+    TrackKind m_kind;
+    std::size_t m_trackIndex;
+    std::size_t m_placementIndex;
 };
 
 // Owns every pattern and their timeline placements, added in a later phase
@@ -482,6 +526,22 @@ private:
     std::size_t m_laneIndex;
     AutomationPoint m_oldPoint;
     AutomationPoint m_newPoint;
+};
+
+// Groups child commands into one undo step, executed in order and undone in reverse
+class CompositeCommand : public Command {
+public:
+    // Appends a child, call before the composite is performed
+    void add(std::unique_ptr<Command> command);
+
+    // Returns the number of children, an empty composite is a legal no-op
+    std::size_t size() const;
+
+    void execute() override;
+    void undo() override;
+
+private:
+    std::vector<std::unique_ptr<Command>> m_children;
 };
 
 } // namespace howl::model

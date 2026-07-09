@@ -115,7 +115,7 @@ TEST_CASE("ProjectSerializer round-trips tracks, clips, mixer state, effects, se
     clip.setLengthTicks(1920);
     clip.addNote(Note { 60, 0.8f, 0, 480 });
     clip.addNote(Note { 64, 0.9f, 480, 480 });
-    arrangement.addMidiClipPlacement(midiTrack, MidiClipPlacement { 0, clip });
+    arrangement.addMidiClipPlacement(midiTrack, MidiClipPlacement { 0, clip, true });
 
     const std::size_t audioTrack = arrangement.addTrack("Audio 1", TrackKind::Audio);
     AudioClip audioClip;
@@ -224,6 +224,7 @@ TEST_CASE("ProjectSerializer round-trips tracks, clips, mixer state, effects, se
     REQUIRE(loadedArrangement.track(midiTrack).midiClips[0].clip.notes().size() == 2);
     REQUIRE(loadedArrangement.track(midiTrack).midiClips[0].clip.notes()[0].key == 60);
     REQUIRE(loadedArrangement.track(midiTrack).midiClips[0].clip.notes()[1].startTick == 480);
+    REQUIRE(loadedArrangement.track(midiTrack).midiClips[0].muted);
 
     REQUIRE(loadedArrangement.track(audioTrack).kind == TrackKind::Audio);
     REQUIRE(loadedArrangement.track(audioTrack).audioClips.size() == 1);
@@ -231,6 +232,7 @@ TEST_CASE("ProjectSerializer round-trips tracks, clips, mixer state, effects, se
     REQUIRE(loadedArrangement.track(audioTrack).audioClips[0].clip.sourcePath() == "/fake/path.wav");
     REQUIRE(loadedArrangement.track(audioTrack).audioClips[0].clip.originalBpm() == Catch::Approx(140.0));
     REQUIRE(loadedArrangement.track(audioTrack).audioClips[0].clip.warpEnabled());
+    REQUIRE_FALSE(loadedArrangement.track(audioTrack).audioClips[0].muted);
 
     REQUIRE(loadedSession.numTracks() == 2);
     REQUIRE(loadedSession.numScenes() == 2);
@@ -304,6 +306,41 @@ TEST_CASE("ProjectSerializer.load is forward-tolerant of an unrecognized version
     // No "automation" or "midiMappings" keys in this version 2 file: empty, not a crash
     REQUIRE(arrangement.track(0).automation.empty());
     REQUIRE(midiMappings.isVoid());
+}
+
+TEST_CASE("ProjectSerializer defaults a placement's muted flag to false when the key is absent", "[projectserializer]") {
+    const juce::String json = R"({
+        "version": 1,
+        "tempo": 120.0,
+        "tracks": [
+            { "name": "Lead", "kind": "midi",
+              "midiClips": [ { "startTick": 0, "lengthTicks": 960, "notes": [] } ],
+              "audioClips": [],
+              "strip": { "gainDb": 0.0, "pan": 0.0, "muted": false, "soloed": false, "effects": [] },
+              "output": -1, "sends": [] },
+            { "name": "Audio 1", "kind": "audio",
+              "midiClips": [],
+              "audioClips": [ { "startTick": 0, "sourcePath": "/fake/path.wav", "originalBpm": 120.0, "warpEnabled": false } ],
+              "strip": { "gainDb": 0.0, "pan": 0.0, "muted": false, "soloed": false, "effects": [] },
+              "output": -1, "sends": [] }
+        ],
+        "buses": [],
+        "masterStrip": { "gainDb": 0.0, "pan": 0.0, "muted": false, "soloed": false, "effects": [] }
+    })";
+
+    BuiltInEffectFactory factory;
+    Arrangement arrangement;
+    Mixer mixer;
+    Session session;
+    juce::var instruments;
+    double tempo = 0.0;
+    juce::var midiMappings;
+
+    const bool ok = ProjectSerializer::load(json, arrangement, mixer, session, factory, nullptr, instruments, tempo,
+        midiMappings);
+    REQUIRE(ok);
+    REQUIRE_FALSE(arrangement.track(0).midiClips[0].muted);
+    REQUIRE_FALSE(arrangement.track(1).audioClips[0].muted);
 }
 
 TEST_CASE("ProjectSerializer preserves a plugin effect's state bytes exactly through save and load", "[projectserializer]") {

@@ -18,12 +18,14 @@ namespace howl::model {
 struct MidiClipPlacement {
     int64_t startTick;
     MidiClip clip;
+    bool muted = false;
 };
 
 // An audio clip placed on the timeline at startTick, converted to samples at render time
 struct AudioClipPlacement {
     int64_t startTick;
     AudioClip clip;
+    bool muted = false;
 };
 
 enum class TrackKind {

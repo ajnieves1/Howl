@@ -30,6 +30,10 @@ void AudioTrackRenderer::process(AudioBlock& audio, SampleCount pos) noexcept {
     const SampleCount blockEnd = pos + audio.numFrames;
 
     for (const auto& placement : m_track.audioClips) {
+        if (placement.muted) {
+            continue;
+        }
+
         const auto placementStart = static_cast<SampleCount>(static_cast<double>(placement.startTick) * samplesPerTick);
         const SampleCount clipLength = placement.clip.activeLengthSamples();
         const SampleCount placementEnd = placementStart + clipLength;

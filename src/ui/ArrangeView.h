@@ -6,12 +6,14 @@
 #include "engine/Transport.h"
 #include "model/Arrangement.h"
 #include "model/CommandStack.h"
+#include "model/SnapGrid.h"
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <vector>
 
 namespace howl::ui {
 
@@ -25,7 +27,8 @@ class ArrangeView : public juce::Component, public juce::FileDragAndDropTarget,
 public:
     // Stores references to the arrangement, transport, and command stack, starts the playhead timer
     ArrangeView(model::Arrangement& arrangement, engine::Transport& transport,
-                model::CommandStack& commandStack, double sampleRate);
+                model::CommandStack& commandStack, double sampleRate,
+                std::function<model::SnapDivision()> snapProvider);
 
     // Stops the playhead timer
     ~ArrangeView() override;
@@ -33,13 +36,17 @@ public:
     // Draws the ruler, one lane per track, each clip as a block, and the playhead
     void paint(juce::Graphics& g) override;
 
-    // Begins a move drag if the click landed on a clip, opens a delete menu on right-click
+    // Begins a move or resize drag if the click landed on a clip, opens a delete menu on right-click
     void mouseDown(const juce::MouseEvent& event) override;
 
-    // Continues a move drag once the mouse has moved past a small threshold
+    // Continues a move or resize drag once the mouse has moved past a small threshold
     void mouseDrag(const juce::MouseEvent& event) override;
 
-    // Issues the move-clip command for a completed drag, or fires onMidiClipSelected for a plain click
+    // Shows a left-right resize cursor when hovering a MIDI clip's right edge
+    void mouseMove(const juce::MouseEvent& event) override;
+
+    // Issues the move or resize clip command for a completed drag, or fires onMidiClipSelected
+    // for a plain click
     void mouseUp(const juce::MouseEvent& event) override;
 
     // Creates a new 4-bar MIDI clip on an empty MIDI lane, snapped to the bar
@@ -82,6 +89,7 @@ public:
 private:
     static constexpr int64_t kMinimumVisibleTicks = model::kTicksPerQuarter * 16; // 4 bars at 4/4
     static constexpr int kDragThresholdPixels = 4;
+    static constexpr int kResizeHandlePixels = 6;
     static constexpr int kRulerHeight = 20;
     static constexpr double kMinZoom = 1.0;
     static constexpr double kMaxZoom = 64.0;
@@ -91,11 +99,27 @@ private:
         Audio
     };
 
+    enum class ClipDragMode {
+        None,
+        Move,
+        Resize,
+        Duplicate
+    };
+
     struct DraggedClip {
         ClipKind kind;
         std::size_t trackIndex;
         std::size_t placementIndex;
         int64_t originalStartTick;
+    };
+
+    // A selected clip, held by (kind, track, placement index). A move re-sorts placements by
+    // tick same as note commands re-sort by tick, so the index alone is not stable across a
+    // move; the selection is rebuilt afterward from each command's own resulting index
+    struct ClipRef {
+        ClipKind kind;
+        std::size_t trackIndex;
+        std::size_t placementIndex;
     };
 
     // Repaints so the playhead position stays current during playback
@@ -131,6 +155,25 @@ private:
     // Finds the clip under (trackIndex, tick), fills found and returns true on a hit
     bool hitTestClip(std::size_t trackIndex, int64_t tick, DraggedClip& found) const;
 
+    // True when x sits within kResizeHandlePixels of clip's right edge, always false for audio
+    bool isNearResizeHandle(const DraggedClip& clip, int x) const;
+
+    // The snap unit resize clamps to, 240 (a step) rather than a beat when the division is Off,
+    // per this task's own contract, deliberately not the same "Beat when Off" convention P9 uses
+    int64_t minimumResizeLengthTicks(model::SnapDivision division) const;
+
+    // True when (kind, trackIndex, placementIndex) matches an entry in m_selection
+    bool isSelected(ClipKind kind, std::size_t trackIndex, std::size_t placementIndex) const;
+
+    // Selects every clip (both kinds, any track) intersecting the marquee rectangle, replacing
+    // the current selection; an empty sweep (a plain click that never dragged) clears it
+    void finalizeClipMarquee();
+
+    // Fills outStartTick with the group-move preview position for (kind, trackIndex,
+    // placementIndex) and returns true, or returns false when it is not part of the drag
+    bool findGroupPreviewTick(ClipKind kind, std::size_t trackIndex, std::size_t placementIndex,
+                              int64_t& outStartTick) const;
+
     // Opens a "Delete Clip" popup for the given clip, with warp toggle and BPM entry for audio clips
     void showDeleteClipMenu(const DraggedClip& target);
 
@@ -140,17 +183,25 @@ private:
     // Opens a one-item "Loop: On/Off" menu for the ruler, toggles looping without moving the region
     void showRulerMenu();
 
+    // Returns the current global snap division, Step when no provider is set
+    model::SnapDivision snapDivision() const;
+
     model::Arrangement& m_arrangement;
     engine::Transport& m_transport;
     model::CommandStack& m_commandStack;
     double m_sampleRate;
+    std::function<model::SnapDivision()> m_snapProvider;
 
     double m_zoom = 1.0;
     int64_t m_scrollTick = 0;
 
-    bool m_dragging = false;
+    ClipDragMode m_clipDragMode = ClipDragMode::None;
     DraggedClip m_draggedClip {};
     int64_t m_dragCurrentTick = 0;
+    // Resize only: the length at mouseDown (the command's "before") and the live, already
+    // mutated length as the drag progresses (the command's "after" once mouseUp commits it)
+    int64_t m_dragOriginalLengthTicks = 0;
+    int64_t m_dragCurrentLengthTicks = 0;
     juce::Point<int> m_mouseDownPosition;
     bool m_hasDraggedBeyondThreshold = false;
 
@@ -158,6 +209,18 @@ private:
     bool m_rulerDragging = false;
     int64_t m_rulerAnchorTick = 0;
     int64_t m_rulerCurrentTick = 0;
+
+    // The persistent multi-selection, independent of any drag in progress
+    std::vector<ClipRef> m_selection;
+
+    // True while a mouse gesture is sweeping a clip-selection marquee across empty lane space
+    bool m_clipMarqueeActive = false;
+    juce::Point<int> m_clipMarqueeStart;
+    juce::Point<int> m_clipMarqueeCurrent;
+
+    // Move only: the whole selection's values at mouseDown (the command's "before" set),
+    // used to compute every member's live preview position from one shared tick delta
+    std::vector<DraggedClip> m_dragGroupOriginal;
 };
 
 } // namespace howl::ui

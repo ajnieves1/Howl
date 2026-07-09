@@ -1,0 +1,262 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Howl DAW: ResizeMidiClipCommand round-trip and the renderer's clip-length note cutoff
+
+#include "engine/Instrument.h"
+#include "engine/Transport.h"
+#include "model/Arrangement.h"
+#include "model/AudioClip.h"
+#include "model/Commands.h"
+#include "model/MidiTrackRenderer.h"
+
+#include <catch2/catch_test_macros.hpp>
+
+#include <algorithm>
+#include <memory>
+#include <string>
+#include <vector>
+
+using howl::AudioBlock;
+using howl::SampleCount;
+using howl::engine::Instrument;
+using howl::engine::Transport;
+using howl::model::Arrangement;
+using howl::model::Command;
+using howl::model::CompositeCommand;
+using howl::model::kTicksPerQuarter;
+using howl::model::MidiClip;
+using howl::model::MidiClipPlacement;
+using howl::model::MidiTrackRenderer;
+using howl::model::Note;
+using howl::model::AudioClip;
+using howl::model::AudioClipPlacement;
+using howl::model::RemoveMidiClipCommand;
+using howl::model::ResizeMidiClipCommand;
+using howl::model::ToggleClipMuteCommand;
+using howl::model::Track;
+using howl::model::TrackKind;
+
+namespace {
+
+// Records every noteOn call it receives, otherwise a silent no-op instrument
+class ProbeInstrument : public Instrument {
+public:
+    void prepare(double, int) override {
+    }
+
+    void noteOn(int key, float) noexcept override {
+        onKeys.push_back(key);
+    }
+
+    void noteOff(int) noexcept override {
+    }
+
+    void render(AudioBlock& audio) noexcept override {
+        for (int channel = 0; channel < audio.numChannels; ++channel) {
+            for (int frame = 0; frame < audio.numFrames; ++frame) {
+                audio.channels[channel][frame] = 0.0f;
+            }
+        }
+    }
+
+    int numParameters() const override {
+        return 0;
+    }
+
+    const char* parameterName(int) const override {
+        return "";
+    }
+
+    void setParameter(int, float) noexcept override {
+    }
+
+    float getParameter(int) const noexcept override {
+        return 0.0f;
+    }
+
+    std::vector<int> onKeys;
+};
+
+// Records "executeN"/"undoN" into a shared log, for verifying CompositeCommand's ordering
+class ProbeCommand : public Command {
+public:
+    ProbeCommand(int id, std::vector<std::string>& log) : m_id(id), m_log(log) {
+    }
+
+    void execute() override {
+        m_log.push_back("execute" + std::to_string(m_id));
+    }
+
+    void undo() override {
+        m_log.push_back("undo" + std::to_string(m_id));
+    }
+
+private:
+    int m_id;
+    std::vector<std::string>& m_log;
+};
+
+} // namespace
+
+TEST_CASE("ResizeMidiClipCommand sets a placed clip's length and undo restores the old length", "[model]") {
+    Arrangement arrangement;
+    const std::size_t trackIndex = arrangement.addTrack("Lead", TrackKind::Midi);
+
+    MidiClip clip;
+    clip.setLengthTicks(kTicksPerQuarter * 4);
+    arrangement.addMidiClipPlacement(trackIndex, MidiClipPlacement { 0, clip });
+
+    ResizeMidiClipCommand command(arrangement, trackIndex, 0, kTicksPerQuarter * 4, kTicksPerQuarter * 2);
+    command.execute();
+    REQUIRE(arrangement.track(trackIndex).midiClips[0].clip.lengthTicks() == kTicksPerQuarter * 2);
+
+    command.undo();
+    REQUIRE(arrangement.track(trackIndex).midiClips[0].clip.lengthTicks() == kTicksPerQuarter * 4);
+}
+
+TEST_CASE("MidiTrackRenderer drops notes starting past the clip end and keeps ones straddling it", "[model]") {
+    const double sampleRate = 44100.0;
+    const int blockSize = 65536; // long enough to cover 4 beats at 120 bpm
+
+    MidiClip clip;
+    clip.setLengthTicks(kTicksPerQuarter * 4); // room for both notes while building the clip
+    clip.addNote(Note { 60, 1.0f, 0, kTicksPerQuarter * 3 }); // starts well before the cut, straddles it
+    clip.addNote(Note { 61, 1.0f, kTicksPerQuarter * 2, kTicksPerQuarter }); // starts exactly at the cut
+    clip.setLengthTicks(kTicksPerQuarter * 2); // shorten after placing notes, per the gesture rule
+
+    Track track;
+    track.name = "Lead";
+    track.kind = TrackKind::Midi;
+    track.midiClips.push_back(MidiClipPlacement { 0, clip });
+
+    Transport transport;
+    transport.setTempo(120.0);
+    transport.play();
+
+    ProbeInstrument instrument;
+    instrument.prepare(sampleRate, blockSize);
+
+    MidiTrackRenderer renderer(transport, track);
+    renderer.prepare(sampleRate);
+    renderer.setInstrument(&instrument);
+
+    std::vector<float> buffer(static_cast<std::size_t>(blockSize), 0.0f);
+    float* channels[1] = { buffer.data() };
+    AudioBlock block { channels, 1, blockSize };
+
+    const SampleCount pos = transport.advance(blockSize);
+    REQUIRE(pos == 0);
+    renderer.process(block, pos);
+
+    REQUIRE(std::find(instrument.onKeys.begin(), instrument.onKeys.end(), 60) != instrument.onKeys.end());
+    REQUIRE(std::find(instrument.onKeys.begin(), instrument.onKeys.end(), 61) == instrument.onKeys.end());
+}
+
+TEST_CASE("CompositeCommand executes children in order and undoes in reverse", "[model]") {
+    std::vector<std::string> log;
+    CompositeCommand composite;
+    composite.add(std::make_unique<ProbeCommand>(1, log));
+    composite.add(std::make_unique<ProbeCommand>(2, log));
+    composite.add(std::make_unique<ProbeCommand>(3, log));
+    REQUIRE(composite.size() == 3);
+
+    composite.execute();
+    REQUIRE(log == std::vector<std::string> { "execute1", "execute2", "execute3" });
+
+    log.clear();
+    composite.undo();
+    REQUIRE(log == std::vector<std::string> { "undo3", "undo2", "undo1" });
+}
+
+TEST_CASE("A composite of two same-track removals built descending round-trips cleanly", "[model]") {
+    Arrangement arrangement;
+    const std::size_t trackIndex = arrangement.addTrack("Lead", TrackKind::Midi);
+
+    MidiClip clipA;
+    clipA.setLengthTicks(kTicksPerQuarter);
+    MidiClip clipB;
+    clipB.setLengthTicks(kTicksPerQuarter);
+    arrangement.addMidiClipPlacement(trackIndex, MidiClipPlacement { 0, clipA });
+    arrangement.addMidiClipPlacement(trackIndex, MidiClipPlacement { kTicksPerQuarter * 4, clipB });
+    REQUIRE(arrangement.track(trackIndex).midiClips.size() == 2);
+
+    // Built descending, index 1 removed before index 0, the pinned trap this task calls out
+    CompositeCommand composite;
+    composite.add(std::make_unique<RemoveMidiClipCommand>(arrangement, trackIndex, 1));
+    composite.add(std::make_unique<RemoveMidiClipCommand>(arrangement, trackIndex, 0));
+
+    composite.execute();
+    REQUIRE(arrangement.track(trackIndex).midiClips.empty());
+
+    composite.undo();
+    REQUIRE(arrangement.track(trackIndex).midiClips.size() == 2);
+    REQUIRE(arrangement.track(trackIndex).midiClips[0].startTick == 0);
+    REQUIRE(arrangement.track(trackIndex).midiClips[1].startTick == kTicksPerQuarter * 4);
+}
+
+TEST_CASE("ToggleClipMuteCommand flips a placement's muted flag and undo flips it back", "[model]") {
+    Arrangement arrangement;
+
+    const std::size_t midiTrack = arrangement.addTrack("Lead", TrackKind::Midi);
+    MidiClip midiClip;
+    midiClip.setLengthTicks(kTicksPerQuarter * 4);
+    arrangement.addMidiClipPlacement(midiTrack, MidiClipPlacement { 0, midiClip });
+
+    ToggleClipMuteCommand midiToggle(arrangement, TrackKind::Midi, midiTrack, 0);
+    REQUIRE_FALSE(arrangement.track(midiTrack).midiClips[0].muted);
+    midiToggle.execute();
+    REQUIRE(arrangement.track(midiTrack).midiClips[0].muted);
+    midiToggle.undo();
+    REQUIRE_FALSE(arrangement.track(midiTrack).midiClips[0].muted);
+
+    const std::size_t audioTrack = arrangement.addTrack("Vocals", TrackKind::Audio);
+    AudioClip audioClip;
+    arrangement.addAudioClipPlacement(audioTrack, AudioClipPlacement { 0, audioClip });
+
+    ToggleClipMuteCommand audioToggle(arrangement, TrackKind::Audio, audioTrack, 0);
+    REQUIRE_FALSE(arrangement.track(audioTrack).audioClips[0].muted);
+    audioToggle.execute();
+    REQUIRE(arrangement.track(audioTrack).audioClips[0].muted);
+    audioToggle.undo();
+    REQUIRE_FALSE(arrangement.track(audioTrack).audioClips[0].muted);
+}
+
+TEST_CASE("MidiTrackRenderer renders silence for a muted placement while an unmuted twin sounds", "[model]") {
+    const double sampleRate = 44100.0;
+    const int blockSize = 65536;
+
+    MidiClip mutedClip;
+    mutedClip.setLengthTicks(kTicksPerQuarter * 4);
+    mutedClip.addNote(Note { 60, 1.0f, 0, kTicksPerQuarter });
+
+    MidiClip soundingClip;
+    soundingClip.setLengthTicks(kTicksPerQuarter * 4);
+    soundingClip.addNote(Note { 61, 1.0f, 0, kTicksPerQuarter });
+
+    Track track;
+    track.name = "Lead";
+    track.kind = TrackKind::Midi;
+    track.midiClips.push_back(MidiClipPlacement { 0, mutedClip, true });
+    track.midiClips.push_back(MidiClipPlacement { kTicksPerQuarter * 2, soundingClip, false });
+
+    Transport transport;
+    transport.setTempo(120.0);
+    transport.play();
+
+    ProbeInstrument instrument;
+    instrument.prepare(sampleRate, blockSize);
+
+    MidiTrackRenderer renderer(transport, track);
+    renderer.prepare(sampleRate);
+    renderer.setInstrument(&instrument);
+
+    std::vector<float> buffer(static_cast<std::size_t>(blockSize), 0.0f);
+    float* channels[1] = { buffer.data() };
+    AudioBlock block { channels, 1, blockSize };
+
+    const SampleCount pos = transport.advance(blockSize);
+    REQUIRE(pos == 0);
+    renderer.process(block, pos);
+
+    REQUIRE(std::find(instrument.onKeys.begin(), instrument.onKeys.end(), 60) == instrument.onKeys.end());
+    REQUIRE(std::find(instrument.onKeys.begin(), instrument.onKeys.end(), 61) != instrument.onKeys.end());
+}
