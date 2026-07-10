@@ -29,6 +29,10 @@ public:
     // Pops the next CC event, message thread only
     bool popCcEvent(MidiEvent& out);
 
+    // Pushes a note event from the message thread through the same mutex real device
+    // callbacks use, so a step preview can never race a real MIDI event into the queue
+    bool pushNoteEvent(const MidiEvent& event);
+
 private:
     // Normalizes one raw device message and pushes it to the right queue
     void handleIncomingMidiMessage(juce::MidiInput* source, const juce::MidiMessage& message) override;

@@ -11,15 +11,19 @@
 
 namespace howl::ui {
 
-// Stores references to the arrangement, transport, and command stack, starts the playhead timer
+// Stores references to the arrangement, transport, command stack, and pattern bank, starts
+// the playhead timer
 ArrangeView::ArrangeView(model::Arrangement& arrangement, engine::Transport& transport,
-                          model::CommandStack& commandStack, double sampleRate,
-                          std::function<model::SnapDivision()> snapProvider)
+                          model::CommandStack& commandStack, model::PatternBank& patterns, double sampleRate,
+                          std::function<model::SnapDivision()> snapProvider,
+                          std::function<std::size_t()> currentPatternProvider)
     : m_arrangement(arrangement)
     , m_transport(transport)
     , m_commandStack(commandStack)
+    , m_patterns(patterns)
     , m_sampleRate(sampleRate)
     , m_snapProvider(std::move(snapProvider))
+    , m_currentPatternProvider(std::move(currentPatternProvider))
 {
     // Without this, grabKeyboardFocus and click-to-focus are no-ops and keyPressed never fires
     setWantsKeyboardFocus(true);
@@ -67,6 +71,14 @@ int64_t ArrangeView::visibleTickSpan() const {
         }
     }
 
+    for (const auto& placement : m_patterns.placements()) {
+        if (placement.patternIndex >= m_patterns.numPatterns()) {
+            continue;
+        }
+        const int64_t endTick = placement.startTick + m_patterns.patternLengthTicks(placement.patternIndex);
+        maxEndTick = endTick > maxEndTick ? endTick : maxEndTick;
+    }
+
     return maxEndTick + model::kTicksPerQuarter * 4;
 }
 
@@ -94,10 +106,10 @@ float ArrangeView::tickToX(int64_t tick) const {
     return static_cast<float>(static_cast<double>(tick - m_scrollTick) / span * static_cast<double>(getWidth()));
 }
 
-// Returns the height of one track lane, below the ruler
+// Returns the height of one track lane, below the ruler and pattern lane
 float ArrangeView::laneHeight() const {
     const std::size_t numTracks = m_arrangement.numTracks();
-    const float available = static_cast<float>(getHeight() - kRulerHeight);
+    const float available = static_cast<float>(getHeight() - kRulerHeight - kPatternLaneHeight);
     if (numTracks == 0) {
         return available;
     }
@@ -112,8 +124,13 @@ std::size_t ArrangeView::yToTrackIndex(int y) const {
     }
 
     const float height = laneHeight();
-    const int index = static_cast<int>(static_cast<float>(y - kRulerHeight) / height);
+    const int index = static_cast<int>(static_cast<float>(y - kRulerHeight - kPatternLaneHeight) / height);
     return static_cast<std::size_t>(juce::jlimit(0, static_cast<int>(numTracks) - 1, index));
+}
+
+// True when y sits in the pattern lane strip, between the ruler and the track lanes
+bool ArrangeView::isInPatternLane(int y) const {
+    return y >= kRulerHeight && y < kRulerHeight + kPatternLaneHeight;
 }
 
 // Returns the current transport position converted to ticks
@@ -145,6 +162,24 @@ bool ArrangeView::hitTestClip(std::size_t trackIndex, int64_t tick, DraggedClip&
         }
     }
 
+    return false;
+}
+
+// Finds the pattern placement under tick, fills foundIndex and returns true on a hit
+bool ArrangeView::hitTestPatternPlacement(int64_t tick, std::size_t& foundIndex) const {
+    const auto& placements = m_patterns.placements();
+    for (std::size_t i = 0; i < placements.size(); ++i) {
+        const auto& placement = placements[i];
+        if (placement.patternIndex >= m_patterns.numPatterns()) {
+            continue;
+        }
+
+        const int64_t length = m_patterns.patternLengthTicks(placement.patternIndex);
+        if (tick >= placement.startTick && tick < placement.startTick + length) {
+            foundIndex = i;
+            return true;
+        }
+    }
     return false;
 }
 
@@ -267,6 +302,42 @@ void ArrangeView::paint(juce::Graphics& g) {
         g.fillRect(juce::Rectangle<float> { x1, 0.0f, x2 - x1, static_cast<float>(kRulerHeight) });
     }
 
+    // Pattern lane, between the ruler and the track lanes; placements draw regardless of
+    // whether the arrangement has any tracks, since their timeline position never depends on that
+    g.setColour(juce::Colours::darkslategrey.withAlpha(0.5f));
+    g.fillRect(juce::Rectangle<float> { 0.0f, static_cast<float>(kRulerHeight),
+        static_cast<float>(getWidth()), static_cast<float>(kPatternLaneHeight) });
+
+    for (std::size_t i = 0; i < m_patterns.placements().size(); ++i) {
+        const auto& placement = m_patterns.placements()[i];
+        if (placement.patternIndex >= m_patterns.numPatterns()) {
+            continue;
+        }
+
+        int64_t startTick = placement.startTick;
+        if (m_patternDragActive && m_patternDragIndex == i) {
+            startTick = m_patternDragCurrentTick;
+        }
+
+        const int64_t length = m_patterns.patternLengthTicks(placement.patternIndex);
+        const float x = tickToX(startTick);
+        const float width = tickToX(startTick + length) - x;
+        juce::Rectangle<float> r { x, static_cast<float>(kRulerHeight) + 2.0f,
+            juce::jmax(2.0f, width), static_cast<float>(kPatternLaneHeight) - 4.0f };
+
+        g.setColour(juce::Colours::mediumpurple);
+        g.fillRect(r);
+        g.setColour(juce::Colours::mediumpurple.darker(0.8f));
+        g.drawRect(r, 1.5f);
+
+        g.setColour(juce::Colours::white);
+        g.drawText(juce::String(m_patterns.pattern(placement.patternIndex).name), r.toNearestInt().reduced(2, 0),
+            juce::Justification::centredLeft);
+    }
+
+    g.setColour(juce::Colours::grey.withAlpha(0.4f));
+    g.drawHorizontalLine(kRulerHeight + kPatternLaneHeight - 1, 0.0f, static_cast<float>(getWidth()));
+
     const std::size_t numTracks = m_arrangement.numTracks();
     if (numTracks == 0) {
         return;
@@ -276,13 +347,13 @@ void ArrangeView::paint(juce::Graphics& g) {
 
     g.setColour(juce::Colours::grey.withAlpha(0.4f));
     for (std::size_t i = 1; i < numTracks; ++i) {
-        const auto y = kRulerHeight + static_cast<float>(i) * height;
+        const auto y = kRulerHeight + kPatternLaneHeight + static_cast<float>(i) * height;
         g.drawHorizontalLine(static_cast<int>(y), 0.0f, static_cast<float>(getWidth()));
     }
 
     for (std::size_t i = 0; i < numTracks; ++i) {
         const model::Track& track = m_arrangement.track(i);
-        const auto y = kRulerHeight + static_cast<float>(i) * height;
+        const auto y = kRulerHeight + kPatternLaneHeight + static_cast<float>(i) * height;
 
         for (std::size_t p = 0; p < track.midiClips.size(); ++p) {
             const auto& placement = track.midiClips[p];
@@ -373,6 +444,26 @@ void ArrangeView::mouseDown(const juce::MouseEvent& event) {
         return;
     }
 
+    if (isInPatternLane(event.y)) {
+        const int64_t tick = xToTick(event.x);
+
+        std::size_t foundIndex = 0;
+        if (!hitTestPatternPlacement(tick, foundIndex)) {
+            return;
+        }
+
+        if (event.mods.isPopupMenu()) {
+            showDeletePatternPlacementMenu(foundIndex);
+            return;
+        }
+
+        m_patternDragActive = true;
+        m_patternDragIndex = foundIndex;
+        m_patternDragOriginalTick = m_patterns.placements()[foundIndex].startTick;
+        m_patternDragCurrentTick = m_patternDragOriginalTick;
+        return;
+    }
+
     if (m_arrangement.numTracks() == 0) {
         return;
     }
@@ -438,6 +529,18 @@ void ArrangeView::mouseDrag(const juce::MouseEvent& event) {
         return;
     }
 
+    if (m_patternDragActive) {
+        if (event.getPosition().getDistanceFrom(m_mouseDownPosition) > kDragThresholdPixels) {
+            m_hasDraggedBeyondThreshold = true;
+        }
+        if (m_hasDraggedBeyondThreshold) {
+            const int64_t newTick = xToTick(event.x);
+            m_patternDragCurrentTick = model::snapTick(juce::jmax<int64_t>(0, newTick), snapDivision());
+            repaint();
+        }
+        return;
+    }
+
     if (m_clipMarqueeActive) {
         m_clipMarqueeCurrent = event.getPosition();
         repaint();
@@ -473,7 +576,7 @@ void ArrangeView::mouseDrag(const juce::MouseEvent& event) {
 
 // Shows a left-right resize cursor when hovering a MIDI clip's right edge
 void ArrangeView::mouseMove(const juce::MouseEvent& event) {
-    if (m_arrangement.numTracks() == 0 || event.y < kRulerHeight) {
+    if (m_arrangement.numTracks() == 0 || event.y < kRulerHeight || isInPatternLane(event.y)) {
         setMouseCursor(juce::MouseCursor::NormalCursor);
         return;
     }
@@ -505,6 +608,18 @@ void ArrangeView::mouseUp(const juce::MouseEvent&) {
             const auto sampleStart = static_cast<SampleCount>(static_cast<double>(rangeStart) * samplesPerTick());
             const auto sampleEnd = static_cast<SampleCount>(static_cast<double>(rangeEnd) * samplesPerTick());
             m_transport.setLoop(sampleStart, sampleEnd, true);
+        }
+
+        repaint();
+        return;
+    }
+
+    if (m_patternDragActive) {
+        m_patternDragActive = false;
+
+        if (m_hasDraggedBeyondThreshold) {
+            m_commandStack.perform(std::make_unique<model::MovePatternPlacementCommand>(
+                m_patterns, m_patternDragIndex, m_patternDragOriginalTick, m_patternDragCurrentTick));
         }
 
         repaint();
@@ -608,6 +723,26 @@ void ArrangeView::mouseUp(const juce::MouseEvent&) {
 
 // Creates a new 4-bar MIDI clip on an empty MIDI lane, snapped to the bar
 void ArrangeView::mouseDoubleClick(const juce::MouseEvent& event) {
+    if (isInPatternLane(event.y)) {
+        const int64_t tick = xToTick(event.x);
+
+        std::size_t existingIndex = 0;
+        if (hitTestPatternPlacement(tick, existingIndex)) {
+            return;
+        }
+
+        if (!m_currentPatternProvider || m_patterns.numPatterns() == 0) {
+            return;
+        }
+
+        const int64_t snappedTick = model::snapTickFloor(tick, snapDivision());
+        m_commandStack.perform(std::make_unique<model::AddPatternPlacementCommand>(
+            m_patterns, model::PatternPlacement { m_currentPatternProvider(), snappedTick }));
+
+        repaint();
+        return;
+    }
+
     if (m_arrangement.numTracks() == 0 || event.y < kRulerHeight) {
         return;
     }
@@ -668,7 +803,7 @@ bool ArrangeView::isInterestedInFileDrag(const juce::StringArray& files) {
 
 // Fires onAudioFileDropped with the drop lane and snapped tick for each dropped .wav
 void ArrangeView::filesDropped(const juce::StringArray& files, int x, int y) {
-    if (m_arrangement.numTracks() == 0 || y < kRulerHeight) {
+    if (m_arrangement.numTracks() == 0 || y < kRulerHeight || isInPatternLane(y)) {
         return;
     }
 
@@ -690,7 +825,8 @@ bool ArrangeView::isInterestedInDragSource(const juce::DragAndDropTarget::Source
 
 // Fires onAudioFileDropped for the browser's currently selected file, same lane/tick math as filesDropped
 void ArrangeView::itemDropped(const juce::DragAndDropTarget::SourceDetails& dragSourceDetails) {
-    if (m_arrangement.numTracks() == 0 || dragSourceDetails.localPosition.y < kRulerHeight) {
+    if (m_arrangement.numTracks() == 0 || dragSourceDetails.localPosition.y < kRulerHeight
+        || isInPatternLane(dragSourceDetails.localPosition.y)) {
         return;
     }
 
@@ -750,6 +886,19 @@ void ArrangeView::showDeleteClipMenu(const DraggedClip& target) {
                 ? model::TrackKind::Midi : model::TrackKind::Audio;
             m_commandStack.perform(std::make_unique<model::ToggleClipMuteCommand>(
                 m_arrangement, kind, target.trackIndex, target.placementIndex));
+            repaint();
+        }
+    });
+}
+
+// Opens a one-item "Delete Pattern Placement" popup for the given placement index
+void ArrangeView::showDeletePatternPlacementMenu(std::size_t placementIndex) {
+    juce::PopupMenu menu;
+    menu.addItem(1, "Delete Pattern Placement");
+
+    menu.showMenuAsync(juce::PopupMenu::Options(), [this, placementIndex](int result) {
+        if (result == 1) {
+            m_commandStack.perform(std::make_unique<model::RemovePatternPlacementCommand>(m_patterns, placementIndex));
             repaint();
         }
     });

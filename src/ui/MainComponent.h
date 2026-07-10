@@ -10,10 +10,12 @@
 #include "model/CommandStack.h"
 #include "model/MidiClip.h"
 #include "model/Mixer.h"
+#include "model/Pattern.h"
 #include "model/Session.h"
 #include "plugins/IPluginInstance.h"
 #include "ui/ArrangeView.h"
 #include "ui/AutomationEditor.h"
+#include "ui/ChannelRackPanel.h"
 #include "ui/FileBrowserPanel.h"
 #include "ui/MixerView.h"
 #include "ui/PianoRoll.h"
@@ -35,13 +37,13 @@ class MainComponent : public juce::Component, public juce::MenuBarModel, public 
 public:
     MainComponent(model::Arrangement& arrangement, engine::Transport& transport,
                   model::CommandStack& commandStack, model::Mixer& mixer, model::Session& session,
-                  model::ArrangementNode& arrangementNode, engine::IEffectFactory& factory,
-                  plugins::IPluginHost* pluginHost, double sampleRate, int maxBlockSize,
-                  const juce::File& browserRoot);
+                  model::PatternBank& patterns, model::ArrangementNode& arrangementNode,
+                  engine::IEffectFactory& factory, plugins::IPluginHost* pluginHost, double sampleRate,
+                  int maxBlockSize, const juce::File& browserRoot);
 
     void resized() override;
 
-    // Space toggles play/stop, M toggles the mixer panel, Tab toggles arrange/session view,
+    // Space toggles play/stop, M toggles the mixer panel, Tab cycles arrange/session/rack view,
     // Ctrl+Z / Ctrl+Shift+Z undo/redo
     bool keyPressed(const juce::KeyPress& key) override;
 
@@ -51,13 +53,16 @@ public:
     // Shows the piano roll for a session slot's MIDI clip in the bottom panel
     void showPianoRollForSession(std::size_t trackIndex, std::size_t sceneIndex);
 
+    // Shows the piano roll for a pattern lane's MIDI clip in the bottom panel
+    void showPianoRollForPattern(model::ClipAddress address);
+
     // Shows the mixer in the bottom panel, or hides the panel if the mixer is already shown
     void toggleMixer();
 
     // Shows the automation editor for a track in the bottom panel (replaces whatever is there)
     void showAutomationEditorFor(std::size_t trackIndex);
 
-    // Flips the center view between the arrange view and the session view
+    // Cycles the center view Arrange -> Session -> Rack -> Arrange
     void toggleCenterView();
 
     // Shows or hides the sample browser's left column
@@ -111,6 +116,12 @@ public:
     // Fired when a .wav file is clicked in the browser, the app starts a preview
     std::function<void(juce::File)> onBrowserFileClicked;
 
+    // Fired with (trackIndex, file) when a sample lands on a channel rack row
+    std::function<void(std::size_t, juce::File)> onSampleAssignRequested;
+
+    // Fired with trackIndex after a step toggles on, the app previews the hit when stopped
+    std::function<void(std::size_t)> onStepPreviewRequested;
+
     // Fired with (path, trackIndex, tick) when a .wav file is dropped onto the arrange view
     std::function<void(juce::String, std::size_t, int64_t)> onAudioFileDropped;
 
@@ -162,7 +173,8 @@ private:
 
     enum class CenterView {
         Arrange,
-        Session
+        Session,
+        Rack
     };
 
     // Shows only the component matching m_bottomPanel, hides the other
@@ -175,6 +187,7 @@ private:
     engine::Transport& m_transport;
     model::CommandStack& m_commandStack;
     model::Session& m_session;
+    model::PatternBank& m_patterns;
     double m_sampleRate;
     model::SnapDivision m_snapDivision = model::SnapDivision::Step;
 
@@ -183,6 +196,7 @@ private:
     TrackHeaderPanel m_trackHeaderPanel;
     ArrangeView m_arrangeView;
     std::unique_ptr<SessionView> m_sessionView; // created once in the ctor
+    std::unique_ptr<ChannelRackPanel> m_channelRackPanel; // created once in the ctor
     std::unique_ptr<PianoRoll> m_pianoRoll; // recreated per selected clip
     std::unique_ptr<MixerView> m_mixerView; // created once in the ctor
     std::unique_ptr<AutomationEditor> m_automationEditor; // recreated per requested track

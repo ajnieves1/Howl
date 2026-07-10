@@ -31,12 +31,15 @@ add_executable(HowlTests
     MixerTests.cpp
     NoteCommandTests.cpp
     OfflineStretcherTests.cpp
+    PatternPlaybackTests.cpp
+    PatternTests.cpp
     PluginEffectTests.cpp
     PluginHostTests.cpp
     PluginInstrumentTests.cpp
     PreviewPlayerTests.cpp
     ProjectSerializerTests.cpp
     ReverbTests.cpp
+    SamplerInstrumentTests.cpp
     SandboxProtocolTests.cpp
     SequencerNodeTests.cpp
     SessionPlaybackTests.cpp

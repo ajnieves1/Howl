@@ -1,6 +1,7 @@
 add_library(HowlUi STATIC
     ArrangeView.cpp
     AutomationEditor.cpp
+    ChannelRackPanel.cpp
     ChannelStripComponent.cpp
     EffectEditorWindow.cpp
     FileBrowserPanel.cpp

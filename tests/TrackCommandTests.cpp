@@ -5,6 +5,7 @@
 #include "model/Commands.h"
 #include "model/MidiClip.h"
 #include "model/Mixer.h"
+#include "model/Pattern.h"
 #include "model/Session.h"
 
 #include <catch2/catch_approx.hpp>
@@ -15,36 +16,43 @@ using howl::model::Arrangement;
 using howl::model::MidiClip;
 using howl::model::MidiClipPlacement;
 using howl::model::Mixer;
+using howl::model::PatternBank;
 using howl::model::RemoveTrackCommand;
 using howl::model::Send;
 using howl::model::Session;
 using howl::model::TrackKind;
 
-TEST_CASE("AddTrackCommand execute grows the arrangement, mixer, and session in lockstep, undo shrinks all three", "[trackcommand]") {
+TEST_CASE("AddTrackCommand execute grows the arrangement, mixer, session, and pattern bank in lockstep, undo shrinks all four", "[trackcommand]") {
     Arrangement arrangement;
     Mixer mixer;
     mixer.prepare(0, 44100.0, 512, 1);
     Session session;
+    PatternBank patterns;
+    patterns.addPattern("Pattern 1", 0);
 
-    AddTrackCommand command(arrangement, mixer, session, "Track 1", TrackKind::Midi);
+    AddTrackCommand command(arrangement, mixer, session, patterns, "Track 1", TrackKind::Midi);
 
     REQUIRE(arrangement.numTracks() == 0);
     REQUIRE(session.numTracks() == 0);
+    REQUIRE(patterns.pattern(0).trackClips.empty());
     command.execute();
     REQUIRE(arrangement.numTracks() == 1);
     REQUIRE(arrangement.track(0).name == "Track 1");
     REQUIRE(arrangement.track(0).kind == TrackKind::Midi);
     REQUIRE(session.numTracks() == 1);
+    REQUIRE(patterns.pattern(0).trackClips.size() == 1);
 
     command.undo();
     REQUIRE(arrangement.numTracks() == 0);
     REQUIRE(session.numTracks() == 0);
+    REQUIRE(patterns.pattern(0).trackClips.empty());
 }
 
 TEST_CASE("RemoveTrackCommand undo restores the removed track's name, kind, clips, and session column at the same index", "[trackcommand]") {
     Arrangement arrangement;
     Mixer mixer;
     Session session;
+    PatternBank patterns;
     arrangement.addTrack("Keep Before", TrackKind::Midi);
     const std::size_t targetIndex = arrangement.addTrack("Doomed", TrackKind::Midi);
     arrangement.addTrack("Keep After", TrackKind::Midi);
@@ -54,16 +62,18 @@ TEST_CASE("RemoveTrackCommand undo restores the removed track's name, kind, clip
     session.addTrackColumn();
     session.addScene();
     session.slot(targetIndex, 0).content = howl::model::SlotContent::Midi;
+    patterns.addPattern("Pattern 1", arrangement.numTracks());
 
     MidiClipPlacement placement { 0, MidiClip() };
     arrangement.addMidiClipPlacement(targetIndex, placement);
 
-    RemoveTrackCommand command(arrangement, mixer, session, targetIndex);
+    RemoveTrackCommand command(arrangement, mixer, session, patterns, targetIndex);
     command.execute();
 
     REQUIRE(arrangement.numTracks() == 2);
     REQUIRE(arrangement.track(targetIndex).name == "Keep After");
     REQUIRE(session.numTracks() == 2);
+    REQUIRE(patterns.pattern(0).trackClips.size() == 2);
 
     command.undo();
 
@@ -72,6 +82,7 @@ TEST_CASE("RemoveTrackCommand undo restores the removed track's name, kind, clip
     REQUIRE(arrangement.track(targetIndex).kind == TrackKind::Midi);
     REQUIRE(arrangement.track(targetIndex).midiClips.size() == 1);
     REQUIRE(session.numTracks() == 3);
+    REQUIRE(patterns.pattern(0).trackClips.size() == 3);
     REQUIRE(session.slot(targetIndex, 0).content == howl::model::SlotContent::Midi);
 }
 

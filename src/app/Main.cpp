@@ -4,6 +4,7 @@
 #include "core/Types.h"
 #include "dsp/BuiltInEffectFactory.h"
 #include "dsp/OfflineStretcher.h"
+#include "dsp/SamplerInstrument.h"
 #include "dsp/SubtractiveSynth.h"
 #include "engine/Graph.h"
 #include "engine/Instrument.h"
@@ -20,6 +21,7 @@
 #include "model/MidiClip.h"
 #include "model/Note.h"
 #include "model/OfflineRenderer.h"
+#include "model/Pattern.h"
 #include "model/PreviewPlayer.h"
 #include "model/Session.h"
 #include "model/TrackFreezer.h"
@@ -156,8 +158,9 @@ class MainWindow : public juce::DocumentWindow {
 public:
     // Creates and shows a window hosting the whole app shell (MainComponent)
     MainWindow(model::Arrangement& arrangement, engine::Transport& transport, model::CommandStack& commandStack,
-               model::Mixer& mixer, model::Session& session, model::ArrangementNode& arrangementNode,
-               engine::IEffectFactory& factory, plugins::IPluginHost* pluginHost, double sampleRate, int maxBlockSize,
+               model::Mixer& mixer, model::Session& session, model::PatternBank& patterns,
+               model::ArrangementNode& arrangementNode, engine::IEffectFactory& factory,
+               plugins::IPluginHost* pluginHost, double sampleRate, int maxBlockSize,
                const juce::File& browserRoot)
         : DocumentWindow(
               "Howl",
@@ -166,7 +169,7 @@ public:
               DocumentWindow::allButtons)
     {
         setUsingNativeTitleBar(true);
-        m_mainComponent = new ui::MainComponent(arrangement, transport, commandStack, mixer, session,
+        m_mainComponent = new ui::MainComponent(arrangement, transport, commandStack, mixer, session, patterns,
             arrangementNode, factory, pluginHost, sampleRate, maxBlockSize, browserRoot);
         setContentOwned(m_mainComponent, true);
         setMenuBar(m_mainComponent);
@@ -240,6 +243,7 @@ public:
 
         auto arrangementNode = std::make_unique<model::ArrangementNode>(m_transport, m_arrangement);
         arrangementNode->setSession(&m_session);
+        arrangementNode->setPatternBank(&m_patterns);
         arrangementNode->setLiveNoteQueue(&m_midiInputHub.noteQueue());
         arrangementNode->setPreviewPlayer(&m_previewPlayer);
         arrangementNode->prepare(m_sampleRate, m_bufferSize, 2);
@@ -255,7 +259,7 @@ public:
 
         const juce::File browserRoot(m_settings->getValue("browserRoot"));
         m_mainWindow = std::make_unique<MainWindow>(m_arrangement, m_transport, m_commandStack,
-            m_arrangementNode->mixer(), m_session, *m_arrangementNode, m_effectFactory, &m_pluginHost,
+            m_arrangementNode->mixer(), m_session, m_patterns, *m_arrangementNode, m_effectFactory, &m_pluginHost,
             m_sampleRate, m_bufferSize, browserRoot);
 
         ui::MainComponent* mainComponent = m_mainWindow->mainComponent();
@@ -306,6 +310,18 @@ public:
                 targetTrack = ensureFirstAudioTrack();
             }
             importAudioFile(juce::File(path), targetTrack, tick);
+        };
+        mainComponent->onSampleAssignRequested = [this](std::size_t trackIndex, juce::File file) {
+            assignSampleToTrack(trackIndex, file);
+        };
+        mainComponent->onStepPreviewRequested = [this](std::size_t trackIndex) {
+            if (m_transport.isPlaying()) {
+                return;
+            }
+
+            m_arrangementNode->setLiveTargetTrack(static_cast<std::ptrdiff_t>(trackIndex));
+            m_midiInputHub.pushNoteEvent(MidiEvent { MidiEvent::Type::NoteOn, 60, 1.0f });
+            m_midiInputHub.pushNoteEvent(MidiEvent { MidiEvent::Type::NoteOff, 60, 0.0f });
         };
         mainComponent->onNewProjectRequested = [this] {
             newProject();
@@ -464,6 +480,7 @@ private:
     {
         juce::PopupMenu menu;
         menu.addItem(1, "Subtractive Synth");
+        menu.addItem(2, "Sampler");
 
         std::vector<plugins::PluginDescriptor> instrumentPlugins;
         for (const auto& descriptor : m_pluginHost.list()) {
@@ -476,7 +493,7 @@ private:
             // The same plugin can appear once per format (VST3 and CLAP unified in one
             // picker), the format label is the only thing that tells those two apart
             const juce::String label = juce::String(instrumentPlugins[i].name) + " (" + instrumentPlugins[i].format + ")";
-            menu.addItem(static_cast<int>(i + 2), label);
+            menu.addItem(static_cast<int>(i + 3), label);
         }
 
         menu.showMenuAsync(juce::PopupMenu::Options(), [this, trackIndex, instrumentPlugins](int result) {
@@ -490,8 +507,12 @@ private:
             if (result == 1) {
                 instrument = std::make_unique<dsp::SubtractiveSynth>();
                 name = "Subtractive Synth";
+            } else if (result == 2) {
+                // No sample assigned yet, silent until the channel rack assigns one
+                instrument = std::make_unique<dsp::SamplerInstrument>();
+                name = "Sampler";
             } else {
-                const std::size_t pluginIndex = static_cast<std::size_t>(result - 2);
+                const std::size_t pluginIndex = static_cast<std::size_t>(result - 3);
                 if (pluginIndex < instrumentPlugins.size()) {
                     auto pluginInstance = m_pluginHost.instantiate(instrumentPlugins[pluginIndex]);
                     if (pluginInstance != nullptr) {
@@ -685,7 +706,7 @@ private:
 
         const std::size_t newIndex = m_arrangement.numTracks();
         m_commandStack.perform(std::make_unique<model::AddTrackCommand>(
-            m_arrangement, m_arrangementNode->mixer(), m_session, "Audio 1", model::TrackKind::Audio));
+            m_arrangement, m_arrangementNode->mixer(), m_session, m_patterns, "Audio 1", model::TrackKind::Audio));
         reconcileTrackInstruments();
         return newIndex;
     }
@@ -1002,6 +1023,15 @@ private:
                 continue;
             }
 
+            if (auto* samplerInstrument = dynamic_cast<dsp::SamplerInstrument*>(instrument)) {
+                auto* obj = new juce::DynamicObject();
+                obj->setProperty("kind", "sampler");
+                obj->setProperty("path", juce::String(samplerInstrument->sourcePath()));
+                obj->setProperty("level", static_cast<double>(samplerInstrument->getParameter(0)));
+                instruments.add(juce::var(obj));
+                continue;
+            }
+
             auto* obj = new juce::DynamicObject();
             obj->setProperty("kind", "subtractive");
             juce::Array<juce::var> params;
@@ -1062,7 +1092,7 @@ private:
     void saveProject(const juce::File& file)
     {
         const juce::String json = project::ProjectSerializer::save(m_arrangement, m_arrangementNode->mixer(),
-            m_session, buildInstrumentsVar(), m_transport.tempo(), buildMidiMappingsVar());
+            m_session, m_patterns, buildInstrumentsVar(), m_transport.tempo(), buildMidiMappingsVar());
 
         if (!file.replaceWithText(json)) {
             juce::Logger::writeToLog("Howl: failed to write project file " + file.getFullPathName());
@@ -1133,7 +1163,7 @@ private:
         juce::var midiMappingsVar;
 
         const bool ok = project::ProjectSerializer::load(json, m_arrangement, m_arrangementNode->mixer(),
-            m_session, m_effectFactory, &m_pluginHost, instrumentsVar, tempo, midiMappingsVar);
+            m_session, m_patterns, m_effectFactory, &m_pluginHost, instrumentsVar, tempo, midiMappingsVar);
 
         if (!ok) {
             juce::Logger::writeToLog("Howl: failed to parse project file");
@@ -1207,6 +1237,8 @@ private:
                     m_instrumentNames[trackIndex] = "Subtractive Synth";
                 } else if (kind == "plugin") {
                     assignPluginInstrumentFromVar(entry, trackIndex);
+                } else if (kind == "sampler") {
+                    assignSamplerInstrumentFromVar(entry, trackIndex);
                 }
             }
         }
@@ -1265,6 +1297,83 @@ private:
         m_instrumentNames[trackIndex] = instrumentName;
     }
 
+    // Re-reads the wav at path into a SamplerInstrument, same read path as importAudioFile; a
+    // missing file leaves it sample-less and silent, remembering the path for a future re-save
+    void assignSamplerInstrumentFromVar(const juce::var& entry, std::size_t trackIndex)
+    {
+        const juce::String path = entry.getProperty("path", juce::var()).toString();
+        const float level = static_cast<float>(static_cast<double>(entry.getProperty("level", 0.8)));
+
+        auto sampler = std::make_unique<dsp::SamplerInstrument>();
+        sampler->prepare(m_sampleRate, m_bufferSize);
+
+        io::AudioFileReader reader;
+        if (path.isNotEmpty() && reader.open(path.toStdString())) {
+            const int numChannels = reader.numChannels();
+            const auto lengthSamples = static_cast<int>(reader.lengthInSamples());
+
+            std::vector<std::vector<float>> channelData(static_cast<std::size_t>(numChannels),
+                std::vector<float>(static_cast<std::size_t>(lengthSamples), 0.0f));
+            std::vector<float*> channelPointers(static_cast<std::size_t>(numChannels));
+            for (int channel = 0; channel < numChannels; ++channel) {
+                channelPointers[static_cast<std::size_t>(channel)] = channelData[static_cast<std::size_t>(channel)].data();
+            }
+
+            AudioBlock block { channelPointers.data(), numChannels, lengthSamples };
+            reader.read(block, 0);
+
+            sampler->setSample(std::move(channelData), path.toStdString());
+        } else {
+            if (path.isNotEmpty()) {
+                juce::Logger::writeToLog("Howl: sampler sample missing, staying silent: " + path);
+            }
+            sampler->setSample({}, path.toStdString());
+        }
+
+        sampler->setParameter(0, level);
+        m_trackInstruments[trackIndex] = std::move(sampler);
+        m_instrumentNames[trackIndex] = "Sampler";
+    }
+
+    // Reads file's wav data into a fresh SamplerInstrument and installs it on trackIndex,
+    // device paused, the same tail the instrument picker uses for every other pick
+    void assignSampleToTrack(std::size_t trackIndex, const juce::File& file)
+    {
+        io::AudioFileReader reader;
+        if (!reader.open(file.getFullPathName().toStdString())) {
+            juce::Logger::writeToLog("Howl: failed to load sample " + file.getFullPathName());
+            return;
+        }
+
+        const int numChannels = reader.numChannels();
+        const auto lengthSamples = static_cast<int>(reader.lengthInSamples());
+
+        std::vector<std::vector<float>> channelData(static_cast<std::size_t>(numChannels),
+            std::vector<float>(static_cast<std::size_t>(lengthSamples), 0.0f));
+        std::vector<float*> channelPointers(static_cast<std::size_t>(numChannels));
+        for (int channel = 0; channel < numChannels; ++channel) {
+            channelPointers[static_cast<std::size_t>(channel)] = channelData[static_cast<std::size_t>(channel)].data();
+        }
+
+        AudioBlock block { channelPointers.data(), numChannels, lengthSamples };
+        reader.read(block, 0);
+
+        auto sampler = std::make_unique<dsp::SamplerInstrument>();
+        sampler->prepare(m_sampleRate, m_bufferSize);
+        sampler->setSample(std::move(channelData), file.getFullPathName().toStdString());
+
+        if (trackIndex >= m_trackInstruments.size()) {
+            m_trackInstruments.resize(trackIndex + 1);
+            m_instrumentNames.resize(trackIndex + 1);
+        }
+
+        m_trackInstruments[trackIndex] = std::move(sampler);
+        m_instrumentNames[trackIndex] = "Sampler";
+
+        rebuildAudioGraph();
+        m_mainWindow->mainComponent()->refreshAllViews();
+    }
+
     // Loads the built-in default session: one MIDI track "Lead", one empty 4-bar clip, one
     // bus, 120 BPM. Same code path as opening a file, just with a literal JSON string
     void newProject()
@@ -1292,6 +1401,7 @@ private:
     engine::Transport m_transport;
     model::Arrangement m_arrangement;
     model::Session m_session;
+    model::PatternBank m_patterns;
     model::CommandStack m_commandStack;
     dsp::BuiltInEffectFactory m_effectFactory;
     plugins::PluginHost m_pluginHost;

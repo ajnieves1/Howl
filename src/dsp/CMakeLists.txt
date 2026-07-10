@@ -7,6 +7,7 @@ add_library(HowlDsp STATIC
     Limiter.cpp
     OfflineStretcher.cpp
     Reverb.cpp
+    SamplerInstrument.cpp
     SubtractiveSynth.cpp
 )
 

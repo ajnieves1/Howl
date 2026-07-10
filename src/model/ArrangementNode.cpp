@@ -46,6 +46,7 @@ void ArrangementNode::prepare(double sampleRate, int maxBlockSize, int numChanne
         if (track.kind == TrackKind::Midi) {
             auto renderer = std::make_unique<MidiTrackRenderer>(m_transport, track);
             renderer->prepare(sampleRate);
+            renderer->setPatternSource(m_patternBank, i);
             m_midiRenderers.push_back(std::move(renderer));
             m_audioRenderers.push_back(nullptr);
         } else {
@@ -86,6 +87,11 @@ Mixer& ArrangementNode::mixer() {
 // Points session playback at the grid, off the audio thread, set before prepare
 void ArrangementNode::setSession(const Session* session) {
     m_session = session;
+}
+
+// Points the node at the pattern bank, call before prepare
+void ArrangementNode::setPatternBank(const PatternBank* bank) {
+    m_patternBank = bank;
 }
 
 // Clears active and pending session playback so a render starts from pure arrangement state

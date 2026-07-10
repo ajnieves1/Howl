@@ -7,6 +7,9 @@
 #include "engine/Instrument.h"
 #include "engine/Transport.h"
 #include "model/Arrangement.h"
+#include "model/Pattern.h"
+
+#include <cstddef>
 
 namespace howl::model {
 
@@ -20,6 +23,9 @@ public:
 
     // Assigns the instrument this track renders through, may be nullptr
     void setInstrument(engine::Instrument* instrument);
+
+    // Points this renderer at the bank's placements for its track, call before process
+    void setPatternSource(const PatternBank* bank, std::size_t trackIndex);
 
     // [RT] Emits due note on/off to the instrument, then renders it into audio
     void process(AudioBlock& audio, SampleCount pos) noexcept;
@@ -38,6 +44,22 @@ private:
     // [RT] Fills events with every note on/off due in this block, sorted by localOffset
     int collectEvents(SampleCount pos, int numFrames, Event (&events)[kMaxEventsPerBlock]) const noexcept;
 
+    // [RT] Appends every track and pattern placement's events due in one [windowStart,
+    // windowEnd) search window; outputOffset shifts recorded localOffsets, used to land a
+    // post loop seam window's events at the right place in this block's own output buffer
+    void collectWindow(SampleCount windowStart, SampleCount windowEnd, int outputOffset, double samplesPerTick,
+                        Event (&events)[kMaxEventsPerBlock], int& count) const noexcept;
+
+    // [RT] Appends clip's note on/off events due in [windowStart, windowEnd) into events,
+    // localOffset recorded as (sample - windowStart) + outputOffset, respecting the clip's own
+    // length clamp. windowStart/windowEnd are a tick window in sample space, not necessarily
+    // this block's own [pos, pos+numFrames), so a loop seam split can search the wrapped
+    // remainder starting fresh at the loop's own start while still landing events at the
+    // right position in this block's output buffer
+    void collectClipEvents(int64_t placementStartTick, const MidiClip& clip, SampleCount windowStart,
+                            SampleCount windowEnd, int outputOffset, double samplesPerTick,
+                            Event (&events)[kMaxEventsPerBlock], int& count) const noexcept;
+
     // [RT] Builds a view into audio starting at offset, length frames long, no allocation
     AudioBlock makeSubBlock(AudioBlock& audio, int offset, int length) noexcept;
 
@@ -46,6 +68,13 @@ private:
     engine::Instrument* m_instrument = nullptr;
     double m_sampleRate = 44100.0;
     float* m_channelPointers[kMaxChannels] {};
+    const PatternBank* m_patternBank = nullptr;
+    std::size_t m_patternTrackIndex = 0;
+
+    // The pos process() last saw, so a stopped transport re polling the same frozen position
+    // (every real audio callback while paused) does not retrigger a note sitting exactly
+    // there over and over; -1 never matches a real position, so the first call always collects
+    SampleCount m_lastProcessedPos = -1;
 };
 
 } // namespace howl::model

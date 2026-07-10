@@ -6,6 +6,7 @@
 #include "engine/Transport.h"
 #include "model/Arrangement.h"
 #include "model/CommandStack.h"
+#include "model/Pattern.h"
 #include "model/SnapGrid.h"
 
 #include <juce_gui_basics/juce_gui_basics.h>
@@ -25,10 +26,12 @@ namespace howl::ui {
 class ArrangeView : public juce::Component, public juce::FileDragAndDropTarget,
                     public juce::DragAndDropTarget, private juce::Timer {
 public:
-    // Stores references to the arrangement, transport, and command stack, starts the playhead timer
+    // Stores references to the arrangement, transport, command stack, and pattern bank, starts
+    // the playhead timer
     ArrangeView(model::Arrangement& arrangement, engine::Transport& transport,
-                model::CommandStack& commandStack, double sampleRate,
-                std::function<model::SnapDivision()> snapProvider);
+                model::CommandStack& commandStack, model::PatternBank& patterns, double sampleRate,
+                std::function<model::SnapDivision()> snapProvider,
+                std::function<std::size_t()> currentPatternProvider);
 
     // Stops the playhead timer
     ~ArrangeView() override;
@@ -91,6 +94,7 @@ private:
     static constexpr int kDragThresholdPixels = 4;
     static constexpr int kResizeHandlePixels = 6;
     static constexpr int kRulerHeight = 20;
+    static constexpr int kPatternLaneHeight = 24;
     static constexpr double kMinZoom = 1.0;
     static constexpr double kMaxZoom = 64.0;
 
@@ -143,11 +147,14 @@ private:
     // Converts a tick to a pixel x position, offset by the current scroll
     float tickToX(int64_t tick) const;
 
-    // Returns the height of one track lane, below the ruler
+    // Returns the height of one track lane, below the ruler and pattern lane
     float laneHeight() const;
 
     // Converts a pixel y position to a track index, clamped to numTracks() - 1
     std::size_t yToTrackIndex(int y) const;
+
+    // True when y sits in the pattern lane strip, between the ruler and the track lanes
+    bool isInPatternLane(int y) const;
 
     // Returns the current transport position converted to ticks
     double playheadTick() const;
@@ -174,8 +181,14 @@ private:
     bool findGroupPreviewTick(ClipKind kind, std::size_t trackIndex, std::size_t placementIndex,
                               int64_t& outStartTick) const;
 
+    // Finds the pattern placement under tick, fills foundIndex and returns true on a hit
+    bool hitTestPatternPlacement(int64_t tick, std::size_t& foundIndex) const;
+
     // Opens a "Delete Clip" popup for the given clip, with warp toggle and BPM entry for audio clips
     void showDeleteClipMenu(const DraggedClip& target);
+
+    // Opens a one-item "Delete Pattern Placement" popup for the given placement index
+    void showDeletePatternPlacementMenu(std::size_t placementIndex);
 
     // Opens an async "Set Original BPM..." dialog for the given audio clip
     void showSetOriginalBpmDialog(const DraggedClip& target);
@@ -189,8 +202,10 @@ private:
     model::Arrangement& m_arrangement;
     engine::Transport& m_transport;
     model::CommandStack& m_commandStack;
+    model::PatternBank& m_patterns;
     double m_sampleRate;
     std::function<model::SnapDivision()> m_snapProvider;
+    std::function<std::size_t()> m_currentPatternProvider;
 
     double m_zoom = 1.0;
     int64_t m_scrollTick = 0;
@@ -209,6 +224,13 @@ private:
     bool m_rulerDragging = false;
     int64_t m_rulerAnchorTick = 0;
     int64_t m_rulerCurrentTick = 0;
+
+    // True while a pattern lane block is being dragged; a plain click (never past the
+    // threshold) on a placement is a deliberate no-op, nothing is pinned for it
+    bool m_patternDragActive = false;
+    std::size_t m_patternDragIndex = 0;
+    int64_t m_patternDragOriginalTick = 0;
+    int64_t m_patternDragCurrentTick = 0;
 
     // The persistent multi-selection, independent of any drag in progress
     std::vector<ClipRef> m_selection;

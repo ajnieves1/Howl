@@ -6,6 +6,7 @@
 #include "model/Arrangement.h"
 #include "model/CommandStack.h"
 #include "model/Mixer.h"
+#include "model/Pattern.h"
 #include "model/Session.h"
 
 #include <juce_gui_basics/juce_gui_basics.h>
@@ -24,7 +25,7 @@ public:
 
     // Stores references, starts the 30 Hz mute/solo mirroring timer
     TrackHeaderPanel(model::Arrangement& arrangement, model::Mixer& mixer, model::Session& session,
-                      model::CommandStack& commandStack);
+                      model::PatternBank& patterns, model::CommandStack& commandStack);
 
     // Stops the timer
     ~TrackHeaderPanel() override;
@@ -112,6 +113,7 @@ private:
     model::Arrangement& m_arrangement;
     model::Mixer& m_mixer;
     model::Session& m_session;
+    model::PatternBank& m_patterns;
     model::CommandStack& m_commandStack;
 
     std::vector<Row> m_rows;
