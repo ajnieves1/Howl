@@ -9,6 +9,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
 #include <cmath>
 #include <vector>
 
@@ -165,4 +166,49 @@ TEST_CASE("MidiTrackRenderer fires a parked note once but never retriggers it wh
     renderer.process(block, playingPos);
 
     REQUIRE(instrument.onKeys.size() == 2);
+}
+
+TEST_CASE("MidiTrackRenderer replays a note at the loop start every cycle, even when a block straddles the seam",
+          "[model]") {
+    const double sampleRate = 44100.0;
+    const int blockSize = 512; // deliberately does not evenly divide the loop length below
+
+    MidiClip clip;
+    clip.setLengthTicks(kTicksPerQuarter * 4);
+    clip.addNote(Note { 60, 1.0f, 0, kTicksPerQuarter }); // the "first beat", sits exactly at tick 0
+
+    Track track;
+    track.name = "Lead";
+    track.kind = TrackKind::Midi;
+    track.midiClips.push_back(MidiClipPlacement { 0, clip });
+
+    Transport transport;
+    transport.setTempo(120.0);
+
+    // One bar at 120 bpm / 44100 Hz is exactly 88200 samples
+    const SampleCount loopLength = 88200;
+    transport.setLoop(0, loopLength, true);
+    transport.play();
+
+    ProbeInstrument instrument;
+    instrument.prepare(sampleRate, blockSize);
+
+    MidiTrackRenderer renderer(transport, track);
+    renderer.prepare(sampleRate);
+    renderer.setInstrument(&instrument);
+
+    std::vector<float> buffer(static_cast<std::size_t>(blockSize), 0.0f);
+    float* channels[1] = { buffer.data() };
+    AudioBlock block { channels, 1, blockSize };
+
+    // Enough blocks to comfortably clear 3 full loop cycles, including at least one block
+    // that straddles the seam (88200 is not a multiple of 512, so every cycle straddles one)
+    const int blocksToRun = static_cast<int>((loopLength * 3.2) / blockSize);
+    for (int i = 0; i < blocksToRun; ++i) {
+        const SampleCount pos = transport.advance(blockSize);
+        renderer.process(block, pos);
+    }
+
+    const auto fireCount = std::count(instrument.onKeys.begin(), instrument.onKeys.end(), 60);
+    REQUIRE(fireCount >= 3);
 }

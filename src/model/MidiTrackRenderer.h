@@ -44,9 +44,21 @@ private:
     // [RT] Fills events with every note on/off due in this block, sorted by localOffset
     int collectEvents(SampleCount pos, int numFrames, Event (&events)[kMaxEventsPerBlock]) const noexcept;
 
-    // [RT] Appends clip's due note on/off events into events, respecting its own length clamp
-    void collectClipEvents(int64_t placementStartTick, const MidiClip& clip, SampleCount pos, SampleCount blockEnd,
-                            double samplesPerTick, Event (&events)[kMaxEventsPerBlock], int& count) const noexcept;
+    // [RT] Appends every track and pattern placement's events due in one [windowStart,
+    // windowEnd) search window; outputOffset shifts recorded localOffsets, used to land a
+    // post loop seam window's events at the right place in this block's own output buffer
+    void collectWindow(SampleCount windowStart, SampleCount windowEnd, int outputOffset, double samplesPerTick,
+                        Event (&events)[kMaxEventsPerBlock], int& count) const noexcept;
+
+    // [RT] Appends clip's note on/off events due in [windowStart, windowEnd) into events,
+    // localOffset recorded as (sample - windowStart) + outputOffset, respecting the clip's own
+    // length clamp. windowStart/windowEnd are a tick window in sample space, not necessarily
+    // this block's own [pos, pos+numFrames), so a loop seam split can search the wrapped
+    // remainder starting fresh at the loop's own start while still landing events at the
+    // right position in this block's output buffer
+    void collectClipEvents(int64_t placementStartTick, const MidiClip& clip, SampleCount windowStart,
+                            SampleCount windowEnd, int outputOffset, double samplesPerTick,
+                            Event (&events)[kMaxEventsPerBlock], int& count) const noexcept;
 
     // [RT] Builds a view into audio starting at offset, length frames long, no allocation
     AudioBlock makeSubBlock(AudioBlock& audio, int offset, int length) noexcept;
