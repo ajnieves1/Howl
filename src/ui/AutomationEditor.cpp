@@ -4,6 +4,7 @@
 #include "ui/AutomationEditor.h"
 
 #include "model/Commands.h"
+#include "ui/Theme.h"
 
 #include <algorithm>
 #include <cmath>
@@ -61,10 +62,10 @@ void AutomationEditor::resized() {
 
 // Draws the canvas border, then the current lane's points joined by straight lines
 void AutomationEditor::paint(juce::Graphics& g) {
-    g.fillAll(juce::Colours::black);
+    g.fillAll(theme::kWindowBg);
 
     const auto canvas = canvasBounds();
-    g.setColour(juce::Colours::grey.withAlpha(0.25f));
+    g.setColour(theme::kBorder.withAlpha(0.25f));
     g.drawRect(canvas);
 
     if (m_currentLaneIndex < 0) {
@@ -91,7 +92,7 @@ void AutomationEditor::paint(juce::Graphics& g) {
         }
     }
 
-    g.setColour(juce::Colours::orange);
+    g.setColour(theme::kAccent);
     g.strokePath(path, juce::PathStrokeType(1.5f));
 
     for (std::size_t i = 0; i < points.size(); ++i) {

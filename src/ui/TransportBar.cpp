@@ -3,6 +3,8 @@
 
 #include "ui/TransportBar.h"
 
+#include "ui/Theme.h"
+
 namespace howl::ui {
 
 // Stores references, starts the 30 Hz UI refresh timer
@@ -90,7 +92,7 @@ void TransportBar::resized() {
 
 // Fills the background
 void TransportBar::paint(juce::Graphics& g) {
-    g.fillAll(juce::Colours::darkgrey.darker());
+    g.fillAll(theme::kPanelBg);
 }
 
 // 30 Hz: reflects play state on the button and updates the position readout

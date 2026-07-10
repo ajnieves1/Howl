@@ -3,6 +3,8 @@
 
 #include "ui/PianoRoll.h"
 
+#include "ui/Theme.h"
+
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -220,13 +222,13 @@ double PianoRoll::playheadTick() const {
 // Draws the key grid, notes, playhead, and the velocity lane, an empty grid and lane
 // when the address does not resolve
 void PianoRoll::paint(juce::Graphics& g) {
-    g.fillAll(juce::Colours::black);
+    g.fillAll(theme::kWindowBg);
 
     const float gridHeight = keyGridHeight();
     const float rowHeight = gridHeight / static_cast<float>(kNumKeys);
 
     // Shade black-key rows
-    g.setColour(juce::Colours::black.brighter(0.1f));
+    g.setColour(theme::kWindowBg.brighter(0.1f));
     for (int key = kLowestKey; key <= kHighestKey; ++key) {
         const int pitchClass = key % 12;
         const bool isBlackKey = pitchClass == 1 || pitchClass == 3 || pitchClass == 6
@@ -242,7 +244,7 @@ void PianoRoll::paint(juce::Graphics& g) {
     // Beat grid lines, spanning the key grid and the velocity lane so the columns line up
     const int64_t span = visibleTickSpan(clipLength);
     const int numBeats = static_cast<int>(span / model::kTicksPerQuarter);
-    g.setColour(juce::Colours::grey.withAlpha(0.4f));
+    g.setColour(theme::kBorder.withAlpha(0.4f));
     for (int beat = 0; beat <= numBeats; ++beat) {
         const float x = tickToX(static_cast<int64_t>(beat) * model::kTicksPerQuarter, clipLength);
         g.drawVerticalLine(static_cast<int>(x), 0.0f, static_cast<float>(getHeight()));
@@ -258,36 +260,36 @@ void PianoRoll::paint(juce::Graphics& g) {
             const float width = tickToX(note.startTick + note.lengthTicks, clipLength) - x;
             const auto bounds = juce::Rectangle<float> { x, keyToY(note.key), juce::jmax(2.0f, width), rowHeight };
 
-            g.setColour(juce::Colours::orange.withAlpha(0.4f + 0.6f * note.velocity));
+            g.setColour(theme::kAccent.withAlpha(0.4f + 0.6f * note.velocity));
             g.fillRect(bounds);
 
             if (isSelected(note)) {
-                g.setColour(juce::Colours::white);
+                g.setColour(theme::kSelection);
                 g.drawRect(bounds, 1.5f);
             }
         }
     }
 
     // Playhead
-    g.setColour(juce::Colours::white);
+    g.setColour(theme::kPlayhead);
     const float playheadX = tickToX(static_cast<int64_t>(playheadTick()), clipLength);
     g.drawVerticalLine(static_cast<int>(playheadX), 0.0f, static_cast<float>(getHeight()));
 
     // Marquee, a translucent rectangle over the region being swept
     if (m_marqueeActive) {
         const auto marqueeBounds = juce::Rectangle<int>(m_marqueeStart, m_marqueeCurrent);
-        g.setColour(juce::Colours::lightblue.withAlpha(0.2f));
+        g.setColour(theme::kSelection.withAlpha(0.2f));
         g.fillRect(marqueeBounds);
-        g.setColour(juce::Colours::lightblue.withAlpha(0.6f));
+        g.setColour(theme::kSelection.withAlpha(0.6f));
         g.drawRect(marqueeBounds, 1.0f);
     }
 
     // Velocity lane: one bar per note, height proportional to velocity
-    g.setColour(juce::Colours::darkgrey.darker());
+    g.setColour(theme::kPanelBg);
     g.fillRect(0.0f, gridHeight, static_cast<float>(getWidth()), static_cast<float>(kVelocityLaneHeight));
 
     if (clip != nullptr) {
-        g.setColour(juce::Colours::orange);
+        g.setColour(theme::kAccent);
         for (const model::Note& note : clip->notes()) {
             const float barX = tickToX(note.startTick, clipLength);
             const float barHeight = note.velocity * static_cast<float>(kVelocityLaneHeight);

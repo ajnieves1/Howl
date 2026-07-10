@@ -4,6 +4,7 @@
 #include "ui/TrackHeaderPanel.h"
 
 #include "model/Commands.h"
+#include "ui/Theme.h"
 
 namespace howl::ui {
 
@@ -92,12 +93,12 @@ void TrackHeaderPanel::resized() {
 // Draws lane separators matching ArrangeView's grid, a tint over frozen rows, and a
 // highlight over the row selected for live MIDI input
 void TrackHeaderPanel::paint(juce::Graphics& g) {
-    g.fillAll(juce::Colours::darkgrey.darker());
+    g.fillAll(theme::kPanelBg);
 
     const float height = laneHeight();
 
     if (isTrackFrozen) {
-        g.setColour(juce::Colours::lightblue.withAlpha(0.15f));
+        g.setColour(theme::kAudio.withAlpha(0.15f));
         for (std::size_t i = 0; i < m_rows.size(); ++i) {
             if (isTrackFrozen(i)) {
                 const auto y = static_cast<float>(i) * height;
@@ -107,12 +108,12 @@ void TrackHeaderPanel::paint(juce::Graphics& g) {
     }
 
     if (m_selectedTrack >= 0 && static_cast<std::size_t>(m_selectedTrack) < m_rows.size()) {
-        g.setColour(juce::Colours::orange.withAlpha(0.2f));
+        g.setColour(theme::kAccent.withAlpha(0.2f));
         const auto y = static_cast<float>(m_selectedTrack) * height;
         g.fillRect(0.0f, y, static_cast<float>(getWidth()), height);
     }
 
-    g.setColour(juce::Colours::grey.withAlpha(0.4f));
+    g.setColour(theme::kBorder.withAlpha(0.4f));
     for (std::size_t i = 1; i < m_rows.size(); ++i) {
         const auto y = static_cast<int>(static_cast<float>(i) * height);
         g.drawHorizontalLine(y, 0.0f, static_cast<float>(getWidth()));
@@ -155,7 +156,7 @@ void TrackHeaderPanel::refreshFromModel() {
         row.nameLabel = std::make_unique<NameLabel>();
         row.nameLabel->setText(track.name, juce::dontSendNotification);
         row.nameLabel->setEditable(false, true, false);
-        row.nameLabel->setColour(juce::Label::textColourId, juce::Colours::white);
+        row.nameLabel->setColour(juce::Label::textColourId, theme::kTextPrimary);
         row.nameLabel->onTextChange = [this, i] {
             m_arrangement.track(i).name = m_rows[i].nameLabel->getText().toStdString();
         };
@@ -218,7 +219,7 @@ void TrackHeaderPanel::timerCallback() {
         juce::String text = instrumentNameFor ? instrumentNameFor(i) : juce::String();
         if (crashed) {
             text << " (crashed)";
-            m_rows[i].instrumentButton->setColour(juce::TextButton::textColourOffId, juce::Colours::red);
+            m_rows[i].instrumentButton->setColour(juce::TextButton::textColourOffId, theme::kDanger);
         } else {
             m_rows[i].instrumentButton->removeColour(juce::TextButton::textColourOffId);
         }

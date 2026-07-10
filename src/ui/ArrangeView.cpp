@@ -4,6 +4,7 @@
 #include "ui/ArrangeView.h"
 
 #include "model/Commands.h"
+#include "ui/Theme.h"
 
 #include <algorithm>
 #include <cmath>
@@ -263,19 +264,19 @@ bool ArrangeView::findGroupPreviewTick(ClipKind kind, std::size_t trackIndex, st
 
 // Draws the ruler, one lane per track, each clip as a block, and the playhead
 void ArrangeView::paint(juce::Graphics& g) {
-    g.fillAll(juce::Colours::black);
+    g.fillAll(theme::kWindowBg);
 
     const int64_t span = visibleTickSpan();
     const int64_t barTicks = model::kTicksPerQuarter * 4;
     const int64_t firstBarTick = (m_scrollTick / barTicks) * barTicks;
 
-    g.setColour(juce::Colours::grey.withAlpha(0.25f));
+    g.setColour(theme::kBorder.withAlpha(0.25f));
     for (int64_t tick = firstBarTick; tick < span; tick += barTicks) {
         const auto x = static_cast<int>(tickToX(tick));
         g.drawVerticalLine(x, 0.0f, static_cast<float>(getHeight()));
     }
 
-    g.setColour(juce::Colours::white.withAlpha(0.8f));
+    g.setColour(theme::kTextPrimary.withAlpha(0.8f));
     for (int64_t tick = firstBarTick; tick < span; tick += barTicks) {
         const auto x = static_cast<int>(tickToX(tick));
         const int barNumber = static_cast<int>(tick / barTicks) + 1;
@@ -289,7 +290,7 @@ void ArrangeView::paint(juce::Graphics& g) {
         const auto loopEndTick = static_cast<int64_t>(static_cast<double>(m_transport.loopEnd()) / spt);
         const float x1 = tickToX(loopStartTick);
         const float x2 = tickToX(loopEndTick);
-        g.setColour(juce::Colours::yellow.withAlpha(0.25f));
+        g.setColour(theme::kSelection.withAlpha(0.25f));
         g.fillRect(juce::Rectangle<float> { x1, 0.0f, x2 - x1, static_cast<float>(kRulerHeight) });
     }
 
@@ -298,13 +299,13 @@ void ArrangeView::paint(juce::Graphics& g) {
         const int64_t rangeEnd = juce::jmax(m_rulerAnchorTick, m_rulerCurrentTick);
         const float x1 = tickToX(rangeStart);
         const float x2 = tickToX(rangeEnd);
-        g.setColour(juce::Colours::yellow.withAlpha(0.35f));
+        g.setColour(theme::kSelection.withAlpha(0.35f));
         g.fillRect(juce::Rectangle<float> { x1, 0.0f, x2 - x1, static_cast<float>(kRulerHeight) });
     }
 
     // Pattern lane, between the ruler and the track lanes; placements draw regardless of
     // whether the arrangement has any tracks, since their timeline position never depends on that
-    g.setColour(juce::Colours::darkslategrey.withAlpha(0.5f));
+    g.setColour(theme::kPanelBg.withAlpha(0.5f));
     g.fillRect(juce::Rectangle<float> { 0.0f, static_cast<float>(kRulerHeight),
         static_cast<float>(getWidth()), static_cast<float>(kPatternLaneHeight) });
 
@@ -325,17 +326,17 @@ void ArrangeView::paint(juce::Graphics& g) {
         juce::Rectangle<float> r { x, static_cast<float>(kRulerHeight) + 2.0f,
             juce::jmax(2.0f, width), static_cast<float>(kPatternLaneHeight) - 4.0f };
 
-        g.setColour(juce::Colours::mediumpurple);
+        g.setColour(theme::kPattern);
         g.fillRect(r);
-        g.setColour(juce::Colours::mediumpurple.darker(0.8f));
+        g.setColour(theme::kPattern.darker(0.8f));
         g.drawRect(r, 1.5f);
 
-        g.setColour(juce::Colours::white);
+        g.setColour(theme::kTextPrimary);
         g.drawText(juce::String(m_patterns.pattern(placement.patternIndex).name), r.toNearestInt().reduced(2, 0),
             juce::Justification::centredLeft);
     }
 
-    g.setColour(juce::Colours::grey.withAlpha(0.4f));
+    g.setColour(theme::kBorder.withAlpha(0.4f));
     g.drawHorizontalLine(kRulerHeight + kPatternLaneHeight - 1, 0.0f, static_cast<float>(getWidth()));
 
     const std::size_t numTracks = m_arrangement.numTracks();
@@ -345,7 +346,7 @@ void ArrangeView::paint(juce::Graphics& g) {
 
     const float height = laneHeight();
 
-    g.setColour(juce::Colours::grey.withAlpha(0.4f));
+    g.setColour(theme::kBorder.withAlpha(0.4f));
     for (std::size_t i = 1; i < numTracks; ++i) {
         const auto y = kRulerHeight + kPatternLaneHeight + static_cast<float>(i) * height;
         g.drawHorizontalLine(static_cast<int>(y), 0.0f, static_cast<float>(getWidth()));
@@ -365,9 +366,9 @@ void ArrangeView::paint(juce::Graphics& g) {
             const float x = tickToX(startTick);
             const float width = tickToX(startTick + placement.clip.lengthTicks()) - x;
             juce::Rectangle<float> r { x, y + 2.0f, juce::jmax(2.0f, width), height - 5.0f };
-            g.setColour(placement.muted ? juce::Colours::orange.withAlpha(0.35f) : juce::Colours::orange);
+            g.setColour(placement.muted ? theme::kAccent.withAlpha(0.35f) : theme::kAccent);
             g.fillRect(r);
-            g.setColour(isSelected(ClipKind::Midi, i, p) ? juce::Colours::yellow : juce::Colours::orange.darker(0.8f));
+            g.setColour(isSelected(ClipKind::Midi, i, p) ? theme::kSelection : theme::kAccent.darker(0.8f));
             g.drawRect(r, isSelected(ClipKind::Midi, i, p) ? 2.5f : 1.5f);
         }
 
@@ -382,9 +383,9 @@ void ArrangeView::paint(juce::Graphics& g) {
             const float x = tickToX(startTick);
             const float width = tickToX(startTick + lengthTicks) - x;
             juce::Rectangle<float> r { x, y + 2.0f, juce::jmax(2.0f, width), height - 5.0f };
-            g.setColour(placement.muted ? juce::Colours::steelblue.withAlpha(0.35f) : juce::Colours::steelblue);
+            g.setColour(placement.muted ? theme::kAudio.withAlpha(0.35f) : theme::kAudio);
             g.fillRect(r);
-            g.setColour(isSelected(ClipKind::Audio, i, p) ? juce::Colours::yellow : juce::Colours::steelblue.darker(0.8f));
+            g.setColour(isSelected(ClipKind::Audio, i, p) ? theme::kSelection : theme::kAudio.darker(0.8f));
             g.drawRect(r, isSelected(ClipKind::Audio, i, p) ? 2.5f : 1.5f);
         }
 
@@ -401,26 +402,26 @@ void ArrangeView::paint(juce::Graphics& g) {
             const float ghostX = tickToX(m_dragCurrentTick);
             const float ghostWidth = tickToX(m_dragCurrentTick + ghostLengthTicks) - ghostX;
             juce::Rectangle<float> ghost { ghostX, y + 2.0f, juce::jmax(2.0f, ghostWidth), height - 5.0f };
-            g.setColour(juce::Colours::white.withAlpha(0.3f));
+            g.setColour(theme::kTextPrimary.withAlpha(0.3f));
             g.fillRect(ghost);
-            g.setColour(juce::Colours::white.withAlpha(0.8f));
+            g.setColour(theme::kTextPrimary.withAlpha(0.8f));
             g.drawRect(ghost, 1.5f);
         }
 
-        g.setColour(juce::Colours::white.withAlpha(0.7f));
+        g.setColour(theme::kTextPrimary.withAlpha(0.7f));
         g.drawText(track.name, 4, static_cast<int>(y) + 2, 200, 14, juce::Justification::topLeft);
     }
 
-    g.setColour(juce::Colours::white);
+    g.setColour(theme::kPlayhead);
     const auto playheadX = tickToX(static_cast<int64_t>(playheadTick()));
     g.drawVerticalLine(static_cast<int>(playheadX), 0.0f, static_cast<float>(getHeight()));
 
     // Clip marquee, a translucent rectangle over the region being swept
     if (m_clipMarqueeActive) {
         const auto marqueeBounds = juce::Rectangle<int>(m_clipMarqueeStart, m_clipMarqueeCurrent);
-        g.setColour(juce::Colours::lightblue.withAlpha(0.2f));
+        g.setColour(theme::kSelection.withAlpha(0.2f));
         g.fillRect(marqueeBounds);
-        g.setColour(juce::Colours::lightblue.withAlpha(0.6f));
+        g.setColour(theme::kSelection.withAlpha(0.6f));
         g.drawRect(marqueeBounds, 1.0f);
     }
 }

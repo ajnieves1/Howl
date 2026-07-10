@@ -3,6 +3,8 @@
 
 #include "ui/ChannelRackPanel.h"
 
+#include "ui/Theme.h"
+
 #include <memory>
 #include <string>
 
@@ -221,8 +223,8 @@ void ChannelRackPanel::resized() {
 
 // Draws the pattern top bar's separator and every row's label plus 16 step cells
 void ChannelRackPanel::paint(juce::Graphics& g) {
-    g.fillAll(juce::Colours::black);
-    g.setColour(juce::Colours::grey);
+    g.fillAll(theme::kWindowBg);
+    g.setColour(theme::kBorder);
     g.drawHorizontalLine(kTopBarHeight - 1, 0.0f, static_cast<float>(getWidth()));
 
     const std::size_t patternIndex = currentPatternIndex();
@@ -233,7 +235,7 @@ void ChannelRackPanel::paint(juce::Graphics& g) {
         const std::size_t trackIndex = m_midiTrackIndices[row];
         const int y = kTopBarHeight + static_cast<int>(row) * kRowHeight;
 
-        g.setColour(juce::Colours::white);
+        g.setColour(theme::kTextPrimary);
         g.drawText(juce::String(m_arrangement.track(trackIndex).name), 4, y, kTrackLabelWidth - 8, kRowHeight,
             juce::Justification::centredLeft);
 
@@ -245,15 +247,15 @@ void ChannelRackPanel::paint(juce::Graphics& g) {
             const int x = kTrackLabelWidth + step * kRowHeight;
             const bool onBeat = (step % 4) == 0;
 
-            g.setColour(onBeat ? juce::Colours::darkgrey.brighter(0.15f) : juce::Colours::darkgrey.darker(0.3f));
+            g.setColour(onBeat ? theme::kRaisedBg.brighter(0.15f) : theme::kRaisedBg.darker(0.3f));
             g.fillRect(x, y, kRowHeight, kRowHeight);
 
             if (clip != nullptr && stepFilled(*clip, step)) {
-                g.setColour(juce::Colours::orange);
+                g.setColour(theme::kAccent);
                 g.fillRect(x + 2, y + 2, kRowHeight - 4, kRowHeight - 4);
             }
 
-            g.setColour(juce::Colours::black);
+            g.setColour(theme::kBorder);
             g.drawRect(x, y, kRowHeight, kRowHeight);
         }
     }
