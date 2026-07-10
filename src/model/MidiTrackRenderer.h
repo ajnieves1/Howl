@@ -58,6 +58,11 @@ private:
     float* m_channelPointers[kMaxChannels] {};
     const PatternBank* m_patternBank = nullptr;
     std::size_t m_patternTrackIndex = 0;
+
+    // The pos process() last saw, so a stopped transport re polling the same frozen position
+    // (every real audio callback while paused) does not retrigger a note sitting exactly
+    // there over and over; -1 never matches a real position, so the first call always collects
+    SampleCount m_lastProcessedPos = -1;
 };
 
 } // namespace howl::model

@@ -138,7 +138,20 @@ void MidiTrackRenderer::process(AudioBlock& audio, SampleCount pos) noexcept {
     }
 
     Event events[kMaxEventsPerBlock];
-    const int numEvents = collectEvents(pos, audio.numFrames, events);
+    int numEvents = 0;
+
+    // A stopped transport's advance() returns the same frozen pos on every real audio
+    // callback, so a note sitting exactly there would be reported as newly due every single
+    // block, retriggering it dozens of times a second instead of once. Only skip collection
+    // when parked AND the position hasn't moved since the last call; offline callers like
+    // TrackFreezer step pos forward themselves without ever calling play(), and always pass a
+    // genuinely new pos, so they are unaffected. Playing always collects even when this
+    // block's pos happens to match the last frozen one (the first block after pressing Play),
+    // so landing exactly on a note still plays it once
+    if (m_transport.isPlaying() || pos != m_lastProcessedPos) {
+        numEvents = collectEvents(pos, audio.numFrames, events);
+    }
+    m_lastProcessedPos = pos;
 
     int segmentStart = 0;
     for (int i = 0; i < numEvents; ++i) {
