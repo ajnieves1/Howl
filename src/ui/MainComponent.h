@@ -134,6 +134,15 @@ public:
     // Fired when File > Export Audio... is picked
     std::function<void()> onExportAudioRequested;
 
+    // App-provided recent project file paths, newest first, feeds the Open Recent submenu
+    std::function<juce::StringArray()> recentProjectFiles;
+
+    // Fired with an absolute path when a File > Open Recent item is picked
+    std::function<void(juce::String)> onOpenRecentRequested;
+
+    // Fired when File > Audio Settings... is picked
+    std::function<void()> onAudioSettingsRequested;
+
     // Fired after a tempo commit or an audio clip's warp toggle/BPM edit, the app rewarps clips
     std::function<void()> onRewarpRequested;
 
@@ -164,6 +173,7 @@ private:
     static constexpr int kBottomPanelTitleHeight = 22;
     static constexpr int kTrackHeaderWidth = TrackHeaderPanel::kWidth;
     static constexpr int kBrowserWidth = 220;
+    static constexpr int kRecentFileMenuIdBase = 1000;
 
     enum class BottomPanel {
         None,
