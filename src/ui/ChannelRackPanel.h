@@ -52,6 +52,12 @@ public:
     // Left click toggles the step under the cursor, right click opens the row menu
     void mouseDown(const juce::MouseEvent& event) override;
 
+    // Tracks which cell the cursor is over, for the hover highlight
+    void mouseMove(const juce::MouseEvent& event) override;
+
+    // Clears the hover highlight once the cursor leaves the panel
+    void mouseExit(const juce::MouseEvent& event) override;
+
     // Accepts a drag whose description matches the browser's "howl-sample" tag
     bool isInterestedInDragSource(const juce::DragAndDropTarget::SourceDetails& dragSourceDetails) override;
 
@@ -108,6 +114,10 @@ private:
 
     // Row index -> arrangement track index, MIDI kind tracks only
     std::vector<std::size_t> m_midiTrackIndices;
+
+    // The cell currently under the cursor, for the hover highlight; -1 when over neither
+    int m_hoverRow = -1;
+    int m_hoverStep = -1;
 };
 
 } // namespace howl::ui

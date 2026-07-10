@@ -3,6 +3,8 @@
 
 #include "ui/TransportBar.h"
 
+#include "ui/Theme.h"
+
 namespace howl::ui {
 
 // Stores references, starts the 30 Hz UI refresh timer
@@ -18,9 +20,11 @@ TransportBar::TransportBar(engine::Transport& transport, model::CommandStack& co
             m_transport.play();
         }
     };
+    m_playButton.setTooltip("Play or stop (Space)");
     addAndMakeVisible(m_playButton);
 
     m_positionLabel.setJustificationType(juce::Justification::centred);
+    m_positionLabel.setTooltip("Bar.beat and minutes:seconds");
     addAndMakeVisible(m_positionLabel);
 
     m_tempoLabel.setText(juce::String(m_transport.tempo(), 1), juce::dontSendNotification);
@@ -29,6 +33,7 @@ TransportBar::TransportBar(engine::Transport& transport, model::CommandStack& co
     m_tempoLabel.onTextChange = [this] {
         commitTempo();
     };
+    m_tempoLabel.setTooltip("Tempo in BPM, click to edit");
     addAndMakeVisible(m_tempoLabel);
 
     m_undoButton.onClick = [this] {
@@ -37,6 +42,7 @@ TransportBar::TransportBar(engine::Transport& transport, model::CommandStack& co
             onEditPerformed();
         }
     };
+    m_undoButton.setTooltip("Undo (Ctrl+Z)");
     addAndMakeVisible(m_undoButton);
 
     m_redoButton.onClick = [this] {
@@ -45,6 +51,7 @@ TransportBar::TransportBar(engine::Transport& transport, model::CommandStack& co
             onEditPerformed();
         }
     };
+    m_redoButton.setTooltip("Redo (Ctrl+Shift+Z)");
     addAndMakeVisible(m_redoButton);
 
     m_mixerButton.onClick = [this] {
@@ -52,6 +59,7 @@ TransportBar::TransportBar(engine::Transport& transport, model::CommandStack& co
             onMixerToggle();
         }
     };
+    m_mixerButton.setTooltip("Toggle the mixer panel (M)");
     addAndMakeVisible(m_mixerButton);
 
     m_snapCombo.addItem("Bar", 1);
@@ -65,7 +73,36 @@ TransportBar::TransportBar(engine::Transport& transport, model::CommandStack& co
             onSnapChanged(snapDivisionForItemId(m_snapCombo.getSelectedId()));
         }
     };
+    m_snapCombo.setTooltip("Snap division for dragging and creating clips");
     addAndMakeVisible(m_snapCombo);
+
+    // A JUCE radio group keeps exactly one segment toggled at a time
+    m_arrangeViewButton.setTooltip("Arrange view");
+    m_sessionViewButton.setTooltip("Session view");
+    m_rackViewButton.setTooltip("Channel rack view");
+    for (auto* button : { &m_arrangeViewButton, &m_sessionViewButton, &m_rackViewButton }) {
+        button->setClickingTogglesState(true);
+        button->setRadioGroupId(1);
+        button->setColour(juce::TextButton::buttonOnColourId, theme::kAccent);
+        button->setColour(juce::TextButton::textColourOffId, theme::kTextSecondary);
+        addAndMakeVisible(*button);
+    }
+    m_arrangeViewButton.setToggleState(true, juce::dontSendNotification);
+    m_arrangeViewButton.onClick = [this] {
+        if (onViewSelected) {
+            onViewSelected(0);
+        }
+    };
+    m_sessionViewButton.onClick = [this] {
+        if (onViewSelected) {
+            onViewSelected(1);
+        }
+    };
+    m_rackViewButton.onClick = [this] {
+        if (onViewSelected) {
+            onViewSelected(2);
+        }
+    };
 
     startTimerHz(30);
 }
@@ -82,15 +119,27 @@ void TransportBar::resized() {
     m_playButton.setBounds(bounds.removeFromLeft(60));
     m_positionLabel.setBounds(bounds.removeFromLeft(100));
     m_tempoLabel.setBounds(bounds.removeFromLeft(60));
+
+    m_rackViewButton.setBounds(bounds.removeFromRight(70));
+    m_sessionViewButton.setBounds(bounds.removeFromRight(70));
+    m_arrangeViewButton.setBounds(bounds.removeFromRight(70));
+
     m_snapCombo.setBounds(bounds.removeFromRight(90));
     m_mixerButton.setBounds(bounds.removeFromRight(60));
     m_redoButton.setBounds(bounds.removeFromRight(60));
     m_undoButton.setBounds(bounds.removeFromRight(60));
 }
 
+// Highlights the given view switcher segment (0 Arrange, 1 Session, 2 Rack) as active
+void TransportBar::setActiveView(int index) {
+    m_arrangeViewButton.setToggleState(index == 0, juce::dontSendNotification);
+    m_sessionViewButton.setToggleState(index == 1, juce::dontSendNotification);
+    m_rackViewButton.setToggleState(index == 2, juce::dontSendNotification);
+}
+
 // Fills the background
 void TransportBar::paint(juce::Graphics& g) {
-    g.fillAll(juce::Colours::darkgrey.darker());
+    g.fillAll(theme::kPanelBg);
 }
 
 // 30 Hz: reflects play state on the button and updates the position readout

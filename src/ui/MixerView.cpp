@@ -3,6 +3,8 @@
 
 #include "ui/MixerView.h"
 
+#include "ui/Theme.h"
+
 namespace howl::ui {
 
 // Stores references, builds the viewport and strips, starts the meter timer
@@ -52,7 +54,7 @@ void MixerView::resized() {
 
 // Fills the background
 void MixerView::paint(juce::Graphics& g) {
-    g.fillAll(juce::Colours::darkgrey);
+    g.fillAll(theme::kPanelBg);
 }
 
 // Public wrapper around rebuildStrips(), called after undo/redo or a track/bus add

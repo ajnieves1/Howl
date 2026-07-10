@@ -5,6 +5,7 @@ add_library(HowlUi STATIC
     ChannelStripComponent.cpp
     EffectEditorWindow.cpp
     FileBrowserPanel.cpp
+    HowlLookAndFeel.cpp
     MainComponent.cpp
     MixerView.cpp
     PianoRoll.cpp

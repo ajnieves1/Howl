@@ -161,6 +161,7 @@ public:
 private:
     static constexpr int kTransportHeight = 36;
     static constexpr int kBottomPanelHeight = 300;
+    static constexpr int kBottomPanelTitleHeight = 22;
     static constexpr int kTrackHeaderWidth = TrackHeaderPanel::kWidth;
     static constexpr int kBrowserWidth = 220;
 
@@ -180,6 +181,9 @@ private:
     // Shows only the component matching m_bottomPanel, hides the other
     void updateBottomPanelVisibility();
 
+    // Sets the bottom panel title strip's text and shows the strip
+    void setBottomPanelTitle(const juce::String& title);
+
     // Shows only the component matching m_centerView, hides the other
     void updateCenterViewVisibility();
 
@@ -191,6 +195,9 @@ private:
     double m_sampleRate;
     model::SnapDivision m_snapDivision = model::SnapDivision::Step;
 
+    // Shows a tooltip for any child component with one set, one instance covers the whole shell
+    juce::TooltipWindow m_tooltipWindow { this };
+
     TransportBar m_transportBar;
     FileBrowserPanel m_browserPanel;
     TrackHeaderPanel m_trackHeaderPanel;
@@ -200,6 +207,11 @@ private:
     std::unique_ptr<PianoRoll> m_pianoRoll; // recreated per selected clip
     std::unique_ptr<MixerView> m_mixerView; // created once in the ctor
     std::unique_ptr<AutomationEditor> m_automationEditor; // recreated per requested track
+
+    // Slim title strip above whichever bottom panel is showing, with a close button
+    juce::Label m_bottomPanelTitleLabel;
+    juce::TextButton m_bottomPanelCloseButton { juce::String::fromUTF8("\xC3\x97") };
+
     BottomPanel m_bottomPanel = BottomPanel::None;
     CenterView m_centerView = CenterView::Arrange;
     bool m_browserVisible = false;

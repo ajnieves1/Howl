@@ -3,6 +3,8 @@
 
 #include "ui/ChannelRackPanel.h"
 
+#include "ui/Theme.h"
+
 #include <memory>
 #include <string>
 
@@ -221,9 +223,17 @@ void ChannelRackPanel::resized() {
 
 // Draws the pattern top bar's separator and every row's label plus 16 step cells
 void ChannelRackPanel::paint(juce::Graphics& g) {
-    g.fillAll(juce::Colours::black);
-    g.setColour(juce::Colours::grey);
+    g.fillAll(theme::kWindowBg);
+    g.setColour(theme::kBorder);
     g.drawHorizontalLine(kTopBarHeight - 1, 0.0f, static_cast<float>(getWidth()));
+
+    if (m_midiTrackIndices.empty()) {
+        g.setColour(theme::kTextSecondary);
+        g.drawText("Add a MIDI track to sequence steps",
+            juce::Rectangle<int> { 0, kTopBarHeight, getWidth(), getHeight() - kTopBarHeight },
+            juce::Justification::centred);
+        return;
+    }
 
     const std::size_t patternIndex = currentPatternIndex();
     const bool hasPattern = patternIndex < m_patterns.numPatterns();
@@ -233,7 +243,7 @@ void ChannelRackPanel::paint(juce::Graphics& g) {
         const std::size_t trackIndex = m_midiTrackIndices[row];
         const int y = kTopBarHeight + static_cast<int>(row) * kRowHeight;
 
-        g.setColour(juce::Colours::white);
+        g.setColour(theme::kTextPrimary);
         g.drawText(juce::String(m_arrangement.track(trackIndex).name), 4, y, kTrackLabelWidth - 8, kRowHeight,
             juce::Justification::centredLeft);
 
@@ -245,15 +255,20 @@ void ChannelRackPanel::paint(juce::Graphics& g) {
             const int x = kTrackLabelWidth + step * kRowHeight;
             const bool onBeat = (step % 4) == 0;
 
-            g.setColour(onBeat ? juce::Colours::darkgrey.brighter(0.15f) : juce::Colours::darkgrey.darker(0.3f));
+            g.setColour(onBeat ? theme::kRaisedBg.brighter(0.15f) : theme::kRaisedBg.darker(0.3f));
             g.fillRect(x, y, kRowHeight, kRowHeight);
 
             if (clip != nullptr && stepFilled(*clip, step)) {
-                g.setColour(juce::Colours::orange);
+                g.setColour(theme::kAccent);
                 g.fillRect(x + 2, y + 2, kRowHeight - 4, kRowHeight - 4);
             }
 
-            g.setColour(juce::Colours::black);
+            if (m_hoverRow == static_cast<int>(row) && m_hoverStep == step) {
+                g.setColour(theme::kHoverBg.withAlpha(0.6f));
+                g.fillRect(x, y, kRowHeight, kRowHeight);
+            }
+
+            g.setColour(theme::kBorder);
             g.drawRect(x, y, kRowHeight, kRowHeight);
         }
     }
@@ -280,6 +295,27 @@ void ChannelRackPanel::mouseDown(const juce::MouseEvent& event) {
 
     toggleStep(trackIndex, step);
     repaint();
+}
+
+// Tracks which cell the cursor is over, for the hover highlight
+void ChannelRackPanel::mouseMove(const juce::MouseEvent& event) {
+    const int row = rowAtY(event.y);
+    const int step = row < 0 ? -1 : stepAtX(event.x);
+
+    if (row != m_hoverRow || step != m_hoverStep) {
+        m_hoverRow = row;
+        m_hoverStep = step;
+        repaint();
+    }
+}
+
+// Clears the hover highlight once the cursor leaves the panel
+void ChannelRackPanel::mouseExit(const juce::MouseEvent&) {
+    if (m_hoverRow != -1 || m_hoverStep != -1) {
+        m_hoverRow = -1;
+        m_hoverStep = -1;
+        repaint();
+    }
 }
 
 // Accepts a drag whose description matches the browser's "howl-sample" tag

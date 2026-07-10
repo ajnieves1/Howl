@@ -30,6 +30,7 @@
 #include "plugins/PluginInstrument.h"
 #include "plugins/SandboxedPluginInstance.h"
 #include "project/ProjectSerializer.h"
+#include "ui/HowlLookAndFeel.h"
 #include "ui/MainComponent.h"
 #include "ui/PluginWindow.h"
 
@@ -190,9 +191,9 @@ public:
         return m_mainComponent;
     }
 
-    // Sets the title bar to "Howl"
+    // Sets the title bar to "Howl", or "<project> - Howl" once a project has a name
     void setProjectTitle(const juce::String& fileName) {
-        setName(fileName.isEmpty() ? juce::String("Howl") : "Howl - " + fileName);
+        setName(fileName.isEmpty() ? juce::String("Howl") : fileName + " - Howl");
     }
 
 private:
@@ -218,6 +219,8 @@ public:
     // Builds the arrangement, opens the app shell, starts the audio device, and starts the xrun watcher
     void initialise(const juce::String&) override
     {
+        juce::LookAndFeel::setDefaultLookAndFeel(&m_lookAndFeel);
+
         juce::PropertiesFile::Options settingsOptions;
         settingsOptions.applicationName = "Howl";
         settingsOptions.filenameSuffix = "xml";
@@ -419,6 +422,7 @@ public:
         if (m_settings != nullptr) {
             m_settings->saveIfNeeded();
         }
+        juce::LookAndFeel::setDefaultLookAndFeel(nullptr);
     }
 
     // Quits the app when the OS or window asks it to
@@ -1100,7 +1104,7 @@ private:
         }
 
         m_currentProjectFile = file;
-        m_mainWindow->setProjectTitle(file.getFileName());
+        m_mainWindow->setProjectTitle(file.getFileNameWithoutExtension());
     }
 
     // Saves to the current file, or prompts for one if this session has never been saved
@@ -1201,7 +1205,7 @@ private:
         applyTrackInstruments();
 
         m_currentProjectFile = sourceFile;
-        m_mainWindow->setProjectTitle(sourceFile == juce::File() ? juce::String() : sourceFile.getFileName());
+        m_mainWindow->setProjectTitle(sourceFile == juce::File() ? juce::String() : sourceFile.getFileNameWithoutExtension());
 
         rewarpAllClips(); // stops/starts the device, rewarps every clip, refreshes all views
     }
@@ -1398,6 +1402,7 @@ private:
         loadProjectFromJson(defaultJson, juce::File());
     }
 
+    ui::HowlLookAndFeel m_lookAndFeel;
     engine::Transport m_transport;
     model::Arrangement m_arrangement;
     model::Session m_session;

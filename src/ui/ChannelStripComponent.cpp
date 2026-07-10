@@ -5,6 +5,7 @@
 
 #include "model/Commands.h"
 #include "plugins/PluginEffect.h"
+#include "ui/Theme.h"
 
 #include <algorithm>
 #include <cmath>
@@ -139,19 +140,19 @@ void ChannelStripComponent::resized() {
 
 // Draws the name and the meter bar
 void ChannelStripComponent::paint(juce::Graphics& g) {
-    g.fillAll(juce::Colours::darkgrey.darker());
+    g.fillAll(theme::kPanelBg);
 
     auto bounds = getLocalBounds().reduced(4);
 
     auto nameArea = bounds.removeFromTop(16);
-    g.setColour(juce::Colours::white);
+    g.setColour(theme::kTextPrimary);
     g.drawText(m_name, nameArea, juce::Justification::centred);
 
-    g.setColour(juce::Colours::black);
+    g.setColour(theme::kWindowBg);
     g.fillRect(m_meterBounds);
 
     const int meterHeight = static_cast<int>(static_cast<float>(m_meterBounds.getHeight()) * m_meterPeak);
-    g.setColour(juce::Colours::limegreen);
+    g.setColour(theme::kMeter);
     g.fillRect(m_meterBounds.withTop(m_meterBounds.getBottom() - meterHeight));
 }
 
@@ -218,7 +219,7 @@ int ChannelStripComponent::getNumRows() {
 // Draws one effect's display name, red with a "(crashed)" suffix for a bypassed sandbox
 void ChannelStripComponent::paintListBoxItem(int rowNumber, juce::Graphics& g, int width, int height, bool rowIsSelected) {
     if (rowIsSelected) {
-        g.fillAll(juce::Colours::lightblue);
+        g.fillAll(theme::kAccent);
     }
 
     auto& chain = channelStrip().effects();
@@ -234,7 +235,7 @@ void ChannelStripComponent::paintListBoxItem(int rowNumber, juce::Graphics& g, i
         text << " (crashed)";
     }
 
-    g.setColour(crashed ? juce::Colours::red : juce::Colours::black);
+    g.setColour(crashed ? theme::kDanger : theme::kTextPrimary);
     g.drawText(text, 4, 0, width - 8, height, juce::Justification::centredLeft);
 }
 

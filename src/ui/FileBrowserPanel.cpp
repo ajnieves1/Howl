@@ -3,6 +3,8 @@
 
 #include "ui/FileBrowserPanel.h"
 
+#include "ui/Theme.h"
+
 namespace howl::ui {
 
 // Starts the scan thread, builds the tree over the given root, and shows the
@@ -19,8 +21,9 @@ FileBrowserPanel::FileBrowserPanel(const juce::File& initialRoot)
     m_tree->setDragAndDropDescription("howl-sample");
     addChildComponent(*m_tree);
 
-    m_hintLabel.setText("Set a sample folder to browse", juce::dontSendNotification);
+    m_hintLabel.setText("Set a folder with the button above", juce::dontSendNotification);
     m_hintLabel.setJustificationType(juce::Justification::centred);
+    m_hintLabel.setColour(juce::Label::textColourId, theme::kTextSecondary);
     addChildComponent(m_hintLabel);
 
     m_setFolderButton.onClick = [this] {

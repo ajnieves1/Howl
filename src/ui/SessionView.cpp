@@ -5,6 +5,7 @@
 
 #include "model/Commands.h"
 #include "model/MidiClip.h"
+#include "ui/Theme.h"
 
 #include <memory>
 
@@ -56,15 +57,15 @@ std::size_t SessionView::yToTrackIndex(int y) const {
 
 // Draws the header row (scene launch triangles, stop-all, add-scene) and the track/scene grid
 void SessionView::paint(juce::Graphics& g) {
-    g.fillAll(juce::Colours::black);
+    g.fillAll(theme::kWindowBg);
 
     const std::size_t numTracks = m_arrangement.numTracks();
     const std::size_t numScenes = m_session.numScenes();
 
-    g.setColour(juce::Colours::darkgrey.darker());
+    g.setColour(theme::kPanelBg);
     g.fillRect(0, 0, getWidth(), kHeaderHeight);
 
-    g.setColour(juce::Colours::white);
+    g.setColour(theme::kTextPrimary);
     g.drawText("Stop", 0, 0, kSceneWidth, kHeaderHeight, juce::Justification::centred);
 
     for (std::size_t scene = 0; scene < numScenes; ++scene) {
@@ -82,7 +83,7 @@ void SessionView::paint(juce::Graphics& g) {
 
     const float height = laneHeight();
 
-    g.setColour(juce::Colours::grey.withAlpha(0.4f));
+    g.setColour(theme::kBorder.withAlpha(0.4f));
     for (std::size_t i = 1; i < numTracks; ++i) {
         const auto y = kHeaderHeight + static_cast<float>(i) * height;
         g.drawHorizontalLine(static_cast<int>(y), 0.0f, static_cast<float>(getWidth()));
@@ -103,10 +104,10 @@ void SessionView::paint(juce::Graphics& g) {
             const bool isPlaying = activeScene == static_cast<int>(scene);
             const bool isPending = pendingScene == static_cast<int>(scene);
 
-            juce::Colour fill = juce::Colours::darkgrey.darker();
+            juce::Colour fill = theme::kPanelBg;
             if (hasSlot) {
                 const model::SlotContent content = m_session.slot(track, scene).content;
-                fill = content == model::SlotContent::Midi ? juce::Colours::orange : juce::Colours::steelblue;
+                fill = content == model::SlotContent::Midi ? theme::kAccent : theme::kAudio;
                 if (isPlaying) {
                     fill = fill.brighter(0.6f);
                 }
@@ -115,14 +116,14 @@ void SessionView::paint(juce::Graphics& g) {
             g.setColour(fill);
             g.fillRect(cell);
 
-            g.setColour(isPending ? juce::Colours::yellow : fill.darker(0.8f));
+            g.setColour(isPending ? theme::kSelection : fill.darker(0.8f));
             g.drawRect(cell, isPending ? 2.0f : 1.0f);
 
             if (hasSlot) {
                 const model::SlotContent content = m_session.slot(track, scene).content;
                 const juce::String label = content == model::SlotContent::Midi ? "M" : "A";
 
-                g.setColour(juce::Colours::white.withAlpha(0.85f));
+                g.setColour(theme::kTextPrimary.withAlpha(0.85f));
                 g.drawText(label, cell.getSmallestIntegerContainer(), juce::Justification::topLeft);
 
                 if (isPlaying) {
@@ -132,7 +133,7 @@ void SessionView::paint(juce::Graphics& g) {
             }
         }
 
-        g.setColour(juce::Colours::grey.withAlpha(0.3f));
+        g.setColour(theme::kBorder.withAlpha(0.3f));
         const juce::Rectangle<float> addCell { static_cast<float>(addColumnX) + 2.0f, y + 2.0f,
             static_cast<float>(kSceneWidth) - 4.0f, height - 4.0f };
         g.drawRect(addCell, 1.0f);

@@ -95,6 +95,7 @@ private:
     static constexpr int kResizeHandlePixels = 6;
     static constexpr int kRulerHeight = 20;
     static constexpr int kPatternLaneHeight = 24;
+    static constexpr int kScrollbarHeight = 10;
     static constexpr double kMinZoom = 1.0;
     static constexpr double kMaxZoom = 64.0;
 
@@ -155,6 +156,13 @@ private:
 
     // True when y sits in the pattern lane strip, between the ruler and the track lanes
     bool isInPatternLane(int y) const;
+
+    // True when y sits in the scrollbar strip along the bottom edge
+    bool isInScrollbar(int y) const;
+
+    // Draws the scrollbar strip along the bottom edge, its thumb sized and positioned from
+    // scroll/zoom state
+    void paintScrollbar(juce::Graphics& g);
 
     // Returns the current transport position converted to ticks
     double playheadTick() const;
@@ -239,6 +247,11 @@ private:
     bool m_clipMarqueeActive = false;
     juce::Point<int> m_clipMarqueeStart;
     juce::Point<int> m_clipMarqueeCurrent;
+
+    // True while the scrollbar strip's thumb is being dragged
+    bool m_scrollbarDragging = false;
+    int m_scrollbarDragStartX = 0;
+    int64_t m_scrollbarDragStartScrollTick = 0;
 
     // Move only: the whole selection's values at mouseDown (the command's "before" set),
     // used to compute every member's live preview position from one shared tick delta
