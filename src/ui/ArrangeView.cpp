@@ -107,10 +107,10 @@ float ArrangeView::tickToX(int64_t tick) const {
     return static_cast<float>(static_cast<double>(tick - m_scrollTick) / span * static_cast<double>(getWidth()));
 }
 
-// Returns the height of one track lane, below the ruler and pattern lane
+// Returns the height of one track lane, below the ruler and pattern lane, above the scrollbar
 float ArrangeView::laneHeight() const {
     const std::size_t numTracks = m_arrangement.numTracks();
-    const float available = static_cast<float>(getHeight() - kRulerHeight - kPatternLaneHeight);
+    const float available = static_cast<float>(getHeight() - kRulerHeight - kPatternLaneHeight - kScrollbarHeight);
     if (numTracks == 0) {
         return available;
     }
@@ -132,6 +132,11 @@ std::size_t ArrangeView::yToTrackIndex(int y) const {
 // True when y sits in the pattern lane strip, between the ruler and the track lanes
 bool ArrangeView::isInPatternLane(int y) const {
     return y >= kRulerHeight && y < kRulerHeight + kPatternLaneHeight;
+}
+
+// True when y sits in the scrollbar strip along the bottom edge
+bool ArrangeView::isInScrollbar(int y) const {
+    return y >= getHeight() - kScrollbarHeight;
 }
 
 // Returns the current transport position converted to ticks
@@ -331,9 +336,12 @@ void ArrangeView::paint(juce::Graphics& g) {
         g.setColour(theme::kPattern.darker(0.8f));
         g.drawRect(r, 1.5f);
 
-        g.setColour(theme::kTextPrimary);
-        g.drawText(juce::String(m_patterns.pattern(placement.patternIndex).name), r.toNearestInt().reduced(2, 0),
-            juce::Justification::centredLeft);
+        const juce::String patternName = juce::String(m_patterns.pattern(placement.patternIndex).name);
+        const int textWidth = juce::GlyphArrangement::getStringWidthInt(g.getCurrentFont(), patternName);
+        if (r.getWidth() > static_cast<float>(textWidth) + 4.0f) {
+            g.setColour(theme::kTextPrimary);
+            g.drawText(patternName, r.toNearestInt().reduced(2, 0), juce::Justification::centredLeft);
+        }
     }
 
     g.setColour(theme::kBorder.withAlpha(0.4f));
@@ -344,7 +352,28 @@ void ArrangeView::paint(juce::Graphics& g) {
         return;
     }
 
+    bool hasAnyMidiClip = false;
+    for (std::size_t i = 0; i < numTracks && !hasAnyMidiClip; ++i) {
+        hasAnyMidiClip = !m_arrangement.track(i).midiClips.empty();
+    }
+    if (!hasAnyMidiClip) {
+        g.setColour(theme::kTextSecondary);
+        g.drawText("Double click a MIDI lane to create a clip",
+            juce::Rectangle<int> { 0, kRulerHeight + kPatternLaneHeight, getWidth(),
+                getHeight() - kRulerHeight - kPatternLaneHeight },
+            juce::Justification::centred);
+    }
+
     const float height = laneHeight();
+
+    // Zebra stripe: even rows are the plain canvas colour, odd rows a 50% blend toward
+    // the panel colour, so long sessions with many tracks stay easy to scan by eye
+    const juce::Colour zebraStripe = theme::kWindowBg.interpolatedWith(theme::kPanelBg, 0.5f);
+    g.setColour(zebraStripe);
+    for (std::size_t i = 1; i < numTracks; i += 2) {
+        const auto y = kRulerHeight + kPatternLaneHeight + static_cast<float>(i) * height;
+        g.fillRect(juce::Rectangle<float> { 0.0f, y, static_cast<float>(getWidth()), height });
+    }
 
     g.setColour(theme::kBorder.withAlpha(0.4f));
     for (std::size_t i = 1; i < numTracks; ++i) {
@@ -424,6 +453,26 @@ void ArrangeView::paint(juce::Graphics& g) {
         g.setColour(theme::kSelection.withAlpha(0.6f));
         g.drawRect(marqueeBounds, 1.0f);
     }
+
+    paintScrollbar(g);
+}
+
+// Draws the scrollbar strip along the bottom edge: a track the full width, and a thumb
+// sized to the zoomed span's proportion of the full visible span, positioned by scroll
+void ArrangeView::paintScrollbar(juce::Graphics& g) {
+    const float y = static_cast<float>(getHeight() - kScrollbarHeight);
+    const auto width = static_cast<float>(getWidth());
+
+    g.setColour(theme::kPanelBg);
+    g.fillRect(juce::Rectangle<float> { 0.0f, y, width, static_cast<float>(kScrollbarHeight) });
+
+    const auto span = static_cast<double>(visibleTickSpan());
+    const double zoomedSpan = zoomedVisibleSpan();
+    const float thumbX = static_cast<float>(static_cast<double>(m_scrollTick) / span) * width;
+    const float thumbWidth = juce::jmax(20.0f, static_cast<float>(zoomedSpan / span) * width);
+
+    g.setColour(theme::kBorder);
+    g.fillRect(juce::Rectangle<float> { thumbX, y + 2.0f, thumbWidth, static_cast<float>(kScrollbarHeight) - 4.0f });
 }
 
 // Begins a move or resize drag if the click landed on a clip, opens a delete menu on right-click
@@ -431,6 +480,13 @@ void ArrangeView::mouseDown(const juce::MouseEvent& event) {
     m_mouseDownPosition = event.getPosition();
     m_hasDraggedBeyondThreshold = false;
     m_clipDragMode = ClipDragMode::None;
+
+    if (isInScrollbar(event.y)) {
+        m_scrollbarDragging = true;
+        m_scrollbarDragStartX = event.x;
+        m_scrollbarDragStartScrollTick = m_scrollTick;
+        return;
+    }
 
     if (event.y < kRulerHeight) {
         if (event.mods.isPopupMenu()) {
@@ -523,6 +579,15 @@ void ArrangeView::mouseDown(const juce::MouseEvent& event) {
 // Continues a move drag (a visual preview only, committed on mouseUp) or a resize drag (which
 // mutates the clip's length live, the gesture rule) once the mouse has moved past a small threshold
 void ArrangeView::mouseDrag(const juce::MouseEvent& event) {
+    if (m_scrollbarDragging) {
+        const double ticksPerPixel = static_cast<double>(visibleTickSpan()) / static_cast<double>(getWidth());
+        m_scrollTick = m_scrollbarDragStartScrollTick
+            + static_cast<int64_t>(static_cast<double>(event.x - m_scrollbarDragStartX) * ticksPerPixel);
+        clampScroll();
+        repaint();
+        return;
+    }
+
     if (m_rulerDragging) {
         const int64_t tick = xToTick(event.x);
         m_rulerCurrentTick = model::snapTick(tick, snapDivision());
@@ -577,7 +642,19 @@ void ArrangeView::mouseDrag(const juce::MouseEvent& event) {
 
 // Shows a left-right resize cursor when hovering a MIDI clip's right edge
 void ArrangeView::mouseMove(const juce::MouseEvent& event) {
-    if (m_arrangement.numTracks() == 0 || event.y < kRulerHeight || isInPatternLane(event.y)) {
+    if (isInScrollbar(event.y)) {
+        setMouseCursor(juce::MouseCursor::LeftRightResizeCursor);
+        return;
+    }
+
+    if (isInPatternLane(event.y)) {
+        std::size_t foundIndex = 0;
+        setMouseCursor(hitTestPatternPlacement(xToTick(event.x), foundIndex)
+            ? juce::MouseCursor::DraggingHandCursor : juce::MouseCursor::NormalCursor);
+        return;
+    }
+
+    if (m_arrangement.numTracks() == 0 || event.y < kRulerHeight) {
         setMouseCursor(juce::MouseCursor::NormalCursor);
         return;
     }
@@ -597,6 +674,11 @@ void ArrangeView::mouseMove(const juce::MouseEvent& event) {
 // drag (resize already mutated the clip live, this just makes it undoable), or fires
 // onMidiClipSelected for a plain click
 void ArrangeView::mouseUp(const juce::MouseEvent&) {
+    if (m_scrollbarDragging) {
+        m_scrollbarDragging = false;
+        return;
+    }
+
     if (m_rulerDragging) {
         m_rulerDragging = false;
 
@@ -724,6 +806,10 @@ void ArrangeView::mouseUp(const juce::MouseEvent&) {
 
 // Creates a new 4-bar MIDI clip on an empty MIDI lane, snapped to the bar
 void ArrangeView::mouseDoubleClick(const juce::MouseEvent& event) {
+    if (isInScrollbar(event.y)) {
+        return;
+    }
+
     if (isInPatternLane(event.y)) {
         const int64_t tick = xToTick(event.x);
 
@@ -856,6 +942,7 @@ void ArrangeView::showDeleteClipMenu(const DraggedClip& target) {
 
     juce::PopupMenu menu;
     menu.addItem(4, "Mute Clip", true, muted);
+    menu.addSeparator();
     menu.addItem(1, "Delete Clip");
 
     if (target.kind == ClipKind::Audio) {

@@ -227,6 +227,14 @@ void ChannelRackPanel::paint(juce::Graphics& g) {
     g.setColour(theme::kBorder);
     g.drawHorizontalLine(kTopBarHeight - 1, 0.0f, static_cast<float>(getWidth()));
 
+    if (m_midiTrackIndices.empty()) {
+        g.setColour(theme::kTextSecondary);
+        g.drawText("Add a MIDI track to sequence steps",
+            juce::Rectangle<int> { 0, kTopBarHeight, getWidth(), getHeight() - kTopBarHeight },
+            juce::Justification::centred);
+        return;
+    }
+
     const std::size_t patternIndex = currentPatternIndex();
     const bool hasPattern = patternIndex < m_patterns.numPatterns();
     const model::Pattern* pattern = hasPattern ? &m_patterns.pattern(patternIndex) : nullptr;
@@ -253,6 +261,11 @@ void ChannelRackPanel::paint(juce::Graphics& g) {
             if (clip != nullptr && stepFilled(*clip, step)) {
                 g.setColour(theme::kAccent);
                 g.fillRect(x + 2, y + 2, kRowHeight - 4, kRowHeight - 4);
+            }
+
+            if (m_hoverRow == static_cast<int>(row) && m_hoverStep == step) {
+                g.setColour(theme::kHoverBg.withAlpha(0.6f));
+                g.fillRect(x, y, kRowHeight, kRowHeight);
             }
 
             g.setColour(theme::kBorder);
@@ -282,6 +295,27 @@ void ChannelRackPanel::mouseDown(const juce::MouseEvent& event) {
 
     toggleStep(trackIndex, step);
     repaint();
+}
+
+// Tracks which cell the cursor is over, for the hover highlight
+void ChannelRackPanel::mouseMove(const juce::MouseEvent& event) {
+    const int row = rowAtY(event.y);
+    const int step = row < 0 ? -1 : stepAtX(event.x);
+
+    if (row != m_hoverRow || step != m_hoverStep) {
+        m_hoverRow = row;
+        m_hoverStep = step;
+        repaint();
+    }
+}
+
+// Clears the hover highlight once the cursor leaves the panel
+void ChannelRackPanel::mouseExit(const juce::MouseEvent&) {
+    if (m_hoverRow != -1 || m_hoverStep != -1) {
+        m_hoverRow = -1;
+        m_hoverStep = -1;
+        repaint();
+    }
 }
 
 // Accepts a drag whose description matches the browser's "howl-sample" tag

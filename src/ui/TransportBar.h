@@ -34,6 +34,12 @@ public:
     // Fired when the snap combo's selection changes
     std::function<void(model::SnapDivision)> onSnapChanged;
 
+    // Fired when a view switcher segment is clicked: 0 Arrange, 1 Session, 2 Rack
+    std::function<void(int)> onViewSelected;
+
+    // Highlights the given view switcher segment (0 Arrange, 1 Session, 2 Rack) as active
+    void setActiveView(int index);
+
     void resized() override;
     void paint(juce::Graphics& g) override;
 
@@ -58,6 +64,10 @@ private:
     juce::TextButton m_redoButton { "Redo" };
     juce::TextButton m_mixerButton { "Mixer" };
     juce::ComboBox m_snapCombo;
+
+    juce::TextButton m_arrangeViewButton { "Arrange" };
+    juce::TextButton m_sessionViewButton { "Session" };
+    juce::TextButton m_rackViewButton { "Rack" };
 };
 
 } // namespace howl::ui

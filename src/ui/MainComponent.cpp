@@ -3,6 +3,8 @@
 
 #include "ui/MainComponent.h"
 
+#include "ui/Theme.h"
+
 namespace howl::ui {
 
 // Builds the transport bar, arrange view, session view, and mixer, wires their callbacks
@@ -153,6 +155,10 @@ MainComponent::MainComponent(model::Arrangement& arrangement, engine::Transport&
     m_transportBar.onSnapChanged = [this](model::SnapDivision division) {
         m_snapDivision = division;
     };
+    m_transportBar.onViewSelected = [this](int index) {
+        m_centerView = static_cast<CenterView>(index);
+        updateCenterViewVisibility();
+    };
 
     m_mixerView = std::make_unique<MixerView>(mixer, arrangement, factory, pluginHost,
         commandStack, sampleRate, maxBlockSize);
@@ -179,6 +185,18 @@ MainComponent::MainComponent(model::Arrangement& arrangement, engine::Transport&
     };
     addChildComponent(*m_mixerView);
 
+    m_bottomPanelTitleLabel.setColour(juce::Label::textColourId, theme::kTextPrimary);
+    m_bottomPanelTitleLabel.setColour(juce::Label::backgroundColourId, theme::kPanelBg);
+    addChildComponent(m_bottomPanelTitleLabel);
+
+    m_bottomPanelCloseButton.setTooltip("Close panel");
+    m_bottomPanelCloseButton.onClick = [this] {
+        m_bottomPanel = BottomPanel::None;
+        updateBottomPanelVisibility();
+        resized();
+    };
+    addChildComponent(m_bottomPanelCloseButton);
+
     updateBottomPanelVisibility();
     updateCenterViewVisibility();
 }
@@ -195,6 +213,10 @@ void MainComponent::resized() {
 
     if (m_bottomPanel != BottomPanel::None) {
         auto bottomBounds = bounds.removeFromBottom(kBottomPanelHeight);
+
+        auto titleStrip = bottomBounds.removeFromTop(kBottomPanelTitleHeight);
+        m_bottomPanelCloseButton.setBounds(titleStrip.removeFromRight(titleStrip.getHeight()));
+        m_bottomPanelTitleLabel.setBounds(titleStrip);
 
         if (m_bottomPanel == BottomPanel::PianoRoll && m_pianoRoll != nullptr) {
             m_pianoRoll->setBounds(bottomBounds);
@@ -264,6 +286,7 @@ void MainComponent::showPianoRollFor(std::size_t trackIndex, std::size_t placeme
         m_transport, m_sampleRate, [this] { return m_snapDivision; });
     addAndMakeVisible(*m_pianoRoll);
 
+    setBottomPanelTitle("Piano Roll - " + juce::String(m_arrangement.track(trackIndex).name));
     m_bottomPanel = BottomPanel::PianoRoll;
     updateBottomPanelVisibility();
     resized();
@@ -284,6 +307,7 @@ void MainComponent::showPianoRollForSession(std::size_t trackIndex, std::size_t 
         m_transport, m_sampleRate, [this] { return m_snapDivision; });
     addAndMakeVisible(*m_pianoRoll);
 
+    setBottomPanelTitle("Piano Roll - " + juce::String(m_arrangement.track(trackIndex).name) + " (Session)");
     m_bottomPanel = BottomPanel::PianoRoll;
     updateBottomPanelVisibility();
     resized();
@@ -299,6 +323,15 @@ void MainComponent::showPianoRollForPattern(model::ClipAddress address) {
         m_transport, m_sampleRate, [this] { return m_snapDivision; });
     addAndMakeVisible(*m_pianoRoll);
 
+    juce::String title = "Piano Roll";
+    if (address.slotIndex < m_patterns.numPatterns()) {
+        title << " - " << juce::String(m_patterns.pattern(address.slotIndex).name);
+    }
+    if (address.trackIndex < m_arrangement.numTracks()) {
+        title << " / " << juce::String(m_arrangement.track(address.trackIndex).name);
+    }
+    setBottomPanelTitle(title);
+
     m_bottomPanel = BottomPanel::PianoRoll;
     updateBottomPanelVisibility();
     resized();
@@ -309,6 +342,7 @@ void MainComponent::toggleMixer() {
     if (m_bottomPanel == BottomPanel::Mixer) {
         m_bottomPanel = BottomPanel::None;
     } else {
+        setBottomPanelTitle("Mixer");
         m_bottomPanel = BottomPanel::Mixer;
     }
 
@@ -331,6 +365,7 @@ void MainComponent::showAutomationEditorFor(std::size_t trackIndex) {
         });
     addAndMakeVisible(*m_automationEditor);
 
+    setBottomPanelTitle("Automation - " + juce::String(m_arrangement.track(trackIndex).name));
     m_bottomPanel = BottomPanel::Automation;
     updateBottomPanelVisibility();
     resized();
@@ -391,9 +426,10 @@ juce::PopupMenu MainComponent::getMenuForIndex(int topLevelMenuIndex, const juce
         menu.addItem(3, "Redo");
     } else if (topLevelMenuIndex == 2) {
         menu.addItem(4, "Toggle Mixer");
-        menu.addItem(9, "Toggle Session View");
-        menu.addItem(12, "Browser");
+        menu.addItem(9, "Arrange");
+        menu.addItem(14, "Session");
         menu.addItem(13, "Channel Rack");
+        menu.addItem(12, "Browser");
     } else if (topLevelMenuIndex == 3) {
         const bool sandboxOn = isSandboxEnabled ? isSandboxEnabled() : true;
         menu.addItem(11, "Sandbox Plugins", true, sandboxOn);
@@ -442,7 +478,8 @@ void MainComponent::menuItemSelected(int menuItemID, int) {
             }
             break;
         case 9:
-            toggleCenterView();
+            m_centerView = CenterView::Arrange;
+            updateCenterViewVisibility();
             break;
         case 10:
             if (onExportAudioRequested) {
@@ -460,6 +497,10 @@ void MainComponent::menuItemSelected(int menuItemID, int) {
             break;
         case 13:
             m_centerView = CenterView::Rack;
+            updateCenterViewVisibility();
+            break;
+        case 14:
+            m_centerView = CenterView::Session;
             updateCenterViewVisibility();
             break;
         default:
@@ -480,13 +521,24 @@ void MainComponent::updateBottomPanelVisibility() {
     if (m_automationEditor != nullptr) {
         m_automationEditor->setVisible(m_bottomPanel == BottomPanel::Automation);
     }
+
+    const bool showTitleStrip = m_bottomPanel != BottomPanel::None;
+    m_bottomPanelTitleLabel.setVisible(showTitleStrip);
+    m_bottomPanelCloseButton.setVisible(showTitleStrip);
 }
 
-// Shows only the component matching m_centerView, hides the others
+// Sets the bottom panel title strip's text and shows the strip
+void MainComponent::setBottomPanelTitle(const juce::String& title) {
+    m_bottomPanelTitleLabel.setText(title, juce::dontSendNotification);
+}
+
+// Shows only the component matching m_centerView, hides the others, and syncs the
+// transport bar's view switcher so it always reflects however the view actually changed
 void MainComponent::updateCenterViewVisibility() {
     m_arrangeView.setVisible(m_centerView == CenterView::Arrange);
     m_sessionView->setVisible(m_centerView == CenterView::Session);
     m_channelRackPanel->setVisible(m_centerView == CenterView::Rack);
+    m_transportBar.setActiveView(static_cast<int>(m_centerView));
 }
 
 } // namespace howl::ui

@@ -191,9 +191,9 @@ public:
         return m_mainComponent;
     }
 
-    // Sets the title bar to "Howl"
+    // Sets the title bar to "Howl", or "<project> - Howl" once a project has a name
     void setProjectTitle(const juce::String& fileName) {
-        setName(fileName.isEmpty() ? juce::String("Howl") : "Howl - " + fileName);
+        setName(fileName.isEmpty() ? juce::String("Howl") : fileName + " - Howl");
     }
 
 private:
@@ -1104,7 +1104,7 @@ private:
         }
 
         m_currentProjectFile = file;
-        m_mainWindow->setProjectTitle(file.getFileName());
+        m_mainWindow->setProjectTitle(file.getFileNameWithoutExtension());
     }
 
     // Saves to the current file, or prompts for one if this session has never been saved
@@ -1205,7 +1205,7 @@ private:
         applyTrackInstruments();
 
         m_currentProjectFile = sourceFile;
-        m_mainWindow->setProjectTitle(sourceFile == juce::File() ? juce::String() : sourceFile.getFileName());
+        m_mainWindow->setProjectTitle(sourceFile == juce::File() ? juce::String() : sourceFile.getFileNameWithoutExtension());
 
         rewarpAllClips(); // stops/starts the device, rewarps every clip, refreshes all views
     }

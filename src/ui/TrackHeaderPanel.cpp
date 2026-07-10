@@ -167,7 +167,9 @@ void TrackHeaderPanel::refreshFromModel() {
 
         if (track.kind == model::TrackKind::Midi) {
             row.instrumentButton = std::make_unique<InstrumentButton>();
-            row.instrumentButton->setButtonText(instrumentNameFor ? instrumentNameFor(i) : juce::String());
+            const juce::String initialInstrumentName = instrumentNameFor ? instrumentNameFor(i) : juce::String();
+            row.instrumentButton->setButtonText(initialInstrumentName);
+            row.instrumentButton->setTooltip(initialInstrumentName + " (right click for options)");
             row.instrumentButton->onClick = [this, i] {
                 if (onInstrumentPickRequested) {
                     onInstrumentPickRequested(i);
@@ -182,6 +184,9 @@ void TrackHeaderPanel::refreshFromModel() {
         row.muteButton = std::make_unique<juce::TextButton>("M");
         row.muteButton->setClickingTogglesState(true);
         row.muteButton->setToggleState(m_mixer.trackStrip(i).muted(), juce::dontSendNotification);
+        row.muteButton->setColour(juce::TextButton::buttonOnColourId, theme::kAccent);
+        row.muteButton->setColour(juce::TextButton::textColourOffId, theme::kTextSecondary);
+        row.muteButton->setTooltip("Mute track");
         juce::TextButton* muteButtonPtr = row.muteButton.get();
         row.muteButton->onClick = [this, i, muteButtonPtr] {
             m_mixer.trackStrip(i).setMuted(muteButtonPtr->getToggleState());
@@ -191,6 +196,9 @@ void TrackHeaderPanel::refreshFromModel() {
         row.soloButton = std::make_unique<juce::TextButton>("S");
         row.soloButton->setClickingTogglesState(true);
         row.soloButton->setToggleState(m_mixer.trackStrip(i).soloed(), juce::dontSendNotification);
+        row.soloButton->setColour(juce::TextButton::buttonOnColourId, theme::kAudio);
+        row.soloButton->setColour(juce::TextButton::textColourOffId, theme::kTextSecondary);
+        row.soloButton->setTooltip("Solo track");
         juce::TextButton* soloButtonPtr = row.soloButton.get();
         row.soloButton->onClick = [this, i, soloButtonPtr] {
             m_mixer.trackStrip(i).setSoloed(soloButtonPtr->getToggleState());
@@ -224,6 +232,7 @@ void TrackHeaderPanel::timerCallback() {
             m_rows[i].instrumentButton->removeColour(juce::TextButton::textColourOffId);
         }
         m_rows[i].instrumentButton->setButtonText(text);
+        m_rows[i].instrumentButton->setTooltip(text + " (right click for options)");
     }
 }
 
@@ -232,9 +241,10 @@ void TrackHeaderPanel::showRemoveTrackMenu(std::size_t trackIndex) {
     const bool frozen = isTrackFrozen && isTrackFrozen(trackIndex);
 
     juce::PopupMenu menu;
-    menu.addItem(1, "Remove Track");
     menu.addItem(2, frozen ? "Unfreeze Track" : "Freeze Track");
     menu.addItem(3, "Automation...");
+    menu.addSeparator();
+    menu.addItem(1, "Remove Track");
 
     menu.showMenuAsync(juce::PopupMenu::Options(), [this, trackIndex, frozen](int result) {
         if (result == 1) {
