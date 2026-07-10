@@ -111,6 +111,47 @@ juce::var midiClipToVar(const model::MidiClipPlacement& placement) {
     return juce::var(obj);
 }
 
+// Writes one pattern lane's own content (length and notes), null for an untouched lane
+// (default length, no notes), never a placement, patterns are not placements themselves
+juce::var patternLaneToVar(const model::MidiClip& clip) {
+    if (clip.lengthTicks() == 0 && clip.notes().empty()) {
+        return juce::var();
+    }
+
+    auto* obj = new juce::DynamicObject();
+    obj->setProperty("lengthTicks", static_cast<juce::int64>(clip.lengthTicks()));
+
+    juce::Array<juce::var> notes;
+    for (const auto& note : clip.notes()) {
+        notes.add(noteToVar(note));
+    }
+    obj->setProperty("notes", notes);
+
+    return juce::var(obj);
+}
+
+// Writes one pattern's JSON entry: its name and one lane entry per arrangement track
+juce::var patternToVar(const model::Pattern& pattern) {
+    auto* obj = new juce::DynamicObject();
+    obj->setProperty("name", juce::String(pattern.name));
+
+    juce::Array<juce::var> trackClips;
+    for (const auto& clip : pattern.trackClips) {
+        trackClips.add(patternLaneToVar(clip));
+    }
+    obj->setProperty("trackClips", trackClips);
+
+    return juce::var(obj);
+}
+
+// Writes one pattern placement's JSON entry
+juce::var patternPlacementToVar(const model::PatternPlacement& placement) {
+    auto* obj = new juce::DynamicObject();
+    obj->setProperty("pattern", static_cast<int>(placement.patternIndex));
+    obj->setProperty("startTick", static_cast<juce::int64>(placement.startTick));
+    return juce::var(obj);
+}
+
 // Writes one audio clip placement's JSON entry, sourcePath and warp fields, never samples
 juce::var audioClipToVar(const model::AudioClipPlacement& placement) {
     auto* obj = new juce::DynamicObject();
@@ -302,13 +343,38 @@ void applyStripVar(const juce::var& stripVar, model::ChannelStrip& strip, engine
     }
 }
 
+// Reads a pattern lane's own content (length and notes) from clipVar, an empty default clip
+// when clipVar is null (an untouched lane)
+model::MidiClip patternLaneFromVar(const juce::var& clipVar) {
+    model::MidiClip clip;
+    if (clipVar.isVoid() || clipVar.isUndefined()) {
+        return clip;
+    }
+
+    clip.setLengthTicks(static_cast<int64_t>(static_cast<juce::int64>(clipVar.getProperty("lengthTicks", 0))));
+
+    if (const auto* notesArray = clipVar.getProperty("notes", juce::var()).getArray()) {
+        for (const auto& noteVar : *notesArray) {
+            model::Note note {
+                static_cast<int>(noteVar.getProperty("key", 60)),
+                static_cast<float>(static_cast<double>(noteVar.getProperty("velocity", 1.0))),
+                static_cast<int64_t>(static_cast<juce::int64>(noteVar.getProperty("startTick", 0))),
+                static_cast<int64_t>(static_cast<juce::int64>(noteVar.getProperty("lengthTicks", 0)))
+            };
+            clip.addNote(note);
+        }
+    }
+
+    return clip;
+}
+
 } // namespace
 
 // Serializes the session to .howl JSON text; instruments is a juce::var array, one entry
 // per track (in track order), built by the app
 juce::String ProjectSerializer::save(const model::Arrangement& arrangement, model::Mixer& mixer,
-                                     const model::Session& session, const juce::var& instruments, double tempo,
-                                     const juce::var& midiMappings) {
+                                     const model::Session& session, const model::PatternBank& patterns,
+                                     const juce::var& instruments, double tempo, const juce::var& midiMappings) {
     auto* root = new juce::DynamicObject();
     root->setProperty("version", 1);
     root->setProperty("tempo", tempo);
@@ -333,17 +399,29 @@ juce::String ProjectSerializer::save(const model::Arrangement& arrangement, mode
     root->setProperty("session", sessionToVar(session));
     root->setProperty("midiMappings", midiMappings);
 
+    juce::Array<juce::var> patternsArray;
+    for (std::size_t i = 0; i < patterns.numPatterns(); ++i) {
+        patternsArray.add(patternToVar(patterns.pattern(i)));
+    }
+    root->setProperty("patterns", patternsArray);
+
+    juce::Array<juce::var> patternPlacementsArray;
+    for (const auto& placement : patterns.placements()) {
+        patternPlacementsArray.add(patternPlacementToVar(placement));
+    }
+    root->setProperty("patternPlacements", patternPlacementsArray);
+
     return juce::JSON::toString(juce::var(root));
 }
 
-// Parses json and rebuilds into arrangement/mixer (mixer is reset() then rebuilt in place).
-// Built-in effects come from factory; plugin effects come from pluginHost and are skipped
-// (with a log line) when pluginHost is null or the plugin cannot be found. Returns false
-// only on JSON parse failure
+// Parses json and rebuilds into arrangement/mixer/patterns (mixer is reset() then rebuilt in
+// place). Built-in effects come from factory; plugin effects come from pluginHost and are
+// skipped (with a log line) when pluginHost is null or the plugin cannot be found. Returns
+// false only on JSON parse failure
 bool ProjectSerializer::load(const juce::String& json, model::Arrangement& arrangement,
-                             model::Mixer& mixer, model::Session& session, engine::IEffectFactory& factory,
-                             plugins::IPluginHost* pluginHost, juce::var& instrumentsOut,
-                             double& tempoOut, juce::var& midiMappingsOut) {
+                             model::Mixer& mixer, model::Session& session, model::PatternBank& patterns,
+                             engine::IEffectFactory& factory, plugins::IPluginHost* pluginHost,
+                             juce::var& instrumentsOut, double& tempoOut, juce::var& midiMappingsOut) {
     juce::var parsed;
     const juce::Result parseResult = juce::JSON::parse(json, parsed);
     if (parseResult.failed() || !parsed.isObject()) {
@@ -523,6 +601,30 @@ bool ProjectSerializer::load(const juce::String& json, model::Arrangement& arran
     applyStripVar(parsed.getProperty("masterStrip", juce::var()), mixer.masterStrip(), factory, pluginHost);
 
     mixer.updateLatencies();
+
+    patterns = model::PatternBank();
+
+    if (const auto* patternsArray = parsed.getProperty("patterns", juce::var()).getArray()) {
+        for (const auto& patternVar : *patternsArray) {
+            const std::string name = patternVar.getProperty("name", juce::var()).toString().toStdString();
+            const std::size_t patternIndex = patterns.addPattern(name, arrangement.numTracks());
+
+            if (const auto* trackClipsArray = patternVar.getProperty("trackClips", juce::var()).getArray()) {
+                for (int t = 0; t < trackClipsArray->size() && static_cast<std::size_t>(t) < arrangement.numTracks(); ++t) {
+                    patterns.pattern(patternIndex).trackClips[static_cast<std::size_t>(t)] =
+                        patternLaneFromVar((*trackClipsArray)[t]);
+                }
+            }
+        }
+    }
+
+    if (const auto* patternPlacementsArray = parsed.getProperty("patternPlacements", juce::var()).getArray()) {
+        for (const auto& placementVar : *patternPlacementsArray) {
+            const auto patternIndex = static_cast<std::size_t>(static_cast<int>(placementVar.getProperty("pattern", 0)));
+            const int64_t startTick = static_cast<int64_t>(static_cast<juce::int64>(placementVar.getProperty("startTick", 0)));
+            patterns.addPlacement(model::PatternPlacement { patternIndex, startTick });
+        }
+    }
 
     return true;
 }

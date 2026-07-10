@@ -10,6 +10,7 @@
 #include "model/MidiClip.h"
 #include "model/Mixer.h"
 #include "model/Note.h"
+#include "model/Pattern.h"
 #include "model/Session.h"
 #include "plugins/IPluginInstance.h"
 #include "plugins/PluginDescriptor.h"
@@ -33,6 +34,8 @@ using howl::model::MidiClip;
 using howl::model::MidiClipPlacement;
 using howl::model::Mixer;
 using howl::model::Note;
+using howl::model::PatternBank;
+using howl::model::PatternPlacement;
 using howl::model::Send;
 using howl::model::Session;
 using howl::model::SlotContent;
@@ -172,6 +175,8 @@ TEST_CASE("ProjectSerializer round-trips tracks, clips, mixer state, effects, se
     laneSlot.lane.addPoint(AutomationPoint { 960, 0.9f });
     arrangement.track(midiTrack).automation.push_back(laneSlot);
 
+    PatternBank patterns; // not this test's concern, covered by its own round trip test
+
     const double tempo = 98.5;
     const juce::var instruments; // not this test's concern
 
@@ -185,7 +190,8 @@ TEST_CASE("ProjectSerializer round-trips tracks, clips, mixer state, effects, se
     mappingsArray.add(juce::var(mappingObj));
     const juce::var midiMappings(mappingsArray);
 
-    const juce::String json = ProjectSerializer::save(arrangement, mixer, session, instruments, tempo, midiMappings);
+    const juce::String json = ProjectSerializer::save(arrangement, mixer, session, patterns, instruments, tempo,
+        midiMappings);
     REQUIRE(json.contains("\"version\""));
 
     juce::var parsed;
@@ -195,12 +201,13 @@ TEST_CASE("ProjectSerializer round-trips tracks, clips, mixer state, effects, se
     Arrangement loadedArrangement;
     Mixer loadedMixer;
     Session loadedSession;
+    PatternBank loadedPatterns;
     juce::var loadedInstruments;
     double loadedTempo = 0.0;
     juce::var loadedMidiMappings;
 
-    const bool ok = ProjectSerializer::load(json, loadedArrangement, loadedMixer, loadedSession, factory, nullptr,
-        loadedInstruments, loadedTempo, loadedMidiMappings);
+    const bool ok = ProjectSerializer::load(json, loadedArrangement, loadedMixer, loadedSession, loadedPatterns,
+        factory, nullptr, loadedInstruments, loadedTempo, loadedMidiMappings);
     REQUIRE(ok);
     REQUIRE(loadedTempo == Catch::Approx(98.5));
 
@@ -287,12 +294,13 @@ TEST_CASE("ProjectSerializer.load is forward-tolerant of an unrecognized version
     Arrangement arrangement;
     Mixer mixer;
     Session session;
+    PatternBank patterns;
     juce::var instruments;
     double tempo = 0.0;
     juce::var midiMappings;
 
-    const bool ok = ProjectSerializer::load(json, arrangement, mixer, session, factory, nullptr, instruments, tempo,
-        midiMappings);
+    const bool ok = ProjectSerializer::load(json, arrangement, mixer, session, patterns, factory, nullptr,
+        instruments, tempo, midiMappings);
     REQUIRE(ok);
     REQUIRE(tempo == Catch::Approx(140.0));
     REQUIRE(arrangement.numTracks() == 1);
@@ -306,6 +314,10 @@ TEST_CASE("ProjectSerializer.load is forward-tolerant of an unrecognized version
     // No "automation" or "midiMappings" keys in this version 2 file: empty, not a crash
     REQUIRE(arrangement.track(0).automation.empty());
     REQUIRE(midiMappings.isVoid());
+
+    // No "patterns"/"patternPlacements" keys either: an empty bank, not a crash
+    REQUIRE(patterns.numPatterns() == 0);
+    REQUIRE(patterns.placements().empty());
 }
 
 TEST_CASE("ProjectSerializer defaults a placement's muted flag to false when the key is absent", "[projectserializer]") {
@@ -332,12 +344,13 @@ TEST_CASE("ProjectSerializer defaults a placement's muted flag to false when the
     Arrangement arrangement;
     Mixer mixer;
     Session session;
+    PatternBank patterns;
     juce::var instruments;
     double tempo = 0.0;
     juce::var midiMappings;
 
-    const bool ok = ProjectSerializer::load(json, arrangement, mixer, session, factory, nullptr, instruments, tempo,
-        midiMappings);
+    const bool ok = ProjectSerializer::load(json, arrangement, mixer, session, patterns, factory, nullptr,
+        instruments, tempo, midiMappings);
     REQUIRE(ok);
     REQUIRE_FALSE(arrangement.track(0).midiClips[0].muted);
     REQUIRE_FALSE(arrangement.track(1).audioClips[0].muted);
@@ -364,22 +377,87 @@ TEST_CASE("ProjectSerializer preserves a plugin effect's state bytes exactly thr
 
     const juce::var instruments;
     const juce::var midiMappings;
-    const juce::String json = ProjectSerializer::save(arrangement, mixer, Session(), instruments, 120.0, midiMappings);
+    PatternBank patterns;
+    const juce::String json = ProjectSerializer::save(arrangement, mixer, Session(), patterns, instruments, 120.0,
+        midiMappings);
 
     StatefulStubPluginHost host;
 
     Arrangement loadedArrangement;
     Mixer loadedMixer;
     Session loadedSession;
+    PatternBank loadedPatterns;
     juce::var loadedInstruments;
     double loadedTempo = 0.0;
     juce::var loadedMidiMappings;
 
-    const bool ok = ProjectSerializer::load(json, loadedArrangement, loadedMixer, loadedSession, factory, &host,
-        loadedInstruments, loadedTempo, loadedMidiMappings);
+    const bool ok = ProjectSerializer::load(json, loadedArrangement, loadedMixer, loadedSession, loadedPatterns,
+        factory, &host, loadedInstruments, loadedTempo, loadedMidiMappings);
     REQUIRE(ok);
 
     REQUIRE(loadedMixer.trackStrip(track).effects().size() == 1);
     REQUIRE(host.lastInstantiated != nullptr);
     REQUIRE(host.lastInstantiated->lastLoadedState == seedBytes);
+}
+
+TEST_CASE("ProjectSerializer round trips a pattern bank's notes and placements", "[projectserializer]") {
+    Arrangement arrangement;
+    Mixer mixer;
+    BuiltInEffectFactory factory;
+
+    arrangement.addTrack("Lead", TrackKind::Midi);
+    arrangement.addTrack("Bass", TrackKind::Midi);
+    mixer.prepare(arrangement.numTracks(), 44100.0, 512, 2);
+
+    PatternBank patterns;
+    const std::size_t patternA = patterns.addPattern("Verse", 2);
+    patterns.pattern(patternA).trackClips[0].setLengthTicks(1920);
+    patterns.pattern(patternA).trackClips[0].addNote(Note { 60, 0.8f, 0, 480 });
+    patterns.pattern(patternA).trackClips[1].setLengthTicks(960);
+    patterns.pattern(patternA).trackClips[1].addNote(Note { 36, 1.0f, 0, 240 });
+
+    const std::size_t patternB = patterns.addPattern("Chorus", 2);
+    patterns.pattern(patternB).trackClips[0].setLengthTicks(3840);
+    patterns.pattern(patternB).trackClips[0].addNote(Note { 67, 0.9f, 0, 960 });
+    // patternB's second lane is deliberately left untouched, the default/null lane path
+
+    patterns.addPlacement(PatternPlacement { patternA, 0 });
+    patterns.addPlacement(PatternPlacement { patternB, 3840 });
+
+    const juce::var instruments;
+    const juce::var midiMappings;
+    const juce::String json = ProjectSerializer::save(arrangement, mixer, Session(), patterns, instruments, 120.0,
+        midiMappings);
+
+    Arrangement loadedArrangement;
+    Mixer loadedMixer;
+    Session loadedSession;
+    PatternBank loadedPatterns;
+    juce::var loadedInstruments;
+    double loadedTempo = 0.0;
+    juce::var loadedMidiMappings;
+
+    const bool ok = ProjectSerializer::load(json, loadedArrangement, loadedMixer, loadedSession, loadedPatterns,
+        factory, nullptr, loadedInstruments, loadedTempo, loadedMidiMappings);
+    REQUIRE(ok);
+
+    REQUIRE(loadedPatterns.numPatterns() == 2);
+    REQUIRE(loadedPatterns.pattern(patternA).name == "Verse");
+    REQUIRE(loadedPatterns.pattern(patternA).trackClips.size() == 2);
+    REQUIRE(loadedPatterns.pattern(patternA).trackClips[0].lengthTicks() == 1920);
+    REQUIRE(loadedPatterns.pattern(patternA).trackClips[0].notes().size() == 1);
+    REQUIRE(loadedPatterns.pattern(patternA).trackClips[0].notes()[0].key == 60);
+    REQUIRE(loadedPatterns.pattern(patternA).trackClips[1].lengthTicks() == 960);
+    REQUIRE(loadedPatterns.pattern(patternA).trackClips[1].notes()[0].key == 36);
+
+    REQUIRE(loadedPatterns.pattern(patternB).name == "Chorus");
+    REQUIRE(loadedPatterns.pattern(patternB).trackClips[0].notes()[0].key == 67);
+    REQUIRE(loadedPatterns.pattern(patternB).trackClips[1].lengthTicks() == 0);
+    REQUIRE(loadedPatterns.pattern(patternB).trackClips[1].notes().empty());
+
+    REQUIRE(loadedPatterns.placements().size() == 2);
+    REQUIRE(loadedPatterns.placements()[0].patternIndex == patternA);
+    REQUIRE(loadedPatterns.placements()[0].startTick == 0);
+    REQUIRE(loadedPatterns.placements()[1].patternIndex == patternB);
+    REQUIRE(loadedPatterns.placements()[1].startTick == 3840);
 }

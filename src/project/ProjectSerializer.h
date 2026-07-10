@@ -6,6 +6,7 @@
 #include "engine/EffectFactory.h"
 #include "model/Arrangement.h"
 #include "model/Mixer.h"
+#include "model/Pattern.h"
 #include "model/Session.h"
 #include "plugins/IPluginInstance.h"
 
@@ -22,28 +23,32 @@ class ProjectSerializer {
 public:
     // Serializes the session to .howl JSON text; instruments is a juce::var array, one entry
     // per track (in track order), built by the app: null for audio tracks,
-    // { "kind": "subtractive", "params": [...] } or
-    // { "kind": "plugin", "name", "format", "path", "state": "<Base64>" } for MIDI tracks.
+    // { "kind": "subtractive", "params": [...] },
+    // { "kind": "plugin", "name", "format", "path", "state": "<Base64>" }, or
+    // { "kind": "sampler", "path", "level" } for MIDI tracks.
     // midiMappings is likewise an opaque juce::var array built by the app, one entry per
     // learned CC binding. Each track's automation lanes are model data and are read and
     // written directly by this class. Session slots and audio clips also carry
-    // originalBpm/warpEnabled, additive fields under the same "version": 1
+    // originalBpm/warpEnabled, additive fields under the same "version": 1. patterns is
+    // likewise additive: every pattern's name and per track lane clip, plus every placement
     static juce::String save(const model::Arrangement& arrangement, model::Mixer& mixer,
-                             const model::Session& session, const juce::var& instruments, double tempo,
-                             const juce::var& midiMappings);
+                             const model::Session& session, const model::PatternBank& patterns,
+                             const juce::var& instruments, double tempo, const juce::var& midiMappings);
 
-    // Parses json and rebuilds into arrangement/mixer/session (mixer is reset() then rebuilt
-    // in place, ArrangementNode owns it and cannot be replaced; session is replaced outright).
-    // Built-in effects are created via factory; plugin effects are instantiated via pluginHost
-    // and skipped (with a juce::Logger line) when pluginHost is null or the plugin cannot be
-    // found. Returns false only on JSON parse failure. instrumentsOut/midiMappingsOut/tempoOut
-    // are filled for the app to rebuild instruments and mappings the same way save()'s
-    // matching parameters were built; midiMappingsOut is a void var when the key is absent.
-    // An absent "session" key (older files) loads as an empty grid sized to the track count
+    // Parses json and rebuilds into arrangement/mixer/session/patterns (mixer is reset() then
+    // rebuilt in place, ArrangementNode owns it and cannot be replaced; session and patterns
+    // are replaced outright). Built-in effects are created via factory; plugin effects are
+    // instantiated via pluginHost and skipped (with a juce::Logger line) when pluginHost is
+    // null or the plugin cannot be found. Returns false only on JSON parse failure.
+    // instrumentsOut/midiMappingsOut/tempoOut are filled for the app to rebuild instruments
+    // and mappings the same way save()'s matching parameters were built; midiMappingsOut is a
+    // void var when the key is absent. An absent "session" key (older files) loads as an
+    // empty grid sized to the track count; an absent "patterns"/"patternPlacements" key
+    // likewise loads an empty bank
     static bool load(const juce::String& json, model::Arrangement& arrangement,
-                     model::Mixer& mixer, model::Session& session, engine::IEffectFactory& factory,
-                     plugins::IPluginHost* pluginHost, juce::var& instrumentsOut,
-                     double& tempoOut, juce::var& midiMappingsOut);
+                     model::Mixer& mixer, model::Session& session, model::PatternBank& patterns,
+                     engine::IEffectFactory& factory, plugins::IPluginHost* pluginHost,
+                     juce::var& instrumentsOut, double& tempoOut, juce::var& midiMappingsOut);
 };
 
 } // namespace howl::project

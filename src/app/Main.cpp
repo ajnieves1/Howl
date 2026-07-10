@@ -1092,7 +1092,7 @@ private:
     void saveProject(const juce::File& file)
     {
         const juce::String json = project::ProjectSerializer::save(m_arrangement, m_arrangementNode->mixer(),
-            m_session, buildInstrumentsVar(), m_transport.tempo(), buildMidiMappingsVar());
+            m_session, m_patterns, buildInstrumentsVar(), m_transport.tempo(), buildMidiMappingsVar());
 
         if (!file.replaceWithText(json)) {
             juce::Logger::writeToLog("Howl: failed to write project file " + file.getFullPathName());
@@ -1163,7 +1163,7 @@ private:
         juce::var midiMappingsVar;
 
         const bool ok = project::ProjectSerializer::load(json, m_arrangement, m_arrangementNode->mixer(),
-            m_session, m_effectFactory, &m_pluginHost, instrumentsVar, tempo, midiMappingsVar);
+            m_session, m_patterns, m_effectFactory, &m_pluginHost, instrumentsVar, tempo, midiMappingsVar);
 
         if (!ok) {
             juce::Logger::writeToLog("Howl: failed to parse project file");
