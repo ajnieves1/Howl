@@ -34,6 +34,7 @@
 #include "ui/MainComponent.h"
 #include "ui/PluginWindow.h"
 
+#include <juce_audio_utils/juce_audio_utils.h>
 #include <juce_core/juce_core.h>
 #include <juce_events/juce_events.h>
 #include <juce_gui_basics/juce_gui_basics.h>
@@ -81,6 +82,55 @@ private:
 
     io::AudioDevice& m_device;
     int m_secondsElapsed = 0;
+};
+
+// Runs a callback whenever the audio device manager's setup changes, so the new
+// state can be persisted
+class AudioDeviceStateSaver : public juce::ChangeListener {
+public:
+    // Stores the callback to run on each change
+    explicit AudioDeviceStateSaver(std::function<void()> onChanged)
+        : m_onChanged(std::move(onChanged))
+    {
+    }
+
+    // Runs the stored callback
+    void changeListenerCallback(juce::ChangeBroadcaster*) override {
+        if (m_onChanged) {
+            m_onChanged();
+        }
+    }
+
+private:
+    std::function<void()> m_onChanged;
+};
+
+// Host chrome for the audio device selector; closes itself and runs a callback
+// when the user clicks its close button
+class AudioSettingsWindow : public juce::DialogWindow {
+public:
+    // Stores the callback to run when the user clicks the close button
+    explicit AudioSettingsWindow(std::function<void()> onCloseRequested)
+        : DialogWindow("Audio Settings",
+                        juce::Desktop::getInstance().getDefaultLookAndFeel()
+                            .findColour(juce::ResizableWindow::backgroundColourId),
+                        true)
+        , m_onCloseRequested(std::move(onCloseRequested))
+    {
+        setUsingNativeTitleBar(true);
+    }
+
+    // Runs the stored close callback
+    void closeButtonPressed() override {
+        if (m_onCloseRequested) {
+            m_onCloseRequested();
+        }
+    }
+
+private:
+    std::function<void()> m_onCloseRequested;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(AudioSettingsWindow)
 };
 
 // One learned CC to effect parameter binding
@@ -228,10 +278,19 @@ public:
         settingsOptions.osxLibrarySubFolder = "Application Support";
         m_settings = std::make_unique<juce::PropertiesFile>(settingsOptions);
 
-        if (!m_audioDevice.open()) {
+        const std::unique_ptr<juce::XmlElement> audioDeviceState = m_settings->getXmlValue("audioDeviceState");
+        if (!m_audioDevice.open(audioDeviceState.get())) {
             juce::Logger::writeToLog("Howl: failed to open audio device");
             return;
         }
+
+        m_audioDeviceStateSaver = std::make_unique<AudioDeviceStateSaver>([this] {
+            if (auto state = m_audioDevice.manager().createStateXml()) {
+                m_settings->setValue("audioDeviceState", state.get());
+                m_settings->saveIfNeeded();
+            }
+        });
+        m_audioDevice.manager().addChangeListener(m_audioDeviceStateSaver.get());
 
         m_sampleRate = m_audioDevice.getSampleRate();
         m_bufferSize = m_audioDevice.getBufferSize();
@@ -341,6 +400,16 @@ public:
         mainComponent->onExportAudioRequested = [this] {
             exportAudio();
         };
+        mainComponent->recentProjectFiles = [this] {
+            return recentFiles();
+        };
+        mainComponent->onOpenRecentRequested = [this](juce::String path) {
+            const juce::File file(path);
+            loadProjectFromJson(file.loadFileAsString(), file);
+        };
+        mainComponent->onAudioSettingsRequested = [this] {
+            showAudioSettingsDialog();
+        };
         mainComponent->onRewarpRequested = [this] {
             rewarpAllClips();
         };
@@ -415,8 +484,12 @@ public:
     // Stops the xrun watcher, closes the audio device, and closes the window
     void shutdown() override
     {
+        m_audioSettingsWindow.reset();
         m_midiLearnTimer.reset();
         m_xrunWatcher.reset();
+        if (m_audioDeviceStateSaver != nullptr) {
+            m_audioDevice.manager().removeChangeListener(m_audioDeviceStateSaver.get());
+        }
         m_audioDevice.close();
         m_mainWindow.reset();
         if (m_settings != nullptr) {
@@ -1092,6 +1165,55 @@ private:
         }
     }
 
+    // Reads the recent project files list from settings, newest first
+    juce::StringArray recentFiles() const
+    {
+        juce::StringArray files;
+        files.addLines(m_settings->getValue("recentFiles"));
+        files.removeEmptyStrings();
+        return files;
+    }
+
+    // Moves file to the front of the recent files list (deduping), caps at
+    // kMaxRecentFiles, and persists
+    void addRecentFile(const juce::File& file)
+    {
+        juce::StringArray files = recentFiles();
+        const juce::String path = file.getFullPathName();
+        files.removeString(path);
+        files.insert(0, path);
+        while (files.size() > kMaxRecentFiles) {
+            files.remove(files.size() - 1);
+        }
+
+        m_settings->setValue("recentFiles", files.joinIntoString("\n"));
+        m_settings->saveIfNeeded();
+    }
+
+    // Opens the modeless audio settings dialog, or brings the existing one to front
+    void showAudioSettingsDialog()
+    {
+        if (m_audioSettingsWindow != nullptr) {
+            m_audioSettingsWindow->toFront(true);
+            return;
+        }
+
+        m_audioSettingsWindow = std::make_unique<AudioSettingsWindow>([this] {
+            m_audioSettingsWindow.reset();
+        });
+
+        // No input channels: the user does not record live audio into Howl
+        auto selector = std::make_unique<juce::AudioDeviceSelectorComponent>(
+            m_audioDevice.manager(), 0, 0, 2, 2, false, false, true, true);
+        selector->setSize(500, 450);
+
+        m_audioSettingsWindow->setContentOwned(selector.release(), true);
+        m_audioSettingsWindow->setResizable(false, false);
+        m_audioSettingsWindow->centreWithSize(m_audioSettingsWindow->getWidth(), m_audioSettingsWindow->getHeight());
+        m_audioSettingsWindow->setVisible(true);
+        m_audioSettingsWindow->toFront(true);
+    }
+
     // Serializes the current session and writes it to file
     void saveProject(const juce::File& file)
     {
@@ -1104,6 +1226,7 @@ private:
         }
 
         m_currentProjectFile = file;
+        addRecentFile(file);
         m_mainWindow->setProjectTitle(file.getFileNameWithoutExtension());
     }
 
@@ -1205,6 +1328,9 @@ private:
         applyTrackInstruments();
 
         m_currentProjectFile = sourceFile;
+        if (sourceFile != juce::File()) {
+            addRecentFile(sourceFile);
+        }
         m_mainWindow->setProjectTitle(sourceFile == juce::File() ? juce::String() : sourceFile.getFileNameWithoutExtension());
 
         rewarpAllClips(); // stops/starts the device, rewarps every clip, refreshes all views
@@ -1402,6 +1528,8 @@ private:
         loadProjectFromJson(defaultJson, juce::File());
     }
 
+    static constexpr int kMaxRecentFiles = 8;
+
     ui::HowlLookAndFeel m_lookAndFeel;
     engine::Transport m_transport;
     model::Arrangement m_arrangement;
@@ -1428,6 +1556,8 @@ private:
     std::unique_ptr<MainWindow> m_mainWindow;
     std::unique_ptr<XrunWatcher> m_xrunWatcher;
     std::unique_ptr<juce::PropertiesFile> m_settings;
+    std::unique_ptr<AudioDeviceStateSaver> m_audioDeviceStateSaver;
+    std::unique_ptr<juce::DialogWindow> m_audioSettingsWindow;
 };
 
 } // namespace howl

@@ -416,9 +416,23 @@ juce::PopupMenu MainComponent::getMenuForIndex(int topLevelMenuIndex, const juce
     if (topLevelMenuIndex == 0) {
         menu.addItem(5, "New");
         menu.addItem(6, "Open...");
+
+        juce::PopupMenu recentMenu;
+        const juce::StringArray recent = recentProjectFiles ? recentProjectFiles() : juce::StringArray();
+        if (recent.isEmpty()) {
+            recentMenu.addItem(kRecentFileMenuIdBase - 1, "No Recent Files", false);
+        } else {
+            for (int i = 0; i < recent.size(); ++i) {
+                recentMenu.addItem(kRecentFileMenuIdBase + i, recent[i]);
+            }
+        }
+        menu.addSubMenu("Open Recent", recentMenu);
+
         menu.addItem(7, "Save");
         menu.addItem(8, "Save As...");
         menu.addItem(10, "Export Audio...");
+        menu.addSeparator();
+        menu.addItem(15, "Audio Settings...");
         menu.addSeparator();
         menu.addItem(1, "Import Audio...");
     } else if (topLevelMenuIndex == 1) {
@@ -503,7 +517,19 @@ void MainComponent::menuItemSelected(int menuItemID, int) {
             m_centerView = CenterView::Session;
             updateCenterViewVisibility();
             break;
+        case 15:
+            if (onAudioSettingsRequested) {
+                onAudioSettingsRequested();
+            }
+            break;
         default:
+            if (menuItemID >= kRecentFileMenuIdBase && onOpenRecentRequested && recentProjectFiles) {
+                const juce::StringArray recent = recentProjectFiles();
+                const int index = menuItemID - kRecentFileMenuIdBase;
+                if (index >= 0 && index < recent.size()) {
+                    onOpenRecentRequested(recent[index]);
+                }
+            }
             break;
     }
 }

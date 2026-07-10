@@ -22,8 +22,9 @@ public:
     // Closes the device if still open
     ~AudioDevice() override;
 
-    // Opens the default audio output device, returns false on failure
-    bool open();
+    // Opens the audio output device; restores savedState if given, otherwise opens the
+    // default device. Returns false on failure
+    bool open(const juce::XmlElement* savedState = nullptr);
 
     // Starts calling the callback on the audio thread once per block, call after open()
     void start(AudioCallback callback);
@@ -42,6 +43,9 @@ public:
 
     // Number of buffer under/overruns reported by the OS, -1 if unsupported
     int getXRunCount() const;
+
+    // Returns the underlying device manager, for the settings dialog
+    juce::AudioDeviceManager& manager();
 
 private:
     // Max output channels staged here, fixed so the [RT] callback never grows this array

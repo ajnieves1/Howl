@@ -17,9 +17,9 @@ AudioDevice::~AudioDevice() {
     close();
 }
 
-// Initialises the default audio devices
-bool AudioDevice::open() {
-    const juce::String error = m_deviceManager.initialiseWithDefaultDevices(0, 2);
+// Initialises the audio devices, restoring savedState if given
+bool AudioDevice::open(const juce::XmlElement* savedState) {
+    const juce::String error = m_deviceManager.initialise(0, 2, savedState, true);
     return error.isEmpty();
 }
 
@@ -62,6 +62,11 @@ int AudioDevice::getXRunCount() const {
         return device->getXRunCount();
     }
     return -1;
+}
+
+// Returns the underlying device manager, for the settings dialog
+juce::AudioDeviceManager& AudioDevice::manager() {
+    return m_deviceManager;
 }
 
 // [RT] Fills one block of output via the user callback
