@@ -1,7 +1,6 @@
 # Howl
 
-<img width="1909" height="1023" alt="image" src="https://github.com/user-attachments/assets/2b4b918e-3d8f-4f1d-9922-b781abd0f570" />
-
+![Howl](docs/image.png)
 
 Howl is a digital audio workstation written in C++20 on the JUCE 8 framework. It covers the core of what a DAW needs, a timeline, a piano roll, a session grid, a mixer, plugin hosting, and clean offline rendering, without the bloat that piles up in commercial products, and most importantly, supports VST3.
 
@@ -18,6 +17,8 @@ Howl is a digital audio workstation written in C++20 on the JUCE 8 framework. It
 - Audio warping through the Rubber Band time stretcher
 - Instrument parameter automation lanes evaluated during playback
 - WAV import and 24 bit WAV export through a deterministic offline renderer
+- Recent files and an audio device settings dialog
+- Autosave with crash recovery and unsaved changes guards
 - Project save and load as plain JSON text (.howl files)
 
 ## Building
@@ -29,9 +30,9 @@ cmake -B build -G Ninja
 cmake --build build
 ```
 
-The app target is `Howl`. 
+The app target is `Howl`.
 
-You are able to run the app's binary from build/src/Howl_artefacts 
+You are able to run the app's binary from build/src/app/Howl_artefacts
 
 ## Tests
 
@@ -40,6 +41,26 @@ ctest --test-dir build
 ```
 
 Unit tests cover the audio engine, the mixer, DSP, plugin adapters, serialization, and golden render checks that ensure offline output is deterministic
+
+## Shortcuts
+
+| Key | Action |
+| --- | --- |
+| Space | Play / stop |
+| Tab | Cycle Arrange / Session / Rack view |
+| M | Toggle mixer |
+| B | Toggle browser |
+| Home | Rewind to the start |
+| Ctrl+Z / Ctrl+Y | Undo / redo |
+| Ctrl+N / Ctrl+O | New / open project |
+| Ctrl+S / Ctrl+Shift+S | Save / save as |
+| Delete | Remove the current selection |
+| Ctrl+D | Duplicate selected notes (piano roll) |
+| Left / Right | Nudge selected notes (piano roll) |
+| Up / Down | Transpose selected notes by a semitone, Shift for an octave (piano roll) |
+| Alt+click | Slice a note (piano roll) |
+| Ctrl+drag | Marquee select (piano roll), duplicate a clip (arrange view) |
+
 
 ## Documentation
 
