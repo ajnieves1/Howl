@@ -4,6 +4,7 @@
 #include "ui/TrackHeaderPanel.h"
 
 #include "model/Commands.h"
+#include "ui/ArrangeView.h"
 #include "ui/Theme.h"
 
 namespace howl::ui {
@@ -55,23 +56,32 @@ TrackHeaderPanel::~TrackHeaderPanel() {
     stopTimer();
 }
 
-// Returns the height of one track lane, matching ArrangeView's lane math
+// Returns the height of one track lane, the arrange view's fixed lane height
 float TrackHeaderPanel::laneHeight() const {
-    const std::size_t numTracks = m_arrangement.numTracks();
-    if (numTracks == 0) {
-        return static_cast<float>(getHeight());
-    }
-
-    return static_cast<float>(getHeight()) / static_cast<float>(numTracks);
+    return ArrangeView::kLaneHeight;
 }
 
-// Lays out one row per track, then the add-track button pinned at the bottom
+// Mirrors the arrange view's vertical lane scroll so header rows stay aligned
+void TrackHeaderPanel::setVerticalScrollOffset(int offsetPixels) {
+    if (offsetPixels == m_verticalScrollOffset) {
+        return;
+    }
+
+    m_verticalScrollOffset = offsetPixels;
+    resized();
+    repaint();
+}
+
+// Lays out one row per track, offset to align with the arrange view's lanes (which start
+// below its ruler and pattern lane and follow its vertical scroll), then the add-track
+// button pinned at the bottom, above the rows in z so scrolled rows pass under it
 void TrackHeaderPanel::resized() {
     const float height = laneHeight();
 
     for (std::size_t i = 0; i < m_rows.size(); ++i) {
         Row& row = m_rows[i];
-        const int y = static_cast<int>(static_cast<float>(i) * height);
+        const int y = ArrangeView::kLanesTop + static_cast<int>(static_cast<float>(i) * height)
+            - m_verticalScrollOffset;
         const int rowHeight = static_cast<int>(height);
 
         auto bounds = juce::Rectangle<int>(0, y, getWidth(), rowHeight).reduced(2);
@@ -88,20 +98,22 @@ void TrackHeaderPanel::resized() {
     }
 
     m_addTrackButton.setBounds(0, getHeight() - kAddButtonHeight, getWidth(), kAddButtonHeight);
+    m_addTrackButton.toFront(false);
 }
 
 // Draws lane separators matching ArrangeView's grid, a tint over frozen rows, and a
-// highlight over the row selected for live MIDI input
+// highlight over the row selected for live MIDI input, all offset by the mirrored scroll
 void TrackHeaderPanel::paint(juce::Graphics& g) {
     g.fillAll(theme::kPanelBg);
 
     const float height = laneHeight();
+    const float rowsTop = static_cast<float>(ArrangeView::kLanesTop - m_verticalScrollOffset);
 
     if (isTrackFrozen) {
         g.setColour(theme::kAudio.withAlpha(0.15f));
         for (std::size_t i = 0; i < m_rows.size(); ++i) {
             if (isTrackFrozen(i)) {
-                const auto y = static_cast<float>(i) * height;
+                const auto y = rowsTop + static_cast<float>(i) * height;
                 g.fillRect(0.0f, y, static_cast<float>(getWidth()), height);
             }
         }
@@ -109,13 +121,13 @@ void TrackHeaderPanel::paint(juce::Graphics& g) {
 
     if (m_selectedTrack >= 0 && static_cast<std::size_t>(m_selectedTrack) < m_rows.size()) {
         g.setColour(theme::kAccent.withAlpha(0.2f));
-        const auto y = static_cast<float>(m_selectedTrack) * height;
+        const auto y = rowsTop + static_cast<float>(m_selectedTrack) * height;
         g.fillRect(0.0f, y, static_cast<float>(getWidth()), height);
     }
 
     g.setColour(theme::kBorder.withAlpha(0.4f));
-    for (std::size_t i = 1; i < m_rows.size(); ++i) {
-        const auto y = static_cast<int>(static_cast<float>(i) * height);
+    for (std::size_t i = 0; i <= m_rows.size(); ++i) {
+        const auto y = static_cast<int>(rowsTop + static_cast<float>(i) * height);
         g.drawHorizontalLine(y, 0.0f, static_cast<float>(getWidth()));
     }
 }
@@ -127,11 +139,12 @@ void TrackHeaderPanel::mouseDown(const juce::MouseEvent& event) {
     }
 
     const float height = laneHeight();
-    if (height <= 0.0f) {
+    const int relativeY = event.y - ArrangeView::kLanesTop + m_verticalScrollOffset;
+    if (relativeY < 0) {
         return;
     }
 
-    const auto row = static_cast<std::size_t>(static_cast<float>(event.y) / height);
+    const auto row = static_cast<std::size_t>(static_cast<float>(relativeY) / height);
     if (row >= m_rows.size()) {
         return;
     }

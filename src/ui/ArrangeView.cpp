@@ -107,14 +107,46 @@ float ArrangeView::tickToX(int64_t tick) const {
     return static_cast<float>(static_cast<double>(tick - m_scrollTick) / span * static_cast<double>(getWidth()));
 }
 
-// Returns the height of one track lane, below the ruler and pattern lane, above the scrollbar
+// Returns the height of one track lane, the fixed kLaneHeight
 float ArrangeView::laneHeight() const {
-    const std::size_t numTracks = m_arrangement.numTracks();
-    const float available = static_cast<float>(getHeight() - kRulerHeight - kPatternLaneHeight - kScrollbarHeight);
-    if (numTracks == 0) {
-        return available;
+    return kLaneHeight;
+}
+
+// The y position of the top of lane index, in the current vertical scroll
+float ArrangeView::laneTopY(std::size_t index) const {
+    return static_cast<float>(kLanesTop) + static_cast<float>(index) * kLaneHeight
+        - static_cast<float>(m_verticalScroll);
+}
+
+// Clamps requested into the valid vertical scroll range, applies it, and notifies
+// onVerticalScrollChanged plus repaints when the applied value actually changed
+void ArrangeView::applyVerticalScroll(int requested) {
+    const float laneArea = static_cast<float>(getHeight() - kLanesTop - kScrollbarHeight);
+    const float content = static_cast<float>(m_arrangement.numTracks()) * kLaneHeight;
+    const int maxScroll = juce::jmax(0, static_cast<int>(content - laneArea));
+    const int clamped = juce::jlimit(0, maxScroll, requested);
+
+    if (clamped == m_verticalScroll) {
+        return;
     }
-    return available / static_cast<float>(numTracks);
+
+    m_verticalScroll = clamped;
+    if (onVerticalScrollChanged) {
+        onVerticalScrollChanged(m_verticalScroll);
+    }
+    repaint();
+}
+
+// Converts a pixel y position to an unclamped lane row index, negative above the lanes,
+// numTracks() or more in the empty placeholder lanes
+int ArrangeView::yToLaneRow(int y) const {
+    const float relative = static_cast<float>(y - kLanesTop + m_verticalScroll);
+    return static_cast<int>(std::floor(relative / kLaneHeight));
+}
+
+// True when y sits in the empty placeholder lanes below the last real track
+bool ArrangeView::isInEmptyLaneArea(int y) const {
+    return yToLaneRow(y) >= static_cast<int>(m_arrangement.numTracks());
 }
 
 // Converts a pixel y position to a track index, clamped to numTracks() - 1
@@ -124,9 +156,7 @@ std::size_t ArrangeView::yToTrackIndex(int y) const {
         return 0;
     }
 
-    const float height = laneHeight();
-    const int index = static_cast<int>(static_cast<float>(y - kRulerHeight - kPatternLaneHeight) / height);
-    return static_cast<std::size_t>(juce::jlimit(0, static_cast<int>(numTracks) - 1, index));
+    return static_cast<std::size_t>(juce::jlimit(0, static_cast<int>(numTracks) - 1, yToLaneRow(y)));
 }
 
 // True when y sits in the pattern lane strip, between the ruler and the track lanes
@@ -223,14 +253,22 @@ void ArrangeView::finalizeClipMarquee() {
     const int64_t minTick = juce::jmin(tickA, tickB);
     const int64_t maxTick = juce::jmax(tickA, tickB);
 
-    const std::size_t trackA = yToTrackIndex(m_clipMarqueeStart.y);
-    const std::size_t trackB = yToTrackIndex(m_clipMarqueeCurrent.y);
-    const std::size_t minTrack = juce::jmin(trackA, trackB);
-    const std::size_t maxTrack = juce::jmax(trackA, trackB);
-
-    const double spt = samplesPerTick();
+    // Unclamped rows, so a sweep that never touches a real lane selects nothing instead of
+    // clamping onto the nearest track
+    const int rowA = yToLaneRow(m_clipMarqueeStart.y);
+    const int rowB = yToLaneRow(m_clipMarqueeCurrent.y);
+    const int numTracks = static_cast<int>(m_arrangement.numTracks());
 
     m_selection.clear();
+
+    if (juce::jmax(rowA, rowB) < 0 || juce::jmin(rowA, rowB) >= numTracks) {
+        return;
+    }
+
+    const auto minTrack = static_cast<std::size_t>(juce::jmax(0, juce::jmin(rowA, rowB)));
+    const auto maxTrack = static_cast<std::size_t>(juce::jmin(numTracks - 1, juce::jmax(rowA, rowB)));
+
+    const double spt = samplesPerTick();
     for (std::size_t t = minTrack; t <= maxTrack && t < m_arrangement.numTracks(); ++t) {
         const model::Track& track = m_arrangement.track(t);
 
@@ -269,6 +307,10 @@ bool ArrangeView::findGroupPreviewTick(ClipKind kind, std::size_t trackIndex, st
 
 // Draws the ruler, one lane per track, each clip as a block, and the playhead
 void ArrangeView::paint(juce::Graphics& g) {
+    // Re-clamp so a track removal while scrolled deep never leaves a stale offset; a no-op
+    // on every ordinary frame, and the header panel is notified if the clamp moved anything
+    applyVerticalScroll(m_verticalScroll);
+
     g.fillAll(theme::kWindowBg);
 
     const int64_t span = visibleTickSpan();
@@ -348,8 +390,30 @@ void ArrangeView::paint(juce::Graphics& g) {
     g.drawHorizontalLine(kRulerHeight + kPatternLaneHeight - 1, 0.0f, static_cast<float>(getWidth()));
 
     const std::size_t numTracks = m_arrangement.numTracks();
-    if (numTracks == 0) {
-        return;
+    const float height = laneHeight();
+
+    // Fixed-height lanes: rows continue as empty placeholder lanes past the last real
+    // track to the bottom of the viewport. Everything lane-shaped is clipped to the lane
+    // area so vertically scrolled rows never paint over the ruler or pattern lane
+    g.saveState();
+    g.reduceClipRegion(0, kLanesTop, getWidth(), getHeight() - kLanesTop);
+
+    // Zebra stripe: even rows are the plain canvas colour, odd rows a 50% blend toward
+    // the panel colour, so long sessions with many tracks stay easy to scan by eye
+    const juce::Colour zebraStripe = theme::kWindowBg.interpolatedWith(theme::kPanelBg, 0.5f);
+    const int firstRow = juce::jmax(0, yToLaneRow(kLanesTop));
+    for (int row = firstRow; laneTopY(static_cast<std::size_t>(row)) < static_cast<float>(getHeight()); ++row) {
+        const float y = laneTopY(static_cast<std::size_t>(row));
+
+        if (row % 2 == 1) {
+            g.setColour(zebraStripe);
+            g.fillRect(juce::Rectangle<float> { 0.0f, y, static_cast<float>(getWidth()), height });
+        }
+
+        if (row > 0) {
+            g.setColour(theme::kBorder.withAlpha(0.4f));
+            g.drawHorizontalLine(static_cast<int>(y), 0.0f, static_cast<float>(getWidth()));
+        }
     }
 
     bool hasAnyMidiClip = false;
@@ -359,31 +423,13 @@ void ArrangeView::paint(juce::Graphics& g) {
     if (!hasAnyMidiClip) {
         g.setColour(theme::kTextSecondary);
         g.drawText("Double click a MIDI lane to create a clip",
-            juce::Rectangle<int> { 0, kRulerHeight + kPatternLaneHeight, getWidth(),
-                getHeight() - kRulerHeight - kPatternLaneHeight },
+            juce::Rectangle<int> { 0, kLanesTop, getWidth(), getHeight() - kLanesTop },
             juce::Justification::centred);
-    }
-
-    const float height = laneHeight();
-
-    // Zebra stripe: even rows are the plain canvas colour, odd rows a 50% blend toward
-    // the panel colour, so long sessions with many tracks stay easy to scan by eye
-    const juce::Colour zebraStripe = theme::kWindowBg.interpolatedWith(theme::kPanelBg, 0.5f);
-    g.setColour(zebraStripe);
-    for (std::size_t i = 1; i < numTracks; i += 2) {
-        const auto y = kRulerHeight + kPatternLaneHeight + static_cast<float>(i) * height;
-        g.fillRect(juce::Rectangle<float> { 0.0f, y, static_cast<float>(getWidth()), height });
-    }
-
-    g.setColour(theme::kBorder.withAlpha(0.4f));
-    for (std::size_t i = 1; i < numTracks; ++i) {
-        const auto y = kRulerHeight + kPatternLaneHeight + static_cast<float>(i) * height;
-        g.drawHorizontalLine(static_cast<int>(y), 0.0f, static_cast<float>(getWidth()));
     }
 
     for (std::size_t i = 0; i < numTracks; ++i) {
         const model::Track& track = m_arrangement.track(i);
-        const auto y = kRulerHeight + kPatternLaneHeight + static_cast<float>(i) * height;
+        const float y = laneTopY(i);
 
         for (std::size_t p = 0; p < track.midiClips.size(); ++p) {
             const auto& placement = track.midiClips[p];
@@ -440,6 +486,8 @@ void ArrangeView::paint(juce::Graphics& g) {
         g.setColour(theme::kTextPrimary.withAlpha(0.7f));
         g.drawText(track.name, 4, static_cast<int>(y) + 2, 200, 14, juce::Justification::topLeft);
     }
+
+    g.restoreState();
 
     g.setColour(theme::kPlayhead);
     const auto playheadX = tickToX(static_cast<int64_t>(playheadTick()));
@@ -521,7 +569,14 @@ void ArrangeView::mouseDown(const juce::MouseEvent& event) {
         return;
     }
 
-    if (m_arrangement.numTracks() == 0) {
+    // Empty placeholder lanes below the last real track: a marquee may start here (it can
+    // sweep up into the real lanes), nothing else does
+    if (isInEmptyLaneArea(event.y)) {
+        if (!event.mods.isPopupMenu()) {
+            m_clipMarqueeActive = true;
+            m_clipMarqueeStart = event.getPosition();
+            m_clipMarqueeCurrent = m_clipMarqueeStart;
+        }
         return;
     }
 
@@ -654,7 +709,7 @@ void ArrangeView::mouseMove(const juce::MouseEvent& event) {
         return;
     }
 
-    if (m_arrangement.numTracks() == 0 || event.y < kRulerHeight) {
+    if (m_arrangement.numTracks() == 0 || event.y < kRulerHeight || isInEmptyLaneArea(event.y)) {
         setMouseCursor(juce::MouseCursor::NormalCursor);
         return;
     }
@@ -830,7 +885,7 @@ void ArrangeView::mouseDoubleClick(const juce::MouseEvent& event) {
         return;
     }
 
-    if (m_arrangement.numTracks() == 0 || event.y < kRulerHeight) {
+    if (m_arrangement.numTracks() == 0 || event.y < kRulerHeight || isInEmptyLaneArea(event.y)) {
         return;
     }
 
@@ -859,7 +914,8 @@ void ArrangeView::mouseDoubleClick(const juce::MouseEvent& event) {
     repaint();
 }
 
-// Ctrl+wheel zooms around the cursor, plain wheel scrolls horizontally
+// Ctrl+wheel zooms around the cursor, Shift+wheel scrolls the lanes vertically, plain
+// wheel scrolls horizontally
 void ArrangeView::mouseWheelMove(const juce::MouseEvent& event, const juce::MouseWheelDetails& wheel) {
     if (event.mods.isCtrlDown() || event.mods.isCommandDown()) {
         const int64_t tickUnderCursor = xToTick(event.x);
@@ -868,6 +924,11 @@ void ArrangeView::mouseWheelMove(const juce::MouseEvent& event, const juce::Mous
         const double newSpan = zoomedVisibleSpan();
         const double ratio = static_cast<double>(event.x) / static_cast<double>(getWidth());
         m_scrollTick = tickUnderCursor - static_cast<int64_t>(ratio * newSpan);
+    } else if (event.mods.isShiftDown()) {
+        // Some platforms report a shift-modified wheel on the x axis, take whichever moved
+        const float delta = std::abs(wheel.deltaY) > std::abs(wheel.deltaX) ? wheel.deltaY : wheel.deltaX;
+        applyVerticalScroll(m_verticalScroll - static_cast<int>(delta * kLaneHeight * 2.0f));
+        return;
     } else {
         const double span = zoomedVisibleSpan();
         m_scrollTick += static_cast<int64_t>(-static_cast<double>(wheel.deltaY) * span / 4.0);
@@ -890,7 +951,7 @@ bool ArrangeView::isInterestedInFileDrag(const juce::StringArray& files) {
 
 // Fires onAudioFileDropped with the drop lane and snapped tick for each dropped .wav
 void ArrangeView::filesDropped(const juce::StringArray& files, int x, int y) {
-    if (m_arrangement.numTracks() == 0 || y < kRulerHeight || isInPatternLane(y)) {
+    if (m_arrangement.numTracks() == 0 || y < kRulerHeight || isInPatternLane(y) || isInEmptyLaneArea(y)) {
         return;
     }
 
@@ -913,7 +974,8 @@ bool ArrangeView::isInterestedInDragSource(const juce::DragAndDropTarget::Source
 // Fires onAudioFileDropped for the browser's currently selected file, same lane/tick math as filesDropped
 void ArrangeView::itemDropped(const juce::DragAndDropTarget::SourceDetails& dragSourceDetails) {
     if (m_arrangement.numTracks() == 0 || dragSourceDetails.localPosition.y < kRulerHeight
-        || isInPatternLane(dragSourceDetails.localPosition.y)) {
+        || isInPatternLane(dragSourceDetails.localPosition.y)
+        || isInEmptyLaneArea(dragSourceDetails.localPosition.y)) {
         return;
     }
 

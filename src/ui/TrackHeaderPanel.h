@@ -70,6 +70,9 @@ public:
     // Rebuilds the rows from the model
     void refreshFromModel();
 
+    // Mirrors the arrange view's vertical lane scroll so header rows stay aligned
+    void setVerticalScrollOffset(int offsetPixels);
+
 private:
     static constexpr int kAddButtonHeight = 24;
 
@@ -119,6 +122,9 @@ private:
     std::vector<Row> m_rows;
     juce::TextButton m_addTrackButton { "+ Track" };
     std::ptrdiff_t m_selectedTrack = -1;
+
+    // Mirror of the arrange view's vertical lane scroll, in pixels
+    int m_verticalScrollOffset = 0;
 };
 
 } // namespace howl::ui
