@@ -394,10 +394,50 @@ p code, li code {
 
 footer {
     border-top: 1px solid var(--border);
-    padding: 28px 0;
+    padding: 40px 0 28px;
     color: var(--text-secondary);
     font-size: 14px;
+}
+
+.footer-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 24px;
+    padding-bottom: 32px;
+}
+
+.footer-col h4 {
+    color: var(--text-primary);
+    font-size: 14px;
+    margin-bottom: 10px;
+}
+
+.footer-col ul {
+    list-style: none;
+}
+
+.footer-col li {
+    margin-bottom: 7px;
+}
+
+.footer-col a {
+    color: var(--text-secondary);
+}
+
+.footer-col a:hover {
+    color: var(--text-primary);
+    text-decoration: none;
+}
+
+.footer-legal {
+    border-top: 1px solid var(--border);
+    padding-top: 20px;
     text-align: center;
+    font-size: 13.5px;
+}
+
+.footer-legal p {
+    margin-bottom: 4px;
 }
 
 /* Documentation page */
