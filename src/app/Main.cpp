@@ -41,6 +41,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <vector>
@@ -131,6 +133,29 @@ private:
     std::function<void()> m_onCloseRequested;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(AudioSettingsWindow)
+};
+
+// Fires a callback on a fixed interval, drives periodic autosave
+class AutosaveTimer : public juce::Timer {
+public:
+    // Stores the callback to run on each tick and starts the timer
+    explicit AutosaveTimer(std::function<void()> onTick)
+        : m_onTick(std::move(onTick))
+    {
+        startTimer(kIntervalMs);
+    }
+
+private:
+    static constexpr int kIntervalMs = 120000;
+
+    // Runs the stored callback
+    void timerCallback() override {
+        if (m_onTick) {
+            m_onTick();
+        }
+    }
+
+    std::function<void()> m_onTick;
 };
 
 // One learned CC to effect parameter binding
@@ -386,10 +411,10 @@ public:
             m_midiInputHub.pushNoteEvent(MidiEvent { MidiEvent::Type::NoteOff, 60, 0.0f });
         };
         mainComponent->onNewProjectRequested = [this] {
-            newProject();
+            confirmDiscardIfDirty([this] { newProject(); });
         };
         mainComponent->onOpenProjectRequested = [this] {
-            showOpenProjectFileChooser();
+            confirmDiscardIfDirty([this] { showOpenProjectFileChooser(); });
         };
         mainComponent->onSaveProjectRequested = [this] {
             saveCurrentProject();
@@ -404,8 +429,7 @@ public:
             return recentFiles();
         };
         mainComponent->onOpenRecentRequested = [this](juce::String path) {
-            const juce::File file(path);
-            loadProjectFromJson(file.loadFileAsString(), file);
+            confirmDiscardIfDirty([this, path] { openProjectFile(juce::File(path)); });
         };
         mainComponent->onAudioSettingsRequested = [this] {
             showAudioSettingsDialog();
@@ -479,12 +503,15 @@ public:
         }, [this] {
             m_previewPlayer.collectGarbage();
         });
+
+        m_autosaveTimer = std::make_unique<AutosaveTimer>([this] { autosaveTick(); });
     }
 
     // Stops the xrun watcher, closes the audio device, and closes the window
     void shutdown() override
     {
         m_audioSettingsWindow.reset();
+        m_autosaveTimer.reset();
         m_midiLearnTimer.reset();
         m_xrunWatcher.reset();
         if (m_audioDeviceStateSaver != nullptr) {
@@ -498,10 +525,10 @@ public:
         juce::LookAndFeel::setDefaultLookAndFeel(nullptr);
     }
 
-    // Quits the app when the OS or window asks it to
+    // Quits the app when the OS or window asks it to, guarding unsaved changes first
     void systemRequestedQuit() override
     {
-        quit();
+        confirmDiscardIfDirty([this] { quit(); });
     }
 
 private:
@@ -1214,19 +1241,106 @@ private:
         m_audioSettingsWindow->toFront(true);
     }
 
+    // Serializes the current session, shared by saveProject and autosaveTick
+    juce::String buildProjectJson()
+    {
+        return project::ProjectSerializer::save(m_arrangement, m_arrangementNode->mixer(),
+            m_session, m_patterns, buildInstrumentsVar(), m_transport.tempo(), buildMidiMappingsVar());
+    }
+
+    // The sibling .autosave file's path for a project file
+    static juce::File autosaveFileFor(const juce::File& file)
+    {
+        return juce::File(file.getFullPathName() + ".autosave");
+    }
+
+    // True when there are changes since the last save (or load), by the P12 dirty rule
+    bool isDirty() const
+    {
+        return m_commandStack.changeCounter() != m_lastSavedChangeCounter;
+    }
+
+    // Writes a sibling .autosave file, only for a project that has a path and is dirty
+    void autosaveTick()
+    {
+        if (m_currentProjectFile == juce::File() || !isDirty()) {
+            return;
+        }
+
+        autosaveFileFor(m_currentProjectFile).replaceWithText(buildProjectJson());
+    }
+
+    // Runs onProceed immediately if the project is clean; otherwise asks Save / Don't Save /
+    // Cancel first. Save routes through the save-as chooser if there is no current path yet,
+    // and only runs onProceed once that save actually succeeds; Cancel runs nothing
+    void confirmDiscardIfDirty(std::function<void()> onProceed)
+    {
+        if (!isDirty()) {
+            onProceed();
+            return;
+        }
+
+        const auto options = juce::MessageBoxOptions()
+            .withIconType(juce::MessageBoxIconType::QuestionIcon)
+            .withTitle("Save changes?")
+            .withMessage("This project has unsaved changes.")
+            .withButton("Save")
+            .withButton("Don't Save")
+            .withButton("Cancel");
+
+        juce::AlertWindow::showAsync(options, [this, onProceed](int result) {
+            if (result == 1) {
+                if (m_currentProjectFile == juce::File()) {
+                    showSaveProjectFileChooser(onProceed);
+                } else {
+                    saveProject(m_currentProjectFile);
+                    onProceed();
+                }
+            } else if (result == 2) {
+                onProceed();
+            }
+        });
+    }
+
+    // Opens file, offering to recover a newer sibling .autosave first if one exists
+    void openProjectFile(const juce::File& file)
+    {
+        const juce::File autosave = autosaveFileFor(file);
+        if (!autosave.existsAsFile() || autosave.getLastModificationTime() <= file.getLastModificationTime()) {
+            loadProjectFromJson(file.loadFileAsString(), file);
+            return;
+        }
+
+        const auto options = juce::MessageBoxOptions()
+            .withIconType(juce::MessageBoxIconType::QuestionIcon)
+            .withTitle("Recover autosaved changes?")
+            .withMessage("A more recent autosave of \"" + file.getFileName() + "\" was found.")
+            .withButton("Restore")
+            .withButton("Discard");
+
+        juce::AlertWindow::showAsync(options, [this, file, autosave](int result) {
+            if (result == 1) {
+                // Files left in place: the restored state stays dirty until an explicit save
+                loadProjectFromJson(autosave.loadFileAsString(), file, false);
+            } else {
+                autosave.deleteFile();
+                loadProjectFromJson(file.loadFileAsString(), file);
+            }
+        });
+    }
+
     // Serializes the current session and writes it to file
     void saveProject(const juce::File& file)
     {
-        const juce::String json = project::ProjectSerializer::save(m_arrangement, m_arrangementNode->mixer(),
-            m_session, m_patterns, buildInstrumentsVar(), m_transport.tempo(), buildMidiMappingsVar());
-
-        if (!file.replaceWithText(json)) {
+        if (!file.replaceWithText(buildProjectJson())) {
             juce::Logger::writeToLog("Howl: failed to write project file " + file.getFullPathName());
             return;
         }
 
         m_currentProjectFile = file;
         addRecentFile(file);
+        m_lastSavedChangeCounter = m_commandStack.changeCounter();
+        autosaveFileFor(file).deleteFile();
         m_mainWindow->setProjectTitle(file.getFileNameWithoutExtension());
     }
 
@@ -1240,19 +1354,22 @@ private:
         }
     }
 
-    // Opens an async save dialog defaulting to *.howl
-    void showSaveProjectFileChooser()
+    // Opens an async save dialog defaulting to *.howl; runs onSaved after a successful save
+    void showSaveProjectFileChooser(std::function<void()> onSaved = {})
     {
         auto chooser = std::make_shared<juce::FileChooser>("Save Project", juce::File(), "*.howl");
         constexpr int flags = juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::warnAboutOverwriting;
 
-        chooser->launchAsync(flags, [this, chooser](const juce::FileChooser& fc) {
+        chooser->launchAsync(flags, [this, chooser, onSaved](const juce::FileChooser& fc) {
             const juce::File file = fc.getResult();
             if (file == juce::File()) {
                 return;
             }
 
             saveProject(file.withFileExtension(".howl"));
+            if (onSaved) {
+                onSaved();
+            }
         });
     }
 
@@ -1268,14 +1385,16 @@ private:
                 return;
             }
 
-            loadProjectFromJson(file.loadFileAsString(), file);
+            openProjectFile(file);
         });
     }
 
     // Stops the transport and device, parses json into the live arrangement/mixer (mutated in
     // place, ArrangementNode owns the mixer and cannot be replaced), re-reads audio clips from
-    // their sourcePath, rebuilds instruments, rebuilds the audio graph, and resumes
-    void loadProjectFromJson(const juce::String& json, const juce::File& sourceFile)
+    // their sourcePath, rebuilds instruments, rebuilds the audio graph, and resumes. markClean
+    // false is for autosave recovery: the content differs from what's on sourceFile's disk, so
+    // dirty tracking must not consider it saved
+    void loadProjectFromJson(const juce::String& json, const juce::File& sourceFile, bool markClean = true)
     {
         // Every instrument is about to be replaced, an open editor would dangle
         m_instrumentEditorWindow.reset();
@@ -1331,6 +1450,8 @@ private:
         if (sourceFile != juce::File()) {
             addRecentFile(sourceFile);
         }
+        m_lastSavedChangeCounter = markClean ? m_commandStack.changeCounter()
+                                              : std::numeric_limits<std::uint64_t>::max();
         m_mainWindow->setProjectTitle(sourceFile == juce::File() ? juce::String() : sourceFile.getFileNameWithoutExtension());
 
         rewarpAllClips(); // stops/starts the device, rewarps every clip, refreshes all views
@@ -1552,12 +1673,14 @@ private:
     std::vector<std::unique_ptr<engine::Instrument>> m_trackInstruments;
     std::vector<juce::String> m_instrumentNames;
     juce::File m_currentProjectFile;
+    std::uint64_t m_lastSavedChangeCounter = 0;
     std::unique_ptr<ui::PluginWindow> m_instrumentEditorWindow;
     std::unique_ptr<MainWindow> m_mainWindow;
     std::unique_ptr<XrunWatcher> m_xrunWatcher;
     std::unique_ptr<juce::PropertiesFile> m_settings;
     std::unique_ptr<AudioDeviceStateSaver> m_audioDeviceStateSaver;
     std::unique_ptr<juce::DialogWindow> m_audioSettingsWindow;
+    std::unique_ptr<AutosaveTimer> m_autosaveTimer;
 };
 
 } // namespace howl
