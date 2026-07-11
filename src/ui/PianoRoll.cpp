@@ -142,31 +142,76 @@ int64_t PianoRoll::visibleTickSpan(int64_t clipLengthTicks) const {
     return juce::jmax(clipLengthTicks, minimumSpan);
 }
 
-// Converts a pixel x position to a tick, clamped to the visible span, unsnapped
+// Converts a pixel x position to a tick, clamped to the visible span, unsnapped; the grid
+// starts after the piano key gutter
 int64_t PianoRoll::xToTick(int x, int64_t clipLengthTicks) const {
     const int64_t span = visibleTickSpan(clipLengthTicks);
-    const float ratio = juce::jlimit(0.0f, 1.0f, static_cast<float>(x) / static_cast<float>(getWidth()));
+    const float gridWidth = static_cast<float>(getWidth() - kKeyboardWidth);
+    const float ratio = juce::jlimit(0.0f, 1.0f, static_cast<float>(x - kKeyboardWidth) / gridWidth);
     return static_cast<int64_t>(ratio * static_cast<float>(span));
 }
 
 // Converts a pixel y position to a MIDI key, clamped to the visible range
 int PianoRoll::yToKey(int y) const {
-    const float rowHeight = keyGridHeight() / static_cast<float>(kNumKeys);
-    const int rowIndex = juce::jlimit(0, kNumKeys - 1, static_cast<int>(static_cast<float>(y) / rowHeight));
+    const float scrolledY = static_cast<float>(y + m_verticalScroll);
+    const int rowIndex = juce::jlimit(0, kNumKeys - 1, static_cast<int>(scrolledY / kKeyRowHeight));
     return kHighestKey - rowIndex;
 }
 
-// Converts a tick to a pixel x position
+// Converts a tick to a pixel x position, offset past the piano key gutter
 float PianoRoll::tickToX(int64_t tick, int64_t clipLengthTicks) const {
     const int64_t span = visibleTickSpan(clipLengthTicks);
-    return static_cast<float>(tick) / static_cast<float>(span) * static_cast<float>(getWidth());
+    const float gridWidth = static_cast<float>(getWidth() - kKeyboardWidth);
+    return static_cast<float>(kKeyboardWidth)
+        + static_cast<float>(tick) / static_cast<float>(span) * gridWidth;
 }
 
-// Converts a MIDI key to the y position of the top of its row
+// Converts a MIDI key to the y position of the top of its row, in the current scroll
 float PianoRoll::keyToY(int key) const {
-    const float rowHeight = keyGridHeight() / static_cast<float>(kNumKeys);
     const int rowIndex = kHighestKey - key;
-    return static_cast<float>(rowIndex) * rowHeight;
+    return static_cast<float>(rowIndex) * kKeyRowHeight - static_cast<float>(m_verticalScroll);
+}
+
+// Clamps requested into the valid vertical scroll range, applies it, repaints on change
+void PianoRoll::applyVerticalScroll(int requested) {
+    const float content = static_cast<float>(kNumKeys) * kKeyRowHeight;
+    const int maxScroll = juce::jmax(0, static_cast<int>(content - keyGridHeight()));
+    const int clamped = juce::jlimit(0, maxScroll, requested);
+
+    if (clamped != m_verticalScroll) {
+        m_verticalScroll = clamped;
+        repaint();
+    }
+}
+
+// Centers the view on the clip's notes (C5 when empty) the first time a size arrives,
+// and re-clamps the vertical scroll on any later resize
+void PianoRoll::resized() {
+    if (!m_scrollCentered && getHeight() > 0) {
+        m_scrollCentered = true;
+
+        model::MidiClip* clip = resolveClip();
+        int centerKey = 60; // labeled C5
+        if (clip != nullptr && !clip->notes().empty()) {
+            int keySum = 0;
+            for (const model::Note& note : clip->notes()) {
+                keySum += note.key;
+            }
+            centerKey = keySum / static_cast<int>(clip->notes().size());
+        }
+
+        const float rowTop = static_cast<float>(kHighestKey - juce::jlimit(kLowestKey, kHighestKey, centerKey))
+            * kKeyRowHeight;
+        applyVerticalScroll(static_cast<int>(rowTop + kKeyRowHeight / 2.0f - keyGridHeight() / 2.0f));
+        return;
+    }
+
+    applyVerticalScroll(m_verticalScroll);
+}
+
+// Wheel scrolls the key grid vertically; rows are a fixed height, no zoom
+void PianoRoll::mouseWheelMove(const juce::MouseEvent&, const juce::MouseWheelDetails& wheel) {
+    applyVerticalScroll(m_verticalScroll - static_cast<int>(wheel.deltaY * kKeyRowHeight * 4.0f));
 }
 
 // Returns the index of the note at (tick, key), or -1 if none, hit-testing is unsnapped
@@ -219,22 +264,23 @@ double PianoRoll::playheadTick() const {
     return static_cast<double>(m_transport.position()) / samplesPerTick;
 }
 
-// Draws the key grid, notes, playhead, and the velocity lane, an empty grid and lane
-// when the address does not resolve
+// Draws the piano key gutter, key grid, notes, playhead, and the velocity lane, an empty
+// grid and lane when the address does not resolve
 void PianoRoll::paint(juce::Graphics& g) {
     g.fillAll(theme::kWindowBg);
 
     const float gridHeight = keyGridHeight();
-    const float rowHeight = gridHeight / static_cast<float>(kNumKeys);
+    const float rowHeight = kKeyRowHeight;
+    const float keyboardWidth = static_cast<float>(kKeyboardWidth);
 
-    // Shade black-key rows
+    // Shade black-key rows across the grid, starting after the key gutter
     g.setColour(theme::kWindowBg.brighter(0.1f));
     for (int key = kLowestKey; key <= kHighestKey; ++key) {
         const int pitchClass = key % 12;
         const bool isBlackKey = pitchClass == 1 || pitchClass == 3 || pitchClass == 6
                               || pitchClass == 8 || pitchClass == 10;
         if (isBlackKey) {
-            g.fillRect(0.0f, keyToY(key), static_cast<float>(getWidth()), rowHeight);
+            g.fillRect(keyboardWidth, keyToY(key), static_cast<float>(getWidth()) - keyboardWidth, rowHeight);
         }
     }
 
@@ -298,6 +344,47 @@ void PianoRoll::paint(juce::Graphics& g) {
                 static_cast<float>(kVelocityBarWidth), barHeight);
         }
     }
+
+    // Piano key gutter, drawn last so nothing in the grid paints over it: white keys light,
+    // black keys dark, hairlines between keys. Clipped to the grid so scrolled keys never
+    // paint over the velocity lane
+    g.saveState();
+    g.reduceClipRegion(0, 0, getWidth(), static_cast<int>(gridHeight));
+    for (int key = kLowestKey; key <= kHighestKey; ++key) {
+        const int pitchClass = key % 12;
+        const bool isBlackKey = pitchClass == 1 || pitchClass == 3 || pitchClass == 6
+                              || pitchClass == 8 || pitchClass == 10;
+        const float y = keyToY(key);
+
+        g.setColour(isBlackKey ? theme::kWindowBg : theme::kTextPrimary);
+        g.fillRect(0.0f, y, keyboardWidth, rowHeight);
+        g.setColour(theme::kBorder);
+        g.drawHorizontalLine(static_cast<int>(y), 0.0f, keyboardWidth);
+    }
+
+    // Every C carries its octave label on its key; the chip keeps a legible height even if
+    // rows are ever shorter than the text. MIDI 60 labels as C5, which key / 12 yields directly
+    const float labelHeight = juce::jmax(rowHeight, 12.0f);
+    for (int key = kLowestKey; key <= kHighestKey; ++key) {
+        if (key % 12 != 0) {
+            continue;
+        }
+
+        const auto chip = juce::Rectangle<float> {
+            0.0f, keyToY(key) + rowHeight - labelHeight, keyboardWidth, labelHeight
+        };
+        g.setColour(theme::kTextPrimary);
+        g.fillRect(chip);
+        g.setColour(theme::kWindowBg);
+        g.setFont(theme::kFontSizeSmall);
+        g.drawText("C" + juce::String(key / 12), chip.reduced(4.0f, 0.0f),
+            juce::Justification::centredRight, false);
+    }
+
+    // Hairline separating the keys from the grid
+    g.setColour(theme::kBorder);
+    g.drawVerticalLine(kKeyboardWidth, 0.0f, gridHeight);
+    g.restoreState();
 }
 
 // Begins adding a note (performs AddNoteCommand), begins a move/resize/velocity drag, begins
@@ -313,6 +400,13 @@ void PianoRoll::mouseDown(const juce::MouseEvent& event) {
 
     m_mouseDownPosition = event.getPosition();
     m_hasDraggedBeyondThreshold = false;
+
+    // Clicks on the piano key gutter do nothing, keys are not a preview surface in v1
+    if (event.x < kKeyboardWidth && static_cast<float>(event.y) < keyGridHeight()) {
+        m_dragMode = DragMode::None;
+        m_dragNoteIndex = -1;
+        return;
+    }
 
     if (static_cast<float>(event.y) >= keyGridHeight()) {
         const int velocityIndex = hitTestVelocityBar(*clip, event.x);
@@ -495,7 +589,8 @@ void PianoRoll::mouseDrag(const juce::MouseEvent& event) {
 // Shows an I-beam cursor while Alt is held over a note, the slice gesture's cue
 void PianoRoll::mouseMove(const juce::MouseEvent& event) {
     model::MidiClip* clip = resolveClip();
-    if (clip == nullptr || !event.mods.isAltDown() || static_cast<float>(event.y) >= keyGridHeight()) {
+    if (clip == nullptr || !event.mods.isAltDown() || event.x < kKeyboardWidth
+        || static_cast<float>(event.y) >= keyGridHeight()) {
         setMouseCursor(juce::MouseCursor::NormalCursor);
         return;
     }
