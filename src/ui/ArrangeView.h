@@ -26,6 +26,13 @@ namespace howl::ui {
 class ArrangeView : public juce::Component, public juce::FileDragAndDropTarget,
                     public juce::DragAndDropTarget, private juce::Timer {
 public:
+    // Lane metrics are public so TrackHeaderPanel can keep its rows aligned with the lanes
+    static constexpr int kRulerHeight = 20;
+    static constexpr int kPatternLaneHeight = 24;
+    static constexpr int kScrollbarHeight = 10;
+    static constexpr int kLanesTop = kRulerHeight + kPatternLaneHeight;
+    static constexpr float kLaneHeight = 56.0f;
+
     // Stores references to the arrangement, transport, command stack, and pattern bank, starts
     // the playhead timer
     ArrangeView(model::Arrangement& arrangement, engine::Transport& transport,
@@ -55,7 +62,8 @@ public:
     // Creates a new 4-bar MIDI clip on an empty MIDI lane, snapped to the bar
     void mouseDoubleClick(const juce::MouseEvent& event) override;
 
-    // Ctrl+wheel zooms around the cursor, plain wheel scrolls horizontally
+    // Ctrl+wheel zooms around the cursor, Shift+wheel scrolls the lanes vertically, plain
+    // wheel scrolls horizontally
     void mouseWheelMove(const juce::MouseEvent& event, const juce::MouseWheelDetails& wheel) override;
 
     // Toggles the transport between play and stop on space, fires onMixerRequested on M,
@@ -89,13 +97,14 @@ public:
     // Provides the file behind a "howl-sample" drag, wired to the browser's selection
     std::function<juce::File()> browserFileProvider;
 
+    // Called with the new offset whenever the vertical scroll changes, so the track header
+    // panel scrolls in lockstep
+    std::function<void(int)> onVerticalScrollChanged;
+
 private:
     static constexpr int64_t kMinimumVisibleTicks = model::kTicksPerQuarter * 16; // 4 bars at 4/4
     static constexpr int kDragThresholdPixels = 4;
     static constexpr int kResizeHandlePixels = 6;
-    static constexpr int kRulerHeight = 20;
-    static constexpr int kPatternLaneHeight = 24;
-    static constexpr int kScrollbarHeight = 10;
     static constexpr double kMinZoom = 1.0;
     static constexpr double kMaxZoom = 64.0;
 
@@ -148,8 +157,22 @@ private:
     // Converts a tick to a pixel x position, offset by the current scroll
     float tickToX(int64_t tick) const;
 
-    // Returns the height of one track lane, below the ruler and pattern lane
+    // Returns the height of one track lane, the fixed kLaneHeight
     float laneHeight() const;
+
+    // The y position of the top of lane index, in the current vertical scroll
+    float laneTopY(std::size_t index) const;
+
+    // Clamps requested into the valid vertical scroll range, applies it, and notifies
+    // onVerticalScrollChanged plus repaints when the applied value actually changed
+    void applyVerticalScroll(int requested);
+
+    // True when y sits in the empty placeholder lanes below the last real track
+    bool isInEmptyLaneArea(int y) const;
+
+    // Converts a pixel y position to an unclamped lane row index, negative above the lanes,
+    // numTracks() or more in the empty placeholder lanes
+    int yToLaneRow(int y) const;
 
     // Converts a pixel y position to a track index, clamped to numTracks() - 1
     std::size_t yToTrackIndex(int y) const;
@@ -217,6 +240,9 @@ private:
 
     double m_zoom = 1.0;
     int64_t m_scrollTick = 0;
+
+    // Vertical scroll of the track lanes in pixels, 0 when every track fits the viewport
+    int m_verticalScroll = 0;
 
     ClipDragMode m_clipDragMode = ClipDragMode::None;
     DraggedClip m_draggedClip {};

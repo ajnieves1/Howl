@@ -140,6 +140,9 @@ MainComponent::MainComponent(model::Arrangement& arrangement, engine::Transport&
     m_arrangeView.browserFileProvider = [this] {
         return m_browserPanel.selectedFile();
     };
+    m_arrangeView.onVerticalScrollChanged = [this](int offsetPixels) {
+        m_trackHeaderPanel.setVerticalScrollOffset(offsetPixels);
+    };
 
     m_transportBar.onMixerToggle = [this] {
         toggleMixer();
