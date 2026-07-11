@@ -43,8 +43,8 @@ public:
 
     void resized() override;
 
-    // Space toggles play/stop, M toggles the mixer panel, Tab cycles arrange/session/rack view,
-    // Ctrl+Z / Ctrl+Shift+Z undo/redo
+    // Space play/stop, Tab cycles arrange/session/rack view, M mixer, B browser,
+    // Ctrl+Z / Ctrl+Y undo/redo, Ctrl+N/O/S/Shift+S new/open/save/save as
     bool keyPressed(const juce::KeyPress& key) override;
 
     // Shows the piano roll for a clip in the bottom panel (replaces whatever is there)

@@ -233,8 +233,8 @@ void MainComponent::resized() {
     m_channelRackPanel->setBounds(bounds);
 }
 
-// Space toggles play/stop, M toggles the mixer panel, Tab toggles arrange/session view,
-// Ctrl+Z / Ctrl+Shift+Z undo/redo
+// Space play/stop, Tab cycles arrange/session/rack view, M mixer, B browser,
+// Ctrl+Z / Ctrl+Y undo/redo, Ctrl+N/O/S/Shift+S new/open/save/save as
 bool MainComponent::keyPressed(const juce::KeyPress& key) {
     if (key == juce::KeyPress::spaceKey) {
         if (m_transport.isPlaying()) {
@@ -266,9 +266,37 @@ bool MainComponent::keyPressed(const juce::KeyPress& key) {
         return true;
     }
 
-    if (key == juce::KeyPress('Z', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier, 0)) {
+    if (key == juce::KeyPress('Y', juce::ModifierKeys::commandModifier, 0)) {
         m_commandStack.redo();
         refreshAllViews();
+        return true;
+    }
+
+    if (key == juce::KeyPress('S', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier, 0)) {
+        if (onSaveAsProjectRequested) {
+            onSaveAsProjectRequested();
+        }
+        return true;
+    }
+
+    if (key == juce::KeyPress('N', juce::ModifierKeys::commandModifier, 0)) {
+        if (onNewProjectRequested) {
+            onNewProjectRequested();
+        }
+        return true;
+    }
+
+    if (key == juce::KeyPress('O', juce::ModifierKeys::commandModifier, 0)) {
+        if (onOpenProjectRequested) {
+            onOpenProjectRequested();
+        }
+        return true;
+    }
+
+    if (key == juce::KeyPress('S', juce::ModifierKeys::commandModifier, 0)) {
+        if (onSaveProjectRequested) {
+            onSaveProjectRequested();
+        }
         return true;
     }
 
