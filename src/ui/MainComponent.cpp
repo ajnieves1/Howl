@@ -204,6 +204,13 @@ MainComponent::MainComponent(model::Arrangement& arrangement, engine::Transport&
     updateCenterViewVisibility();
 }
 
+// The bottom panel's height: 40% of the shell, clamped so small windows keep a usable
+// panel and large windows don't drown the arrange view
+int MainComponent::bottomPanelHeight() const {
+    return juce::jlimit(kBottomPanelMinHeight, kBottomPanelMaxHeight,
+        static_cast<int>(static_cast<float>(getHeight()) * 0.4f));
+}
+
 // Lays the transport bar on top, the bottom panel (if any) at the bottom, arrange view between
 void MainComponent::resized() {
     auto bounds = getLocalBounds();
@@ -215,7 +222,7 @@ void MainComponent::resized() {
     }
 
     if (m_bottomPanel != BottomPanel::None) {
-        auto bottomBounds = bounds.removeFromBottom(kBottomPanelHeight);
+        auto bottomBounds = bounds.removeFromBottom(bottomPanelHeight());
 
         auto titleStrip = bottomBounds.removeFromTop(kBottomPanelTitleHeight);
         m_bottomPanelCloseButton.setBounds(titleStrip.removeFromRight(titleStrip.getHeight()));

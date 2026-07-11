@@ -169,7 +169,8 @@ public:
 
 private:
     static constexpr int kTransportHeight = 36;
-    static constexpr int kBottomPanelHeight = 300;
+    static constexpr int kBottomPanelMinHeight = 300;
+    static constexpr int kBottomPanelMaxHeight = 560;
     static constexpr int kBottomPanelTitleHeight = 22;
     static constexpr int kTrackHeaderWidth = TrackHeaderPanel::kWidth;
     static constexpr int kBrowserWidth = 220;
@@ -190,6 +191,10 @@ private:
 
     // Shows only the component matching m_bottomPanel, hides the other
     void updateBottomPanelVisibility();
+
+    // The bottom panel's height: 40% of the shell, clamped so small windows keep a usable
+    // panel and large windows don't drown the arrange view
+    int bottomPanelHeight() const;
 
     // Sets the bottom panel title strip's text and shows the strip
     void setBottomPanelTitle(const juce::String& title);

@@ -38,8 +38,16 @@ public:
     // Stops the playhead timer
     ~PianoRoll() override;
 
-    // Draws the key grid, notes, playhead, velocity lane, selection borders, and marquee
+    // Draws the piano key gutter, key grid, notes, playhead, velocity lane, selection
+    // borders, and marquee
     void paint(juce::Graphics& g) override;
+
+    // Centers the view on the clip's notes (C5 when empty) the first time a size arrives,
+    // and re-clamps the vertical scroll on any later resize
+    void resized() override;
+
+    // Wheel scrolls the key grid vertically; rows are a fixed height, no zoom
+    void mouseWheelMove(const juce::MouseEvent& event, const juce::MouseWheelDetails& wheel) override;
 
     // Alt+click on a note performs SplitNoteCommand at the snapped click tick, otherwise
     // begins adding a note, a move/resize/velocity drag, a marquee, or updates selection
@@ -59,9 +67,11 @@ public:
     bool keyPressed(const juce::KeyPress& key) override;
 
 private:
-    static constexpr int kLowestKey = 36; // C2
-    static constexpr int kHighestKey = 96; // C7
+    static constexpr int kLowestKey = 36; // labeled C3 (MIDI 60 labels as C5)
+    static constexpr int kHighestKey = 96; // labeled C8
     static constexpr int kNumKeys = kHighestKey - kLowestKey + 1;
+    static constexpr int kKeyboardWidth = 48;
+    static constexpr float kKeyRowHeight = 12.0f; // fixed row height, the grid scrolls vertically
     static constexpr int64_t kDefaultNoteLengthTicks = model::kTicksPerQuarter;
     static constexpr int kResizeHandlePixels = 6;
     static constexpr int kDragThresholdPixels = 4;
@@ -97,8 +107,11 @@ private:
     // Converts a tick to a pixel x position
     float tickToX(int64_t tick, int64_t clipLengthTicks) const;
 
-    // Converts a MIDI key to the y position of the top of its row
+    // Converts a MIDI key to the y position of the top of its row, in the current scroll
     float keyToY(int key) const;
+
+    // Clamps requested into the valid vertical scroll range, applies it, repaints on change
+    void applyVerticalScroll(int requested);
 
     // Returns the index of the note at (tick, key), or -1 if none, hit-testing is unsnapped
     int hitTestNote(const model::MidiClip& clip, int64_t tick, int key) const;
@@ -159,6 +172,10 @@ private:
     bool m_marqueeAdditive = false;
     juce::Point<int> m_marqueeStart;
     juce::Point<int> m_marqueeCurrent;
+
+    // Vertical scroll of the key grid in pixels, centered on first layout, then wheel-driven
+    int m_verticalScroll = 0;
+    bool m_scrollCentered = false;
 };
 
 } // namespace howl::ui
