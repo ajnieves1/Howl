@@ -72,7 +72,7 @@ public:
     // closes any open effect editors
     void refreshAllViews();
 
-    // juce::MenuBarModel: File, Edit, View
+    // juce::MenuBarModel: File, Edit, View, Options, Help
     juce::StringArray getMenuBarNames() override;
     juce::PopupMenu getMenuForIndex(int topLevelMenuIndex, const juce::String& menuName) override;
     void menuItemSelected(int menuItemID, int topLevelMenuIndex) override;
