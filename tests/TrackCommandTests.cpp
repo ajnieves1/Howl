@@ -2,6 +2,7 @@
 // Howl DAW: AddTrackCommand/RemoveTrackCommand and Mixer::prepare state preservation
 
 #include "model/Arrangement.h"
+#include "model/CommandStack.h"
 #include "model/Commands.h"
 #include "model/MidiClip.h"
 #include "model/Mixer.h"
@@ -11,8 +12,11 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include <memory>
+
 using howl::model::AddTrackCommand;
 using howl::model::Arrangement;
+using howl::model::CommandStack;
 using howl::model::MidiClip;
 using howl::model::MidiClipPlacement;
 using howl::model::Mixer;
@@ -101,4 +105,25 @@ TEST_CASE("Mixer.prepare called twice preserves gain, routing, and sends", "[tra
     REQUIRE(mixer.trackOutput(0) == bus);
     REQUIRE(mixer.sends(0).size() == 1);
     REQUIRE(mixer.sends(0)[0].level == Catch::Approx(0.5f));
+}
+
+TEST_CASE("CommandStack.changeCounter bumps on perform, undo, and redo", "[trackcommand]") {
+    Arrangement arrangement;
+    Mixer mixer;
+    mixer.prepare(0, 44100.0, 512, 1);
+    Session session;
+    PatternBank patterns;
+    patterns.addPattern("Pattern 1", 0);
+    CommandStack stack;
+
+    REQUIRE(stack.changeCounter() == 0);
+
+    stack.perform(std::make_unique<AddTrackCommand>(arrangement, mixer, session, patterns, "Track 1", TrackKind::Midi));
+    REQUIRE(stack.changeCounter() == 1);
+
+    stack.undo();
+    REQUIRE(stack.changeCounter() == 2);
+
+    stack.redo();
+    REQUIRE(stack.changeCounter() == 3);
 }

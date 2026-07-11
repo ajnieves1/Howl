@@ -5,6 +5,7 @@
 
 #include "model/Command.h"
 
+#include <cstdint>
 #include <memory>
 #include <vector>
 
@@ -30,9 +31,13 @@ public:
     // Empties both stacks without undoing anything, for loading a fresh project
     void clear();
 
+    // Increments on every perform, undo, and redo, for dirty tracking
+    std::uint64_t changeCounter() const;
+
 private:
     std::vector<std::unique_ptr<Command>> m_undoStack;
     std::vector<std::unique_ptr<Command>> m_redoStack;
+    std::uint64_t m_changeCounter = 0;
 };
 
 } // namespace howl::model
