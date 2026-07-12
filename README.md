@@ -2,7 +2,7 @@
 
 ![Howl](docs/image.png)
 
-Howl is a digital audio workstation written in C++20 on the JUCE 8 framework. It covers the core of what a DAW needs, a timeline, a piano roll, a session grid, a mixer, plugin hosting, and clean offline rendering, without the bloat that piles up in commercial products, and most importantly, supports VST3.
+Howl is a digital audio workstation written in C++20 on the JUCE 8 framework. It covers the core of what a DAW needs, a timeline, a piano roll, a session grid, a mixer, plugin hosting, and clean offline rendering while supporting VST3.
 
 ## Features
 
