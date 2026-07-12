@@ -55,9 +55,11 @@ classDiagram
     Graph "1" o-- "many" Node : owns
     EffectChain "1" o-- "many" Effect : owns
     class SubtractiveSynth
+    class SamplerInstrument
     class Equalizer
     class Compressor
     Instrument <|.. SubtractiveSynth
+    Instrument <|.. SamplerInstrument
     Effect <|.. Equalizer
     Effect <|.. Compressor
 ```
@@ -101,10 +103,6 @@ classDiagram
         +removePointAt(index)
         +valueAtTick(tick) float
     }
-    class AutomationPoint {
-        +int64 tick
-        +float value
-    }
     class Session {
         +addScene() size_t
         +slot(track, scene) ClipSlot
@@ -114,14 +112,34 @@ classDiagram
         +MidiClip midiClip
         +AudioClip audioClip
     }
+    class PatternBank {
+        +addPattern(name, numTracks) size_t
+        +pattern(index) Pattern
+        +placements() vector~PatternPlacement~
+    }
+    class Pattern {
+        +string name
+        +vector~MidiClip~ trackClips
+    }
+    class PatternPlacement {
+        +size_t patternIndex
+        +int64 startTick
+    }
+    class ClipAddress {
+        +Kind kind (Arrangement, Session, Pattern)
+        +indices to the clip
+    }
 
     Arrangement "1" o-- "many" Track
     Track "1" o-- "many" MidiClip : via placements
     Track "1" o-- "many" AudioClip : via placements
     Track "1" o-- "many" AutomationLane : via slots
     MidiClip "1" o-- "many" Note
-    AutomationLane "1" o-- "many" AutomationPoint
     Session "1" o-- "many" ClipSlot
+    PatternBank "1" o-- "many" Pattern
+    PatternBank "1" o-- "many" PatternPlacement
+    Pattern "1" o-- "many" MidiClip : one per track
+    ClipAddress ..> MidiClip : resolves to
 ```
 
 ## Playback and mixing
@@ -136,6 +154,9 @@ classDiagram
     class ArrangementNode {
         +prepare(sampleRate, maxBlockSize, channels)
         +setInstrumentForTrack(track, Instrument*)
+        +setPatternBank(PatternBank*)
+        +setLiveNoteQueue(queue*)
+        +setPreviewPlayer(PreviewPlayer*)
         +requestLaunch(track, scene) bool
         +setFrozen(track, channels)
         +process(AudioBlock, SampleCount) [RT]
@@ -143,6 +164,7 @@ classDiagram
         -scratch buffers, one per track
     }
     class MidiTrackRenderer {
+        +setPatternSource(bank, trackIndex)
         +process(AudioBlock, SampleCount) [RT]
     }
     class AudioTrackRenderer {
@@ -151,6 +173,12 @@ classDiagram
     class SessionTrackPlayer {
         +queueScene / queueStop
         +process(AudioBlock, SampleCount) [RT]
+    }
+    class PreviewPlayer {
+        +post(unique_ptr~PreviewBuffer~)
+        +stop()
+        +process(AudioBlock) [RT]
+        +collectGarbage()
     }
     class Mixer {
         +trackStrip(index) ChannelStrip
@@ -170,6 +198,7 @@ classDiagram
     ArrangementNode "1" o-- "many" AudioTrackRenderer
     ArrangementNode "1" o-- "many" SessionTrackPlayer
     ArrangementNode "1" *-- "1" Mixer
+    ArrangementNode --> PreviewPlayer : mixes after master
     Mixer "1" o-- "many" ChannelStrip
     MidiTrackRenderer --> Instrument : renders through
     class Instrument {
@@ -179,7 +208,7 @@ classDiagram
 
 ## Commands and plugins
 
-Left side: every edit is a command, so the stack can walk history in both directions. Right side: both plugin formats hide behind one interface, then get wrapped to look like native instruments and effects.
+Left side: every edit is a command, so the stack can walk history in both directions. Right side: both plugin formats hide behind one interface, then get wrapped to look like native instruments and effects; the sandboxed instance is a third implementation that puts a whole process behind the same interface.
 
 ```mermaid
 classDiagram
@@ -192,14 +221,23 @@ classDiagram
         +perform(unique_ptr~Command~)
         +undo()
         +redo()
+        +changeCounter() uint64
     }
     class AddNoteCommand
-    class MoveClipCommand
-    class AddAutomationPointCommand
+    class ReplaceNotesCommand
+    class MoveMidiClipCommand
+    class CompositeCommand {
+        +add(unique_ptr~Command~)
+    }
     Command <|.. AddNoteCommand
-    Command <|.. MoveClipCommand
-    Command <|.. AddAutomationPointCommand
+    Command <|.. ReplaceNotesCommand
+    Command <|.. MoveMidiClipCommand
+    Command <|.. CompositeCommand
+    CompositeCommand "1" o-- "many" Command : children
     CommandStack "1" o-- "many" Command : history
+    AddNoteCommand ..> ClipAddress : resolves at execute
+    ReplaceNotesCommand ..> ClipAddress : resolves at execute
+    class ClipAddress
 
     class IPluginInstance {
         <<interface>>
@@ -212,15 +250,26 @@ classDiagram
     }
     class Vst3Adapter
     class ClapAdapter
+    class SandboxedPluginInstance {
+        +hasCrashed() bool
+        +restart()
+    }
     class PluginInstrument
     class PluginEffect
     class PluginHost {
         +rescan()
         +list() vector~PluginDescriptor~
+        +setSandboxed(bool)
         +instantiate(descriptor) unique_ptr~IPluginInstance~
     }
     IPluginInstance <|.. Vst3Adapter
     IPluginInstance <|.. ClapAdapter
+    IPluginInstance <|.. SandboxedPluginInstance
+    SandboxedPluginInstance --> howl_host : child process
+    class howl_host {
+        shared memory audio
+        JSON line control
+    }
     PluginInstrument --> IPluginInstance : wraps as Instrument
     PluginEffect --> IPluginInstance : wraps as Effect
     PluginHost ..> IPluginInstance : creates
