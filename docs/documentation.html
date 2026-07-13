@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Howl Documentation - How the code works</title>
+    <meta name="description" content="A guided tour of Howl's internals for people who want to contribute: the module layout, the audio path, the real time rules, and how to build and test.">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<nav>
+    <div class="nav-inner">
+        <a class="wordmark" href="index.html">Howl</a>
+        <div class="nav-links">
+            <a href="index.html#features">Features</a>
+            <a href="index.html#download">Download</a>
+            <a href="index.html#whats-new">What's New</a>
+            <a href="documentation.html">Docs</a>
+            <a href="index.html#contribute">How to Contribute</a>
+            <a href="index.html#faq">FAQ</a>
+            <a href="index.html#community">Community</a>
+        </div>
+        <a class="button button-primary button-small nav-cta" href="https://github.com/ajnieves1/Howl/releases/latest">Download</a>
+    </div>
+</nav>
+
+<main class="doc-page">
+    <div class="container">
+
+        <h1>Documentation</h1>
+        <p class="section-lead">This page is for people who want to understand how Howl works on the inside, whether to fix a bug, add a feature, or just read a real DAW's source. It covers the lay of the land; the deeper reference docs are linked at the bottom.</p>
+
+        <h2>What it's built on</h2>
+        <p>Howl is C++20 on the <a href="https://juce.com">JUCE 8</a> framework, built with CMake and Ninja, tested with Catch2. There are four third party dependencies beyond JUCE: Catch2 for tests, the CLAP headers for CLAP hosting, and Rubber Band for time stretching. CMake fetches and pins all of them automatically, so a fresh clone builds with no setup.</p>
+
+        <h2>Building and running</h2>
+        <p>You need CMake 3.22 or newer, Ninja, and a C++20 compiler.</p>
+<pre><code>cmake -B build -G Ninja
+cmake --build build</code></pre>
+        <p>The app binary lands in <code>build/src/app/Howl_artefacts/</code>. Run the tests with:</p>
+<pre><code>ctest --test-dir build</code></pre>
+
+        <h2>Where things live</h2>
+        <p>The source tree is split into modules with one direction of dependency: lower modules never know about higher ones. <code>ui</code> can see <code>model</code>, but <code>model</code> has never heard of <code>ui</code>.</p>
+        <table class="module-table">
+            <tr><th>Module</th><th>What lives there</th></tr>
+            <tr><td>src/core</td><td>The smallest shared vocabulary: sample counts, the audio block type that every processing call passes around. Nothing here depends on anything.</td></tr>
+            <tr><td>src/dsp</td><td>Sound itself: the subtractive synth, the sampler, the built in effects (EQ, compressor, limiter, delay, reverb, gain), and the offline time stretcher. Deliberately JUCE free, so it stays portable and testable in isolation.</td></tr>
+            <tr><td>src/engine</td><td>The abstractions the audio thread runs on: the transport (position, tempo, looping), the processing graph and its nodes, and the Effect and Instrument interfaces everything sound making implements.</td></tr>
+            <tr><td>src/io</td><td>Talking to the machine: the audio device, WAV file reading and writing, and the MIDI input hub that queues hardware events for the engine.</td></tr>
+            <tr><td>src/model</td><td>The project itself: tracks, clips, notes, patterns, the session grid, the mixer with buses and sends, automation, and the undo stack with every undoable command. Also the arrangement node, where the model meets the audio thread.</td></tr>
+            <tr><td>src/plugins</td><td>Plugin hosting: one shared instance interface with VST3 and CLAP adapters behind it, the scanner, and the sandboxed instance that runs a plugin in a separate process.</td></tr>
+            <tr><td>src/host</td><td>The small separate binary that sandboxed plugins actually run inside. If a plugin crashes, this process dies, not Howl.</td></tr>
+            <tr><td>src/project</td><td>Serialization: turning the whole model into JSON and back.</td></tr>
+            <tr><td>src/ui</td><td>Every view: the arrange timeline, piano roll, session grid, channel rack, mixer, browser, automation editor, and the theme all of them share.</td></tr>
+            <tr><td>src/app</td><td>Main.cpp: owns everything, wires everything, and is the only place allowed to know about all of the above at once.</td></tr>
+        </table>
+
+        <h2>The one rule</h2>
+        <p>Anything that runs on the audio thread, meaning anything reachable from a <code>process()</code> call, may not allocate memory, take a lock, block on a system call, throw, or log. The audio thread has a hard deadline measured in milliseconds; miss it and the output glitches audibly. This is the rule that breaks DAWs when ignored, and most of the less obvious design in Howl exists to honor it: preallocated buffers, lock free queues for messages entering the audio thread, and atomic reads for values the UI edits.</p>
+        <p>If you contribute one thing to audio code, make it this: know which thread your code runs on before you write it.</p>
+
+        <h2>How one block of audio happens</h2>
+        <p>The audio device calls Howl back once per block, a few hundred samples at a time. Each callback advances the transport, then asks the processing graph to fill the block. The graph's main node is the arrangement node, which walks every track: it renders MIDI clips through each track's instrument, plays audio clips, evaluates automation, and hands each track's buffer to the mixer. The mixer applies each strip's effects, gain, and pan, routes tracks into buses and sends, and sums everything through the master strip into the block the device asked for. Session clips, pattern playback, frozen tracks, and sample previews all resolve inside that same walk.</p>
+
+        <h2>How the UI talks to the engine</h2>
+        <p>The UI never touches audio directly. Edits go through command objects (add a note, move a clip, remove a track) performed on a single undo stack, so every change is undoable through one mechanism and the same counter drives autosave and the unsaved changes guards. Views hold references into the model and repaint from it on a timer; anything that must reach the audio thread crosses over through the lock free queues and atomics mentioned above. The wiring between views and the app lives in callbacks that <code>Main.cpp</code> connects at startup, which makes it the map of who talks to whom.</p>
+
+        <h2>Plugins and the sandbox</h2>
+        <p>VST3 and CLAP plugins sit behind one shared interface, so the rest of the app never cares which format a plugin is. By default each plugin runs sandboxed: a separate host process loads it, audio crosses over through shared memory with a bounded wait, and control messages travel as JSON lines. If the plugin crashes, the child process dies alone; Howl detects it, bypasses the plugin, marks it in the UI, and offers a one click restart.</p>
+
+        <h2>How projects persist</h2>
+        <p>A project saves as plain JSON text in a <code>.howl</code> file: tracks, clips, notes, mixer state, patterns, automation, MIDI mappings, and instrument state. Audio clips store the path to their source file, not the audio itself. While you work, a timer autosaves dirty projects to a sibling <code>.autosave</code> file, and opening a project with a newer autosave offers to recover it.</p>
+
+        <h2>Tests</h2>
+        <p>Around two hundred Catch2 tests cover the engine, the mixer, DSP, plugin adapters, serialization, and the sandbox protocol. The strictest of them are the golden render checks: a known project is rendered offline and compared against a stored reference, sample by sample, on every platform. If a change alters the sound of existing projects, these fail, which is exactly the point.</p>
+
+        <h2>Deeper reference</h2>
+        <p>The repo carries four reference documents that go further than this page:</p>
+        <ul>
+            <li><a href="https://github.com/ajnieves1/Howl/blob/main/docs/architecture.md">High level architecture</a></li>
+            <li><a href="https://github.com/ajnieves1/Howl/blob/main/docs/internals.md">Low level internals</a></li>
+            <li><a href="https://github.com/ajnieves1/Howl/blob/main/docs/sequences.md">Sequence diagrams</a></li>
+            <li><a href="https://github.com/ajnieves1/Howl/blob/main/docs/classes.md">Class diagrams</a></li>
+        </ul>
+
+    </div>
+</main>
+
+<footer>
+    <div class="container">
+        <div class="footer-grid">
+            <div class="footer-col">
+                <h4>Learn</h4>
+                <ul>
+                    <li><a href="documentation.html">Documentation</a></li>
+                    <li><a href="https://github.com/ajnieves1/Howl/blob/main/docs/architecture.md">Architecture</a></li>
+                    <li><a href="https://github.com/ajnieves1/Howl/blob/main/docs/internals.md">Internals</a></li>
+                </ul>
+            </div>
+            <div class="footer-col">
+                <h4>Support</h4>
+                <ul>
+                    <li><a href="https://github.com/ajnieves1/Howl/issues">Bug Tracker</a></li>
+                    <li><a href="https://github.com/ajnieves1/Howl/releases">Downloads</a></li>
+                    <li><a href="index.html#faq">FAQ</a></li>
+                </ul>
+            </div>
+            <div class="footer-col">
+                <h4>Community</h4>
+                <ul>
+                    <li><a href="https://github.com/ajnieves1/Howl/discussions">Forum</a></li>
+                    <!-- REPLACE href with the real Discord invite URL -->
+                    <li><a href="#">Discord</a></li>
+                </ul>
+            </div>
+            <div class="footer-col">
+                <h4>Contribute</h4>
+                <ul>
+                    <li><a href="index.html#contribute">How to Contribute</a></li>
+                    <li><a href="https://github.com/ajnieves1/Howl">Source Code</a></li>
+                    <li><a href="https://github.com/ajnieves1/Howl/pulls">Pull Requests</a></li>
+                </ul>
+            </div>
+        </div>
+        <div class="footer-legal">
+            <p>Howl is free software, released under the <a href="https://www.gnu.org/licenses/gpl-3.0.html">GNU General Public License v3</a> or later.</p>
+            <p>Copyright &copy; 2026 Andrew Nieves</p>
+        </div>
+    </div>
+</footer>
+
+</body>
+</html>

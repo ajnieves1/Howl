@@ -442,9 +442,9 @@ void MainComponent::refreshAllViews() {
     }
 }
 
-// juce::MenuBarModel: File, Edit, View, Options
+// juce::MenuBarModel: File, Edit, View, Options, Help
 juce::StringArray MainComponent::getMenuBarNames() {
-    return { "File", "Edit", "View", "Options" };
+    return { "File", "Edit", "View", "Options", "Help" };
 }
 
 // juce::MenuBarModel: builds each top-level menu's items
@@ -485,6 +485,10 @@ juce::PopupMenu MainComponent::getMenuForIndex(int topLevelMenuIndex, const juce
     } else if (topLevelMenuIndex == 3) {
         const bool sandboxOn = isSandboxEnabled ? isSandboxEnabled() : true;
         menu.addItem(11, "Sandbox Plugins", true, sandboxOn);
+    } else if (topLevelMenuIndex == 4) {
+        menu.addItem(16, "Visit Website...");
+        menu.addSeparator();
+        menu.addItem(17, "About Howl");
     }
 
     return menu;
@@ -560,6 +564,20 @@ void MainComponent::menuItemSelected(int menuItemID, int) {
                 onAudioSettingsRequested();
             }
             break;
+        case 16:
+            juce::URL("https://ajnieves1.github.io/Howl/").launchInDefaultBrowser();
+            break;
+        case 17: {
+            const juce::String version = juce::JUCEApplication::getInstance() != nullptr
+                ? juce::JUCEApplication::getInstance()->getApplicationVersion() : juce::String();
+            juce::AlertWindow::showAsync(juce::MessageBoxOptions()
+                .withIconType(juce::MessageBoxIconType::InfoIcon)
+                .withTitle("About Howl")
+                .withMessage("Howl " + version + "\n\nA fast, free, open source DAW.\n"
+                             "Free software under the GPL 3.0 or later.")
+                .withButton("OK"), nullptr);
+            break;
+        }
         default:
             if (menuItemID >= kRecentFileMenuIdBase && onOpenRecentRequested && recentProjectFiles) {
                 const juce::StringArray recent = recentProjectFiles();

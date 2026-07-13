@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Howl - A fast, free, open source DAW</title>
+    <meta name="description" content="Howl is a fast, free, open source digital audio workstation for Linux, macOS, and Windows, with VST3 and CLAP plugin hosting.">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<nav>
+    <div class="nav-inner">
+        <a class="wordmark" href="#">Howl</a>
+        <div class="nav-links">
+            <a href="#features">Features</a>
+            <a href="#download">Download</a>
+            <a href="#whats-new">What's New</a>
+            <a href="documentation.html">Docs</a>
+            <a href="#contribute">How to Contribute</a>
+            <a href="#faq">FAQ</a>
+            <a href="#community">Community</a>
+        </div>
+        <a class="button button-primary button-small nav-cta" href="https://github.com/ajnieves1/Howl/releases/latest">Download</a>
+    </div>
+</nav>
+
+<header class="hero">
+    <div class="container">
+        <h1>Make music, keep your money.</h1>
+        <p class="tagline">A fast, free, open source DAW for Linux, macOS, and Windows. Sequence, arrange, mix, and host your plugins in a workstation that stays out of your way.</p>
+        <div class="hero-actions">
+            <a class="button button-primary" href="https://github.com/ajnieves1/Howl/releases/latest">Download Howl</a>
+            <a class="button button-secondary" href="https://github.com/ajnieves1/Howl">Read the source</a>
+        </div>
+    </div>
+    <div class="hero-shot">
+        <img src="image.png" alt="The Howl arrangement view: a dark timeline with MIDI clips, a track header column, and a transport bar">
+    </div>
+</header>
+
+<main>
+
+<section id="features">
+    <div class="container">
+        <h2>Features</h2>
+        <p class="section-lead">The core of what this DAW consists of</p>
+        <div class="card-grid">
+            <div class="card">
+                <h3 class="tint-accent">Sequence</h3>
+                <p>A channel rack with a 16 step sequencer, live linked patterns, and a piano roll with labeled keys, snapping, velocity editing, and note slicing.</p>
+            </div>
+            <div class="card">
+                <h3 class="tint-accent">Arrange</h3>
+                <p>A timeline with MIDI and audio clips, marquee selection, clip duplication, automation lanes, and audio warping through the Rubber Band time stretcher.</p>
+            </div>
+            <div class="card">
+                <h3 class="tint-audio">Mix</h3>
+                <p>Per track gain, pan, mute, and solo, buses and sends, plugin delay compensation, and built in EQ, compressor, limiter, delay, and reverb.</p>
+            </div>
+            <div class="card">
+                <h3 class="tint-audio">Host</h3>
+                <p>VST3 and CLAP plugins behind one picker, each one sandboxed in its own process so a crashing plugin never takes your session down with it.</p>
+            </div>
+            <div class="card">
+                <h3 class="tint-pattern">Launch</h3>
+                <p>A session view with a clip launch grid and quantized scene launching, alongside track freezing for heavy projects.</p>
+            </div>
+            <div class="card">
+                <h3 class="tint-pattern">Export</h3>
+                <p>Deterministic offline rendering to 24 bit WAV. The same project renders the same audio, every time, on every platform.</p>
+            </div>
+        </div>
+    </div>
+</section>
+
+<section id="download">
+    <div class="container">
+        <h2>Download</h2>
+        <p class="section-lead">Prebuilt for all three platforms. Every download links to the latest release on GitHub.</p>
+        <div class="download-grid">
+            <div class="download-card">
+                <h3>Linux</h3>
+                <p class="formats">AppImage or tar.gz</p>
+                <a class="button button-primary" href="https://github.com/ajnieves1/Howl/releases/latest">Get for Linux</a>
+            </div>
+            <div class="download-card">
+                <h3>macOS</h3>
+                <p class="formats">zip</p>
+                <a class="button button-primary" href="https://github.com/ajnieves1/Howl/releases/latest">Get for macOS</a>
+            </div>
+            <div class="download-card">
+                <h3>Windows</h3>
+                <p class="formats">zip</p>
+                <a class="button button-primary" href="https://github.com/ajnieves1/Howl/releases/latest">Get for Windows</a>
+            </div>
+        </div>
+        <p class="license-note">Free software under the GPLv3. No accounts, no trials, no unlock keys.</p>
+    </div>
+</section>
+
+<section id="whats-new">
+    <div class="container">
+        <h2>What's New</h2>
+        <p class="section-lead">Highlights from the latest release.</p>
+        <div class="release-notes">
+            <h3>v0.1.0</h3>
+            <ul>
+                <li>Live MIDI input: play a connected keyboard straight into the selected track</li>
+                <li>MIDI learn for effect parameters: bind a knob to a hardware controller from its right click menu</li>
+                <li>An automation editor panel for drawing instrument parameter lanes by hand</li>
+                <li>Automation lanes and MIDI mappings save and load with the project</li>
+                <li>CLAP and VST3 plugins share one unified picker</li>
+                <li>A portable Linux AppImage alongside the tar and zip archives</li>
+                <li>Sandboxed plugin hosting with automatic crash detection, bypass, and one click restart</li>
+            </ul>
+            <a class="all-releases" href="https://github.com/ajnieves1/Howl/releases">All releases &rarr;</a>
+        </div>
+    </div>
+</section>
+
+<section id="contribute">
+    <div class="container">
+        <h2>How to Contribute</h2>
+        <p class="section-lead">Howl is GPLv3 and built in the open. Bug reports, fixes, and features are all welcome.</p>
+        <div class="contribute-steps">
+            <div>
+                <h3>Build it from source</h3>
+                <p>You need CMake 3.22 or newer, Ninja, and a C++20 compiler. Every dependency is fetched and pinned automatically.</p>
+<pre><code>cmake -B build -G Ninja
+cmake --build build</code></pre>
+            </div>
+            <div>
+                <h3>Learn the internals</h3>
+                <p>The <a href="documentation.html">documentation page</a> walks through how the code is laid out, how audio flows through the engine, and how that keeps it all working.</p>
+            </div>
+            <div>
+                <h3>Report and discuss</h3>
+                <p>Found a bug or want a feature? <a href="https://github.com/ajnieves1/Howl/issues">Open an issue</a>. Changes land as pull requests against <code>main</code> and derivative work stays GPLv3.</p>
+            </div>
+        </div>
+    </div>
+</section>
+
+<section id="faq" class="faq">
+    <div class="container">
+        <h2>FAQ</h2>
+        <p class="section-lead">Short answers to the questions that come up first.</p>
+        <details>
+            <summary>Is it really free?</summary>
+            <p>Yes. Howl is free software under the GPLv3. There is nothing to buy, no locked features, and no subscription. You can use it, study it, change it, and share it.</p>
+        </details>
+        <details>
+            <summary>What plugin formats does it support?</summary>
+            <p>VST3 and CLAP, both behind one picker. VST2 is not supported and will not be. On Linux, Windows plugins can work through yabridge, with the usual caveats bridged plugins bring.</p>
+        </details>
+        <details>
+            <summary>Which operating systems does it run on?</summary>
+            <p>Linux, macOS, and Windows. All three are built and tested on every change.</p>
+        </details>
+        <details>
+            <summary>Does it record audio?</summary>
+            <p>No. Howl is sequencing first: MIDI, samples, plugins, and imported audio. Recording live input is not part of the current design. There is room for this to change in the future.</p>
+        </details>
+        <details>
+            <summary>What can it export?</summary>
+            <p>24 bit WAV through a deterministic offline renderer. Projects themselves save as plain JSON text, so they diff and version cleanly.</p>
+        </details>
+        <details>
+            <summary>Where do I report bugs?</summary>
+            <p>On the <a href="https://github.com/ajnieves1/Howl/issues">GitHub issue tracker</a>. A short description and the steps to reproduce are all it takes.</p>
+        </details>
+    </div>
+</section>
+
+<section id="community">
+    <div class="container">
+        <h2>Community</h2>
+        <p class="section-lead">Questions, project feedback, and showing off what you made all belong here.</p>
+        <div class="community-buttons">
+            <a class="button button-secondary" href="https://discord.gg/RvAfj8m8q">Discord</a>
+            <a class="button button-secondary" href="https://github.com/ajnieves1/Howl/discussions">Forum</a>
+        </div>
+    </div>
+</section>
+
+</main>
+
+<footer>
+    <div class="container">
+        <div class="footer-grid">
+            <div class="footer-col">
+                <h4>Learn</h4>
+                <ul>
+                    <li><a href="documentation.html">Documentation</a></li>
+                    <li><a href="https://github.com/ajnieves1/Howl/blob/main/docs/architecture.md">Architecture</a></li>
+                    <li><a href="https://github.com/ajnieves1/Howl/blob/main/docs/internals.md">Internals</a></li>
+                </ul>
+            </div>
+            <div class="footer-col">
+                <h4>Support</h4>
+                <ul>
+                    <li><a href="https://github.com/ajnieves1/Howl/issues">Bug Tracker</a></li>
+                    <li><a href="https://github.com/ajnieves1/Howl/releases">Downloads</a></li>
+                    <li><a href="index.html#faq">FAQ</a></li>
+                </ul>
+            </div>
+            <div class="footer-col">
+                <h4>Community</h4>
+                <ul>
+                    <li><a href="https://github.com/ajnieves1/Howl/discussions">Forum</a></li>
+                    <!-- REPLACE href with the real Discord invite URL -->
+                    <li><a href="#">Discord</a></li>
+                </ul>
+            </div>
+            <div class="footer-col">
+                <h4>Contribute</h4>
+                <ul>
+                    <li><a href="index.html#contribute">How to Contribute</a></li>
+                    <li><a href="https://github.com/ajnieves1/Howl">Source Code</a></li>
+                    <li><a href="https://github.com/ajnieves1/Howl/pulls">Pull Requests</a></li>
+                </ul>
+            </div>
+        </div>
+        <div class="footer-legal">
+            <p>Howl is free software, released under the <a href="https://www.gnu.org/licenses/gpl-3.0.html">GNU General Public License v3</a> or later.</p>
+            <p>Copyright &copy; 2026 Andrew Nieves</p>
+        </div>
+    </div>
+</footer>
+
+</body>
+</html>
