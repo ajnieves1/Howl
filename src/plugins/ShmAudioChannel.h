@@ -23,6 +23,9 @@ struct ShmHeader {
     std::atomic<std::uint32_t> outputSeq;
     // Heartbeat the child bumps every block so the parent can detect a hang
     std::atomic<std::uint32_t> childAlive;
+    // Set once by the child right before it starts waiting for input, so the parent
+    // knows the first exchange will actually be heard
+    std::atomic<std::uint32_t> childReady;
     // Geometry both sides agreed on at setup
     std::int32_t numChannels;
     std::int32_t blockSize;
@@ -72,6 +75,15 @@ public:
 
     // Child side: publishes the processed block and bumps outputSeq and childAlive
     void publishOutput();
+
+    // Child side: marks this side ready, called immediately before the first waitForInput().
+    // The parent must not exchange before this: a failed exchange still bumps the sequence,
+    // and a child whose first wait starts more than one sequence behind can never catch up
+    void signalReady();
+
+    // Parent side: polls for the child's ready mark, sleeping between checks. Message
+    // thread only, never the audio thread. False when timeoutMs passes without it
+    bool waitForChildReady(int timeoutMs) const;
 
     // Child side: direct views into the mapped input/output/event regions
     float* const* inputChannels();

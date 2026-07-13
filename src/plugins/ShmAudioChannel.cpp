@@ -193,6 +193,25 @@ void ShmAudioChannel::publishOutput() {
     m_header->childAlive.fetch_add(1, std::memory_order_relaxed);
 }
 
+// Child side: marks this side ready, called immediately before the first waitForInput()
+void ShmAudioChannel::signalReady() {
+    m_header->childReady.store(1, std::memory_order_release);
+}
+
+// Parent side: polls for the child's ready mark, sleeping between checks
+bool ShmAudioChannel::waitForChildReady(int timeoutMs) const {
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMs);
+
+    while (m_header->childReady.load(std::memory_order_acquire) == 0) {
+        if (std::chrono::steady_clock::now() >= deadline) {
+            return false;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+
+    return true;
+}
+
 // Child side: direct view into the mapped input region
 float* const* ShmAudioChannel::inputChannels() {
     return m_inputChannelPtrs.data();
