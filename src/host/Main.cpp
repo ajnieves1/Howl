@@ -251,6 +251,11 @@ int main(int argc, char* argv[]) {
         std::vector<float*> outPtrs(static_cast<std::size_t>(args->numChannels));
         int blocksProcessed = 0;
 
+        // The parent holds its first exchange until this mark: exchanging into a channel
+        // nobody is waiting on yet can advance the sequence past what this loop's first
+        // wait is looking for, and it would never catch up
+        channel->signalReady();
+
         while (!quitRequested.load()) {
             if (!channel->waitForInput()) {
                 quitRequested.store(true);

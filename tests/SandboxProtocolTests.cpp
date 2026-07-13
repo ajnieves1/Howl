@@ -110,12 +110,12 @@ TEST_CASE("ShmAudioChannel round-trips 64 ramp blocks through a real loopback ch
     float* channels[kNumChannels] = { left, right };
     AudioBlock block { channels, kNumChannels, kBlockSize };
 
-    // Gives the freshly spawned process a moment to reach its wait loop before the first
-    // exchange. Deliberately not a retry loop: exchange() bumps the shared sequence number
-    // on every call, a failed one included, so retrying it before the child is listening
-    // would race the sequence ahead of what the child's first wait is looking for and it
-    // would never catch up. A generous one-shot sleep across slower CI runners instead
-    std::this_thread::sleep_for(std::chrono::milliseconds(3000));
+    // Holds until the child's audio loop is actually waiting, however slowly the CI
+    // runner schedules it. Deliberately not an exchange retry loop: exchange() bumps the
+    // shared sequence number on every call, a failed one included, so retrying it before
+    // the child is listening would race the sequence ahead of what the child's first wait
+    // is looking for and it would never catch up
+    REQUIRE(parentChannel->waitForChildReady(10000));
 
     // Retrying a missed exchange is not safe here: exchange() bumps the shared sequence
     // number on every call including a failed one, so retrying quickly enough could race
@@ -171,8 +171,8 @@ TEST_CASE("ShmAudioChannel times out and returns silence once the child crashes"
     float* channels[kNumChannels] = { left, right };
     AudioBlock block { channels, kNumChannels, kBlockSize };
 
-    // Warms the child up the same way as the round trip test above
-    std::this_thread::sleep_for(std::chrono::milliseconds(3000));
+    // Holds for the child's ready mark the same way as the round trip test above
+    REQUIRE(parentChannel->waitForChildReady(10000));
 
     // A missed exchange here does not skip a block: the child always eventually sees
     // every sequential input the parent wrote and counts it toward its own crash-after
@@ -219,8 +219,8 @@ TEST_CASE("ShmAudioChannel does not hang when the child is killed mid-run", "[sa
     float* channels[kNumChannels] = { left, right };
     AudioBlock block { channels, kNumChannels, kBlockSize };
 
-    // Warms the child up the same way as the round trip test above
-    std::this_thread::sleep_for(std::chrono::milliseconds(3000));
+    // Holds for the child's ready mark the same way as the round trip test above
+    REQUIRE(parentChannel->waitForChildReady(10000));
 
     // Same reasoning as the crash test above, a miss here does not skip a block for the
     // child, it is only proof of life before the kill below, not the thing under test
