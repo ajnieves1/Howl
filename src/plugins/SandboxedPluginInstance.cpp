@@ -146,6 +146,13 @@ bool SandboxedPluginInstance::spawnChild(const juce::StringArray& extraArgs, dou
     const juce::String pingReply = sendLineAndWaitForReply("{\"cmd\":\"ping\"}", kHandshakeTimeoutMs);
     m_valid = pingReply.contains("\"ok\"");
 
+    // The ping proves the child's control loop; its audio thread is separate and can lag
+    // behind on a loaded machine. Exchanging before that thread waits can advance the
+    // sequence past its first wait, so hold here until the child marks itself ready
+    if (m_valid) {
+        m_valid = m_shmChannel->waitForChildReady(kHandshakeTimeoutMs);
+    }
+
     if (!m_valid) {
         return false;
     }
