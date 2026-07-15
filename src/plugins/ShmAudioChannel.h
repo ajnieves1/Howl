@@ -85,6 +85,13 @@ public:
     // thread only, never the audio thread. False when timeoutMs passes without it
     bool waitForChildReady(int timeoutMs) const;
 
+    // Parent side: polls until the child's output sequence has caught up with the input
+    // sequence, sleeping between checks. After a deadline-missed exchange this is the safe
+    // way to wait before exchanging again: the input sequence holds its value between
+    // exchanges, so a caught-up child can never be left waiting for a value that already
+    // passed. Message thread only. False when timeoutMs passes first
+    bool waitForOutputToCatchUp(int timeoutMs) const;
+
     // Child side: direct views into the mapped input/output/event regions
     float* const* inputChannels();
     float* const* outputChannels();
