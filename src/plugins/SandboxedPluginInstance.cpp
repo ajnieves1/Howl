@@ -240,6 +240,14 @@ bool SandboxedPluginInstance::restart() {
    #endif
 }
 
+// Waits until the child has answered every audio exchange issued so far
+bool SandboxedPluginInstance::waitForChildIdle(int timeoutMs) const {
+    if (m_shmChannel == nullptr) {
+        return false;
+    }
+    return m_shmChannel->waitForOutputToCatchUp(timeoutMs);
+}
+
 // True when the child process is still alive, POSIX only
 bool SandboxedPluginInstance::childProcessAlive() const {
    #if JUCE_LINUX || JUCE_MAC

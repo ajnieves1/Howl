@@ -58,6 +58,11 @@ public:
     // or handshake fails
     bool restart();
 
+    // Waits until the child has answered every audio exchange issued so far, sleeping
+    // between checks. Message thread only. False when timeoutMs passes first or no child
+    // channel exists
+    bool waitForChildIdle(int timeoutMs) const;
+
     // The child is already prepared at construction, but usually with a placeholder rate
     // and block size, not the real device's. When the given values actually differ,
     // respawns the child at the right ones and carries its state across

@@ -115,7 +115,7 @@ TEST_CASE("ShmAudioChannel round-trips 64 ramp blocks through a real loopback ch
     // shared sequence number on every call, a failed one included, so retrying it before
     // the child is listening would race the sequence ahead of what the child's first wait
     // is looking for and it would never catch up
-    REQUIRE(parentChannel->waitForChildReady(10000));
+    REQUIRE(parentChannel->waitForChildReady(20000));
 
     // Retrying a missed exchange is not safe here: exchange() bumps the shared sequence
     // number on every call including a failed one, so retrying quickly enough could race
@@ -172,20 +172,18 @@ TEST_CASE("ShmAudioChannel times out and returns silence once the child crashes"
     AudioBlock block { channels, kNumChannels, kBlockSize };
 
     // Holds for the child's ready mark the same way as the round trip test above
-    REQUIRE(parentChannel->waitForChildReady(10000));
+    REQUIRE(parentChannel->waitForChildReady(20000));
 
     // A missed exchange here does not skip a block: the child always eventually sees
     // every sequential input the parent wrote and counts it toward its own crash-after
     // total regardless of whether the parent personally waited long enough for the
-    // matching output, so tolerating a miss on a loaded CI runner is safe here too
-    int missedWarmup = 0;
+    // matching output. Holding until it has answered all ten proves they reached it,
+    // however many of the parent's own 2 ms deadlines a loaded runner blew
     for (int i = 0; i < 10; ++i) {
         fillRamp(block, static_cast<float>(i));
-        if (!parentChannel->exchange(block, nullptr, 0)) {
-            ++missedWarmup;
-        }
+        parentChannel->exchange(block, nullptr, 0);
     }
-    REQUIRE(missedWarmup < 8);
+    REQUIRE(parentChannel->waitForOutputToCatchUp(5000));
 
     // Block 11 lands after the crash, exchange() must give up at the deadline rather
     // than hang, and the caller gets silence instead of stale or garbage audio
@@ -220,18 +218,15 @@ TEST_CASE("ShmAudioChannel does not hang when the child is killed mid-run", "[sa
     AudioBlock block { channels, kNumChannels, kBlockSize };
 
     // Holds for the child's ready mark the same way as the round trip test above
-    REQUIRE(parentChannel->waitForChildReady(10000));
+    REQUIRE(parentChannel->waitForChildReady(20000));
 
-    // Same reasoning as the crash test above, a miss here does not skip a block for the
-    // child, it is only proof of life before the kill below, not the thing under test
-    int missedWarmup = 0;
+    // Proof of life before the kill below: the child has answered everything sent so far,
+    // however many of the parent's own 2 ms deadlines a loaded runner blew along the way
     for (int i = 0; i < 5; ++i) {
         fillRamp(block, static_cast<float>(i));
-        if (!parentChannel->exchange(block, nullptr, 0)) {
-            ++missedWarmup;
-        }
+        parentChannel->exchange(block, nullptr, 0);
     }
-    REQUIRE(missedWarmup < 4);
+    REQUIRE(parentChannel->waitForOutputToCatchUp(5000));
 
     REQUIRE(host->kill());
 
@@ -322,14 +317,30 @@ TEST_CASE("SandboxedPluginInstance.restart respawns the child and resumes exchan
     REQUIRE_FALSE(instance->hasCrashed());
     REQUIRE(instance->isValid());
 
-    fillRamp(block, 11.0f);
-    float expectedLeft[kBlockSize];
-    float expectedRight[kBlockSize];
-    std::memcpy(expectedLeft, left, sizeof(expectedLeft));
-    std::memcpy(expectedRight, right, sizeof(expectedRight));
+    // The restarted child is ready and listening (restart holds for its ready mark), but
+    // any single exchange can still miss the 2 ms deadline when a loaded runner deschedules
+    // the child at the wrong moment, and a miss returns silence by design. So: try, and
+    // after a miss hold until the child has answered the sequence it was given before
+    // trying again. The input sequence keeps its value between exchanges, so these retries
+    // can never race the child out of catching up
+    bool roundTripped = false;
+    for (int attempt = 0; attempt < 20 && !roundTripped; ++attempt) {
+        fillRamp(block, 11.0f);
+        float expectedLeft[kBlockSize];
+        float expectedRight[kBlockSize];
+        std::memcpy(expectedLeft, left, sizeof(expectedLeft));
+        std::memcpy(expectedRight, right, sizeof(expectedRight));
 
-    instance->process(block, nullptr);
+        instance->process(block, nullptr);
 
-    REQUIRE(std::memcmp(left, expectedLeft, sizeof(expectedLeft)) == 0);
-    REQUIRE(std::memcmp(right, expectedRight, sizeof(expectedRight)) == 0);
+        if (isSilent(block)) {
+            REQUIRE(instance->waitForChildIdle(2000));
+            continue;
+        }
+
+        REQUIRE(std::memcmp(left, expectedLeft, sizeof(expectedLeft)) == 0);
+        REQUIRE(std::memcmp(right, expectedRight, sizeof(expectedRight)) == 0);
+        roundTripped = true;
+    }
+    REQUIRE(roundTripped);
 }

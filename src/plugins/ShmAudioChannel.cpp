@@ -212,6 +212,21 @@ bool ShmAudioChannel::waitForChildReady(int timeoutMs) const {
     return true;
 }
 
+// Parent side: polls until the child's output sequence has caught up with the input sequence
+bool ShmAudioChannel::waitForOutputToCatchUp(int timeoutMs) const {
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMs);
+
+    while (m_header->outputSeq.load(std::memory_order_acquire)
+           != m_header->inputSeq.load(std::memory_order_acquire)) {
+        if (std::chrono::steady_clock::now() >= deadline) {
+            return false;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+
+    return true;
+}
+
 // Child side: direct view into the mapped input region
 float* const* ShmAudioChannel::inputChannels() {
     return m_inputChannelPtrs.data();
