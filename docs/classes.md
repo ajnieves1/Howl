@@ -1,276 +1,214 @@
-# Class diagrams
+# Class reference
 
-Four diagrams, one per area. Methods are trimmed to the ones that explain each class's job. `[RT]` marks methods that run on the audio thread.
+This page tells you about the important classes in four areas. It lists only the methods that show the function of each class. The mark `[RT]` identifies a method that runs on the audio thread.
 
 ## Engine interfaces
 
-Everything that makes sound implements one of these. The rest of the app programs against the interface and never cares what is behind it.
+Each part that makes sound implements one of these interfaces. The rest of the app uses the interface and does not know the implementation.
 
-```mermaid
-classDiagram
-    class Node {
-        <<interface>>
-        +process(AudioBlock, SampleCount) [RT]
-    }
-    class Graph {
-        +addNode(unique_ptr~Node~) NodeId
-        +connect(from, to)
-        +prepare()
-        +process(AudioBlock, SampleCount) [RT]
-    }
-    class Transport {
-        +play() / stop()
-        +setTempo(double)
-        +setPosition(SampleCount)
-        +setLoop(start, end, enabled)
-        +advance(numFrames) [RT]
-        -atomic~bool~ playing
-        -atomic~double~ tempo
-        -atomic~SampleCount~ position
-        -atomic~LoopRegion*~ loopRegion
-    }
-    class Instrument {
-        <<interface>>
-        +prepare(sampleRate, maxBlockSize)
-        +noteOn(key, velocity) [RT]
-        +noteOff(key) [RT]
-        +render(AudioBlock) [RT]
-        +numParameters() int
-        +setParameter(index, value) [RT]
-    }
-    class Effect {
-        <<interface>>
-        +prepare(sampleRate, maxBlockSize)
-        +process(AudioBlock) [RT]
-        +reset()
-        +latencySamples() int
-        +setParameter(index, value) [RT]
-    }
-    class EffectChain {
-        +add(unique_ptr~Effect~)
-        +process(AudioBlock) [RT]
-        +totalLatency() int
-    }
+**`Node`** is an interface. Each processor in the graph implements it.
+- `process(AudioBlock, SampleCount)` `[RT]`
 
-    Graph "1" o-- "many" Node : owns
-    EffectChain "1" o-- "many" Effect : owns
-    class SubtractiveSynth
-    class SamplerInstrument
-    class Equalizer
-    class Compressor
-    Instrument <|.. SubtractiveSynth
-    Instrument <|.. SamplerInstrument
-    Effect <|.. Equalizer
-    Effect <|.. Compressor
-```
+**`Graph`** owns many `Node` objects and runs them in topological order.
+- `addNode(unique_ptr<Node>)` returns a `NodeId`
+- `connect(from, to)`
+- `prepare()`
+- `process(AudioBlock, SampleCount)` `[RT]`
+
+**`Transport`** holds the play state, the tempo, the position, and the loop region. It keeps these values in atomic members: `playing`, `tempo`, `position`, and a pointer named `loopRegion`. Thus the two threads can read them safely.
+- `play()` and `stop()`
+- `setTempo(double)`
+- `setPosition(SampleCount)`
+- `setLoop(start, end, enabled)`
+- `advance(numFrames)` `[RT]`
+
+**`Instrument`** is an interface. Each sound source implements it.
+- `prepare(sampleRate, maxBlockSize)`
+- `noteOn(key, velocity)` `[RT]`
+- `noteOff(key)` `[RT]`
+- `render(AudioBlock)` `[RT]`
+- `numParameters()` returns an `int`
+- `setParameter(index, value)` `[RT]`
+
+**`Effect`** is an interface. Each audio processor implements it.
+- `prepare(sampleRate, maxBlockSize)`
+- `process(AudioBlock)` `[RT]`
+- `reset()`
+- `latencySamples()` returns an `int`
+- `setParameter(index, value)` `[RT]`
+
+**`EffectChain`** owns many `Effect` objects and runs them in a set order.
+- `add(unique_ptr<Effect>)`
+- `process(AudioBlock)` `[RT]`
+- `totalLatency()` returns an `int`
+
+These relations connect the classes:
+
+- A `Graph` owns many `Node` objects.
+- An `EffectChain` owns many `Effect` objects.
+- `SubtractiveSynth` and `SamplerInstrument` implement `Instrument`.
+- `Equalizer` and `Compressor` implement `Effect`.
 
 ## The document model
 
-Plain data with tick positions. No JUCE types, no engine types, which keeps it easy to test and serialize.
+The document model is plain data with tick positions. It has no JUCE types and no engine types. Thus the model is easy to test and to serialize.
 
-```mermaid
-classDiagram
-    class Arrangement {
-        +addTrack(name, kind) size_t
-        +track(index) Track
-        +addMidiClipPlacement(track, placement)
-        +addAudioClipPlacement(track, placement)
-    }
-    class Track {
-        +string name
-        +TrackKind kind
-        +vector~MidiClipPlacement~ midiClips
-        +vector~AudioClipPlacement~ audioClips
-        +vector~AutomationLaneSlot~ automation
-    }
-    class MidiClip {
-        +addNote(Note) size_t
-        +replaceNoteAt(index, Note)
-        +notes() vector~Note~
-        +lengthTicks() int64
-    }
-    class Note {
-        +int64 startTick
-        +int64 lengthTicks
-        +int key
-        +float velocity
-    }
-    class AudioClip {
-        +sample data and warp settings
-    }
-    class AutomationLane {
-        +addPoint(AutomationPoint)
-        +removePointAt(index)
-        +valueAtTick(tick) float
-    }
-    class Session {
-        +addScene() size_t
-        +slot(track, scene) ClipSlot
-    }
-    class ClipSlot {
-        +SlotContent content
-        +MidiClip midiClip
-        +AudioClip audioClip
-    }
-    class PatternBank {
-        +addPattern(name, numTracks) size_t
-        +pattern(index) Pattern
-        +placements() vector~PatternPlacement~
-    }
-    class Pattern {
-        +string name
-        +vector~MidiClip~ trackClips
-    }
-    class PatternPlacement {
-        +size_t patternIndex
-        +int64 startTick
-    }
-    class ClipAddress {
-        +Kind kind (Arrangement, Session, Pattern)
-        +indices to the clip
-    }
+**`Arrangement`** holds the tracks.
+- `addTrack(name, kind)` returns a `size_t`
+- `track(index)` returns a `Track`
+- `addMidiClipPlacement(track, placement)`
+- `addAudioClipPlacement(track, placement)`
 
-    Arrangement "1" o-- "many" Track
-    Track "1" o-- "many" MidiClip : via placements
-    Track "1" o-- "many" AudioClip : via placements
-    Track "1" o-- "many" AutomationLane : via slots
-    MidiClip "1" o-- "many" Note
-    Session "1" o-- "many" ClipSlot
-    PatternBank "1" o-- "many" Pattern
-    PatternBank "1" o-- "many" PatternPlacement
-    Pattern "1" o-- "many" MidiClip : one per track
-    ClipAddress ..> MidiClip : resolves to
-```
+**`Track`** holds the data of one track.
+- `string name`
+- `TrackKind kind`
+- `vector<MidiClipPlacement> midiClips`
+- `vector<AudioClipPlacement> audioClips`
+- `vector<AutomationLaneSlot> automation`
 
-## Playback and mixing
+**`MidiClip`** holds the notes of one clip.
+- `addNote(Note)` returns a `size_t`
+- `replaceNoteAt(index, Note)`
+- `notes()` returns a `vector<Note>`
+- `lengthTicks()` returns an `int64`
 
-`ArrangementNode` is the bridge between the document above and the engine interfaces. It is the only engine node the app needs.
+**`Note`** is one note.
+- `int64 startTick`
+- `int64 lengthTicks`
+- `int key`
+- `float velocity`
 
-```mermaid
-classDiagram
-    class Node {
-        <<interface>>
-    }
-    class ArrangementNode {
-        +prepare(sampleRate, maxBlockSize, channels)
-        +setInstrumentForTrack(track, Instrument*)
-        +setPatternBank(PatternBank*)
-        +setLiveNoteQueue(queue*)
-        +setPreviewPlayer(PreviewPlayer*)
-        +requestLaunch(track, scene) bool
-        +setFrozen(track, channels)
-        +process(AudioBlock, SampleCount) [RT]
-        -LockFreeQueue~LaunchRequest~ launchQueue
-        -scratch buffers, one per track
-    }
-    class MidiTrackRenderer {
-        +setPatternSource(bank, trackIndex)
-        +process(AudioBlock, SampleCount) [RT]
-    }
-    class AudioTrackRenderer {
-        +process(AudioBlock, SampleCount) [RT]
-    }
-    class SessionTrackPlayer {
-        +queueScene / queueStop
-        +process(AudioBlock, SampleCount) [RT]
-    }
-    class PreviewPlayer {
-        +post(unique_ptr~PreviewBuffer~)
-        +stop()
-        +process(AudioBlock) [RT]
-        +collectGarbage()
-    }
-    class Mixer {
-        +trackStrip(index) ChannelStrip
-        +masterStrip() ChannelStrip
-        +addBus(name)
-        +process(track buffers, out) [RT]
-        -delay compensation rings
-    }
-    class ChannelStrip {
-        +setGainDb / setPan / setMuted / setSoloed
-        +effects() EffectChain
-        +process(AudioBlock) [RT]
-    }
+**`AudioClip`** holds the sample data and the warp settings of one audio clip.
 
-    Node <|-- ArrangementNode
-    ArrangementNode "1" o-- "many" MidiTrackRenderer
-    ArrangementNode "1" o-- "many" AudioTrackRenderer
-    ArrangementNode "1" o-- "many" SessionTrackPlayer
-    ArrangementNode "1" *-- "1" Mixer
-    ArrangementNode --> PreviewPlayer : mixes after master
-    Mixer "1" o-- "many" ChannelStrip
-    MidiTrackRenderer --> Instrument : renders through
-    class Instrument {
-        <<interface>>
-    }
-```
+**`AutomationLane`** holds the points of one automation lane.
+- `addPoint(AutomationPoint)`
+- `removePointAt(index)`
+- `valueAtTick(tick)` returns a `float`
+
+**`Session`** holds the clip launch grid.
+- `addScene()` returns a `size_t`
+- `slot(track, scene)` returns a `ClipSlot`
+
+**`ClipSlot`** is one cell in the grid.
+- `SlotContent content`
+- `MidiClip midiClip`
+- `AudioClip audioClip`
+
+**`PatternBank`** holds the patterns and their placements.
+- `addPattern(name, numTracks)` returns a `size_t`
+- `pattern(index)` returns a `Pattern`
+- `placements()` returns a `vector<PatternPlacement>`
+
+**`Pattern`** is one pattern. It has a `string name` and a `vector<MidiClip> trackClips`, with one clip for each track.
+
+**`PatternPlacement`** puts a pattern on the timeline. It has a `size_t patternIndex` and an `int64 startTick`.
+
+**`ClipAddress`** identifies one clip. Its `Kind` is `Arrangement`, `Session`, or `Pattern`, with the indices of the clip.
+
+These relations connect the classes:
+
+- An `Arrangement` owns many `Track` objects.
+- A `Track` refers to many `MidiClip` and `AudioClip` objects through placements.
+- A `Track` owns many `AutomationLane` objects through slots.
+- A `MidiClip` owns many `Note` objects.
+- A `Session` owns many `ClipSlot` objects.
+- A `PatternBank` owns many `Pattern` and `PatternPlacement` objects.
+- A `Pattern` owns one `MidiClip` for each track.
+- A `ClipAddress` points to one `MidiClip`.
+
+## Playback and the mixer
+
+`ArrangementNode` is the bridge between the document model and the engine interfaces. It is the only engine node that the app needs. It implements `Node`.
+
+**`ArrangementNode`** makes the audio for the full project. It owns a `LockFreeQueue<LaunchRequest>` and one scratch buffer for each track.
+- `prepare(sampleRate, maxBlockSize, channels)`
+- `setInstrumentForTrack(track, Instrument*)`
+- `setPatternBank(PatternBank*)`
+- `setLiveNoteQueue(queue*)`
+- `setPreviewPlayer(PreviewPlayer*)`
+- `requestLaunch(track, scene)` returns a `bool`
+- `setFrozen(track, channels)`
+- `process(AudioBlock, SampleCount)` `[RT]`
+
+**`MidiTrackRenderer`** makes the audio for one MIDI track through its instrument.
+- `setPatternSource(bank, trackIndex)`
+- `process(AudioBlock, SampleCount)` `[RT]`
+
+**`AudioTrackRenderer`** makes the audio for one audio track.
+- `process(AudioBlock, SampleCount)` `[RT]`
+
+**`SessionTrackPlayer`** plays session clips on one track.
+- `queueScene` and `queueStop`
+- `process(AudioBlock, SampleCount)` `[RT]`
+
+**`PreviewPlayer`** plays sample previews after the master strip.
+- `post(unique_ptr<PreviewBuffer>)`
+- `stop()`
+- `process(AudioBlock)` `[RT]`
+- `collectGarbage()`
+
+**`Mixer`** mixes the track buffers into the output. It owns the rings for delay compensation.
+- `trackStrip(index)` returns a `ChannelStrip`
+- `masterStrip()` returns a `ChannelStrip`
+- `addBus(name)`
+- `process(track buffers, out)` `[RT]`
+
+**`ChannelStrip`** is the strip of one track, one bus, or the master.
+- `setGainDb`, `setPan`, `setMuted`, and `setSoloed`
+- `effects()` returns an `EffectChain`
+- `process(AudioBlock)` `[RT]`
+
+These relations connect the classes:
+
+- `ArrangementNode` implements `Node`.
+- An `ArrangementNode` owns many `MidiTrackRenderer`, `AudioTrackRenderer`, and `SessionTrackPlayer` objects.
+- An `ArrangementNode` owns one `Mixer`.
+- An `ArrangementNode` adds the `PreviewPlayer` audio after the master.
+- A `Mixer` owns many `ChannelStrip` objects.
+- A `MidiTrackRenderer` makes its audio through an `Instrument`.
 
 ## Commands and plugins
 
-Left side: every edit is a command, so the stack can walk history in both directions. Right side: both plugin formats hide behind one interface, then get wrapped to look like native instruments and effects; the sandboxed instance is a third implementation that puts a whole process behind the same interface.
+Each edit is a command. Thus the stack can move through the history in the two directions. The two plugin formats are behind one interface. Wrappers then make a plugin equal to a native instrument or effect. The sandboxed instance is a third implementation that puts a full process behind the same interface.
 
-```mermaid
-classDiagram
-    class Command {
-        <<interface>>
-        +execute()
-        +undo()
-    }
-    class CommandStack {
-        +perform(unique_ptr~Command~)
-        +undo()
-        +redo()
-        +changeCounter() uint64
-    }
-    class AddNoteCommand
-    class ReplaceNotesCommand
-    class MoveMidiClipCommand
-    class CompositeCommand {
-        +add(unique_ptr~Command~)
-    }
-    Command <|.. AddNoteCommand
-    Command <|.. ReplaceNotesCommand
-    Command <|.. MoveMidiClipCommand
-    Command <|.. CompositeCommand
-    CompositeCommand "1" o-- "many" Command : children
-    CommandStack "1" o-- "many" Command : history
-    AddNoteCommand ..> ClipAddress : resolves at execute
-    ReplaceNotesCommand ..> ClipAddress : resolves at execute
-    class ClipAddress
+**`Command`** is an interface with `execute()` and `undo()`.
 
-    class IPluginInstance {
-        <<interface>>
-        +prepare / release
-        +process(AudioBlock, midi) [RT]
-        +saveState() StateBlob
-        +loadState(StateBlob)
-        +setParamNormalized(id, value)
-        +openEditor(parentHandle)
-    }
-    class Vst3Adapter
-    class ClapAdapter
-    class SandboxedPluginInstance {
-        +hasCrashed() bool
-        +restart()
-    }
-    class PluginInstrument
-    class PluginEffect
-    class PluginHost {
-        +rescan()
-        +list() vector~PluginDescriptor~
-        +setSandboxed(bool)
-        +instantiate(descriptor) unique_ptr~IPluginInstance~
-    }
-    IPluginInstance <|.. Vst3Adapter
-    IPluginInstance <|.. ClapAdapter
-    IPluginInstance <|.. SandboxedPluginInstance
-    SandboxedPluginInstance --> howl_host : child process
-    class howl_host {
-        shared memory audio
-        JSON line control
-    }
-    PluginInstrument --> IPluginInstance : wraps as Instrument
-    PluginEffect --> IPluginInstance : wraps as Effect
-    PluginHost ..> IPluginInstance : creates
-```
+**`CommandStack`** performs the commands and keeps the history.
+- `perform(unique_ptr<Command>)`
+- `undo()`
+- `redo()`
+- `changeCounter()` returns a `uint64`
+
+**`AddNoteCommand`**, **`ReplaceNotesCommand`**, and **`MoveMidiClipCommand`** implement `Command`. `AddNoteCommand` and `ReplaceNotesCommand` find their clip through a `ClipAddress` at execute time.
+
+**`CompositeCommand`** implements `Command` and owns many child commands.
+- `add(unique_ptr<Command>)`
+
+**`IPluginInstance`** is the interface for all plugin formats.
+- `prepare` and `release`
+- `process(AudioBlock, midi)` `[RT]`
+- `saveState()` returns a `StateBlob`
+- `loadState(StateBlob)`
+- `setParamNormalized(id, value)`
+- `openEditor(parentHandle)`
+
+**`Vst3Adapter`** and **`ClapAdapter`** implement `IPluginInstance` for their formats.
+
+**`SandboxedPluginInstance`** implements `IPluginInstance` with a `howl-host` child process. The audio moves through shared memory. The control messages move as JSON lines.
+- `hasCrashed()` returns a `bool`
+- `restart()`
+
+**`PluginInstrument`** and **`PluginEffect`** put an `IPluginInstance` behind the `Instrument` and `Effect` interfaces.
+
+**`PluginHost`** finds the plugins and makes the instances.
+- `rescan()`
+- `list()` returns a `vector<PluginDescriptor>`
+- `setSandboxed(bool)`
+- `instantiate(descriptor)` returns a `unique_ptr<IPluginInstance>`
+
+These relations connect the classes:
+
+- A `CommandStack` owns many `Command` objects as its history.
+- A `CompositeCommand` owns many `Command` objects as its children.
+- A `SandboxedPluginInstance` controls one `howl-host` child process.
+- A `PluginHost` makes `IPluginInstance` objects.

@@ -66,8 +66,8 @@ Unit tests cover the audio engine, the mixer, DSP, plugin adapters, serializatio
 
 - [High level architecture](docs/architecture.md)
 - [Low level internals](docs/internals.md)
-- [Sequence diagrams](docs/sequences.md)
-- [Class diagrams](docs/classes.md)
+- [Operation sequences](docs/sequences.md)
+- [Class reference](docs/classes.md)
 
 ## License
 

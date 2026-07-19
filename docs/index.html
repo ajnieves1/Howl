@@ -27,6 +27,13 @@
 
 <header class="hero">
     <div class="container">
+        <div class="seq" aria-hidden="true">
+            <span class="on"></span><span></span><span></span><span class="on"></span>
+            <span></span><span class="on-audio"></span><span></span><span class="on"></span>
+            <span></span><span></span><span class="on-pattern"></span><span></span>
+            <span class="on"></span><span></span><span></span><span class="on"></span>
+            <div class="seq-playhead"></div>
+        </div>
         <h1>Make music, keep your money.</h1>
         <p class="tagline">A fast, free, open source DAW for Linux, macOS, and Windows. Sequence, arrange, mix, and host your plugins in a workstation that stays out of your way.</p>
         <div class="hero-actions">
@@ -35,61 +42,79 @@
         </div>
     </div>
     <div class="hero-shot">
-        <img src="image.png" alt="The Howl arrangement view: a dark timeline with MIDI clips, a track header column, and a transport bar">
+        <figure class="app-window">
+            <div class="titlebar" aria-hidden="true">
+                <span class="tb-dots"><i></i><i></i><i></i></span>
+                <span class="tb-title">untitled.howl &mdash; Howl</span>
+            </div>
+            <img src="image.png" alt="The Howl arrangement view: a dark timeline with MIDI clips, a track header column, and a transport bar">
+        </figure>
     </div>
+    <div class="piano-strip" aria-hidden="true"></div>
 </header>
 
 <main>
 
-<section id="features">
+<section id="features" class="tint-accent">
     <div class="container">
-        <h2>Features</h2>
+        <div class="track-head">
+            <span class="track-num">01</span>
+            <h2>Features</h2>
+            <span class="track-btns" aria-hidden="true"><span>M</span><span>S</span></span>
+        </div>
         <p class="section-lead">The core of what this DAW consists of</p>
         <div class="card-grid">
-            <div class="card">
-                <h3 class="tint-accent">Sequence</h3>
+            <div class="card tint-accent">
+                <h3>Sequence</h3>
                 <p>A channel rack with a 16 step sequencer, live linked patterns, and a piano roll with labeled keys, snapping, velocity editing, and note slicing.</p>
             </div>
-            <div class="card">
-                <h3 class="tint-accent">Arrange</h3>
+            <div class="card tint-accent">
+                <h3>Arrange</h3>
                 <p>A timeline with MIDI and audio clips, marquee selection, clip duplication, automation lanes, and audio warping through the Rubber Band time stretcher.</p>
             </div>
-            <div class="card">
-                <h3 class="tint-audio">Mix</h3>
+            <div class="card tint-audio">
+                <h3>Mix</h3>
                 <p>Per track gain, pan, mute, and solo, buses and sends, plugin delay compensation, and built in EQ, compressor, limiter, delay, and reverb.</p>
             </div>
-            <div class="card">
-                <h3 class="tint-audio">Host</h3>
+            <div class="card tint-audio">
+                <h3>Host</h3>
                 <p>VST3 and CLAP plugins behind one picker, each one sandboxed in its own process so a crashing plugin never takes your session down with it.</p>
             </div>
-            <div class="card">
-                <h3 class="tint-pattern">Launch</h3>
+            <div class="card tint-pattern">
+                <h3>Launch</h3>
                 <p>A session view with a clip launch grid and quantized scene launching, alongside track freezing for heavy projects.</p>
             </div>
-            <div class="card">
-                <h3 class="tint-pattern">Export</h3>
+            <div class="card tint-pattern">
+                <h3>Export</h3>
                 <p>Deterministic offline rendering to 24 bit WAV. The same project renders the same audio, every time, on every platform.</p>
             </div>
         </div>
     </div>
 </section>
 
-<section id="download">
+<section id="download" class="tint-audio">
     <div class="container">
-        <h2>Download</h2>
+        <div class="track-head">
+            <span class="track-num">02</span>
+            <h2>Download</h2>
+            <span class="track-btns" aria-hidden="true"><span>M</span><span>S</span></span>
+        </div>
         <p class="section-lead">Prebuilt for all three platforms. Every download links to the latest release on GitHub.</p>
         <div class="download-grid">
             <div class="download-card">
+                <div class="fader" aria-hidden="true"><span class="fader-cap"></span></div>
                 <h3>Linux</h3>
                 <p class="formats">AppImage or tar.gz</p>
                 <a class="button button-primary" href="https://github.com/ajnieves1/Howl/releases/latest">Get for Linux</a>
             </div>
             <div class="download-card">
+                <div class="fader" aria-hidden="true"><span class="fader-cap"></span></div>
                 <h3>macOS</h3>
                 <p class="formats">zip</p>
                 <a class="button button-primary" href="https://github.com/ajnieves1/Howl/releases/latest">Get for macOS</a>
             </div>
             <div class="download-card">
+                <div class="fader" aria-hidden="true"><span class="fader-cap"></span></div>
                 <h3>Windows</h3>
                 <p class="formats">zip</p>
                 <a class="button button-primary" href="https://github.com/ajnieves1/Howl/releases/latest">Get for Windows</a>
@@ -99,9 +124,13 @@
     </div>
 </section>
 
-<section id="whats-new">
+<section id="whats-new" class="tint-pattern">
     <div class="container">
-        <h2>What's New</h2>
+        <div class="track-head">
+            <span class="track-num">03</span>
+            <h2>What's New</h2>
+            <span class="track-btns" aria-hidden="true"><span>M</span><span>S</span></span>
+        </div>
         <p class="section-lead">Highlights from the latest release.</p>
         <div class="release-notes">
             <h3>v1.0.0</h3>
@@ -119,9 +148,13 @@
     </div>
 </section>
 
-<section id="contribute">
+<section id="contribute" class="tint-accent">
     <div class="container">
-        <h2>How to Contribute</h2>
+        <div class="track-head">
+            <span class="track-num">04</span>
+            <h2>How to Contribute</h2>
+            <span class="track-btns" aria-hidden="true"><span>M</span><span>S</span></span>
+        </div>
         <p class="section-lead">Howl is GPLv3 and built in the open. Bug reports, fixes, and features are all welcome.</p>
         <div class="contribute-steps">
             <div>
@@ -142,9 +175,13 @@ cmake --build build</code></pre>
     </div>
 </section>
 
-<section id="faq" class="faq">
+<section id="faq" class="faq tint-audio">
     <div class="container">
-        <h2>FAQ</h2>
+        <div class="track-head">
+            <span class="track-num">05</span>
+            <h2>FAQ</h2>
+            <span class="track-btns" aria-hidden="true"><span>M</span><span>S</span></span>
+        </div>
         <p class="section-lead">Short answers to the questions that come up first.</p>
         <details>
             <summary>Is it really free?</summary>
@@ -173,9 +210,13 @@ cmake --build build</code></pre>
     </div>
 </section>
 
-<section id="community">
+<section id="community" class="tint-pattern">
     <div class="container">
-        <h2>Community</h2>
+        <div class="track-head">
+            <span class="track-num">06</span>
+            <h2>Community</h2>
+            <span class="track-btns" aria-hidden="true"><span>M</span><span>S</span></span>
+        </div>
         <p class="section-lead">Questions, project feedback, and showing off what you made all belong here.</p>
         <div class="community-buttons">
             <a class="button button-secondary" href="https://discord.gg/RvAfj8m8q">Discord</a>

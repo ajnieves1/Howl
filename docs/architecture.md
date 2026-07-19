@@ -1,55 +1,48 @@
 # High level architecture
 
-Howl is organized as a stack of static libraries, each one a folder under `src/`, with a thin app target on top. Lower layers never know about the layers above them, so the audio engine can be built and tested with no UI at all.
+Howl is a stack of static libraries. Each library is one folder in `src/`. A thin app target is at the top of the stack. A lower layer does not know the layers above it. Thus you can build and test the audio engine without the UI.
 
 ## Module stack
 
-```mermaid
-flowchart TD
-    App["Howl app (src/app)"] --> Ui["HowlUi (src/ui)"]
-    App --> Project["HowlProject (src/project)"]
-    App --> Dsp["HowlDsp (src/dsp)"]
-    Ui --> Model["HowlModel (src/model)"]
-    Ui --> Plugins["HowlPlugins (src/plugins)"]
-    Project --> Model
-    Project --> Plugins
-    Dsp --> Engine["HowlEngine (src/engine)"]
-    Plugins --> Engine
-    Model --> Engine
-    Engine --> Io["HowlIo (src/io)"]
-    Io --> JUCE["JUCE modules"]
-    Host["howl-host (src/host)"] -. separate process .- Plugins
-```
+The modules have these direct dependencies:
 
-## What each layer does
+- The Howl app (`src/app`) uses `HowlUi` (`src/ui`), `HowlProject` (`src/project`), and `HowlDsp` (`src/dsp`).
+- `HowlUi` uses `HowlModel` (`src/model`) and `HowlPlugins` (`src/plugins`).
+- `HowlProject` uses `HowlModel` and `HowlPlugins`.
+- `HowlDsp`, `HowlPlugins`, and `HowlModel` use `HowlEngine` (`src/engine`).
+- `HowlEngine` uses `HowlIo` (`src/io`).
+- `HowlIo` uses the JUCE modules.
+- `howl-host` (`src/host`) is a separate process. It speaks with `HowlPlugins` while the app operates.
 
-**core** (headers only). Fundamental types shared by everything: `SampleCount`, `AudioBlock`, and a fixed capacity `LockFreeQueue` used to pass messages from the UI thread to the audio thread.
+## The function of each layer
 
-**io** (`HowlIo`). Talks to the outside world. `AudioDevice` owns the system audio output and drives the audio callback. `AudioFile` reads and writes WAV data through the JUCE format readers. `MidiInputHub` opens every connected MIDI device and queues incoming notes for the audio thread and control changes for the message thread.
+**core** (headers only). This layer contains the basic types that all other layers use. These types are `SampleCount`, `AudioBlock`, and a `LockFreeQueue` with a fixed capacity. The queue moves messages from the UI thread to the audio thread.
 
-**engine** (`HowlEngine`). The abstract audio machinery. `Node` is the interface every processor implements, `Graph` owns nodes and runs them in topological order, `Transport` holds play state, tempo, position, and the loop region in atomics so both threads can read it safely. `Instrument` and `Effect` are the interfaces every sound source and processor implement, and `EffectChain` runs an ordered list of effects.
+**io** (`HowlIo`). This layer speaks with the system. `AudioDevice` controls the system audio output and starts the audio callback. `AudioFile` reads and writes WAV data through the JUCE format readers. `MidiInputHub` opens each connected MIDI device. It puts the notes in a queue for the audio thread. It puts the control changes in a queue for the message thread.
 
-**dsp** (`HowlDsp`). Concrete sound. The subtractive synthesizer, the one shot sampler, the built in effects (equalizer, compressor, limiter, delay, reverb, gain), an envelope follower, and an offline time stretcher wrapping the Rubber Band library for audio warping.
+**engine** (`HowlEngine`). This layer contains the abstract audio machinery. `Node` is the interface that each processor implements. `Graph` owns the nodes and runs them in topological order. `Transport` holds the play state, the tempo, the position, and the loop region in atomic values. Thus the two threads can read the transport safely. `Instrument` is the interface for each sound source. `Effect` is the interface for each processor. `EffectChain` runs a list of effects in a set order.
 
-**plugins** (`HowlPlugins`). Third party plugin hosting. `IPluginInstance` is a format neutral interface; `Vst3Adapter` and `ClapAdapter` implement it for their formats, and `SandboxedPluginInstance` implements it by driving a plugin loaded in a separate child process. `PluginInstrument` and `PluginEffect` wrap a plugin instance so the rest of the app treats plugins exactly like built in instruments and effects. `PluginHost` scans the system for plugins on a background thread and caches the result to disk.
+**dsp** (`HowlDsp`). This layer contains the concrete sound code. It has the subtractive synthesizer and the one shot sampler. It has the included effects: the equalizer, the compressor, the limiter, the delay, the reverb, and the gain. It also has an envelope follower and an offline time stretcher. The time stretcher uses the Rubber Band library to change the length of audio.
 
-**host** (`howl-host`). A small separate binary that loads one plugin on behalf of the app. Audio crosses between the processes through shared memory, control messages travel as JSON lines over pipes. When a plugin crashes it takes this process down, not Howl.
+**plugins** (`HowlPlugins`). This layer holds third party plugins. `IPluginInstance` is one interface for all plugin formats. `Vst3Adapter` and `ClapAdapter` implement this interface for the two formats. `SandboxedPluginInstance` implements the same interface. It controls a plugin that a separate child process loads. `PluginInstrument` and `PluginEffect` put a plugin instance behind the usual `Instrument` and `Effect` interfaces. Thus the app operates a plugin and an included instrument in the same way. `PluginHost` finds the plugins on the system on a background thread. It writes the results to a cache on the disk.
 
-**model** (`HowlModel`). The document and its playback. `Arrangement` holds tracks, clips, and automation lanes. `Session` holds the clip launch grid. `PatternBank` holds patterns (one MIDI clip per track) and their placements on the timeline's pattern lane. `ArrangementNode` is the single engine node that renders the whole project: one renderer per track, a mixer, frozen track buffers, session players, and the sample preview player. Edits go through `Command` objects on a `CommandStack`, which gives every mutation undo and redo for free; the stack's change counter also drives dirty tracking for autosave and the unsaved changes guards. `SnapGrid` holds the pure tick rounding functions behind the global snap setting.
+**host** (`howl-host`). This is a small separate binary. It loads one plugin for the app. Audio moves between the two processes through shared memory. Control messages move as JSON lines through pipes. When a plugin has a crash, only this process stops. Howl continues.
 
-**project** (`HowlProject`). Serialization. `ProjectSerializer` turns the whole session into `.howl` JSON text and back, including plugin state blobs, patterns, automation, and MIDI mappings.
+**model** (`HowlModel`). This layer is the document and the playback of the document. `Arrangement` holds the tracks, the clips, and the automation lanes. `Session` holds the clip launch grid. `PatternBank` holds the patterns and the placements of the patterns on the pattern lane of the timeline. Each pattern has one MIDI clip for each track. `ArrangementNode` is the one engine node that makes the audio for the full project. It has one renderer for each track, a mixer, buffers for frozen tracks, session players, and the sample preview player. Each edit goes through a `Command` object on a `CommandStack`. Thus each change has undo and redo. The change counter of the stack also shows when a project has changes that are not saved. This counter controls the autosave function and the guard dialogs. `SnapGrid` holds the pure functions that round tick values for the global snap setting.
 
-**ui** (`HowlUi`). JUCE components. `MainComponent` is the single window shell: transport bar on top, a file browser column on the left when shown, then track headers beside the center view, which cycles between the arrange timeline, the session grid, and the channel rack. A swappable bottom panel holds the piano roll, the mixer, or the automation editor. Every color comes from one theme header applied through a shared LookAndFeel.
+**project** (`HowlProject`). This layer does serialization. `ProjectSerializer` writes the full session as `.howl` JSON text and reads it back. This includes the plugin state blobs, the patterns, the automation, and the MIDI mappings.
 
-**app**. `Main.cpp` wires everything together: opens the device, builds the graph, connects UI callbacks to model commands, runs the autosave timer, keeps the recent files and audio device settings, and owns the file dialogs for open, save, import, and export.
+**ui** (`HowlUi`). This layer contains the JUCE components. `MainComponent` is the one window shell. The transport bar is at the top. A file browser column is on the left when you show it. The track headers are adjacent to the center view. The center view changes between the arrange timeline, the session grid, and the channel rack. A bottom panel holds the piano roll, the mixer, or the automation editor. Each color comes from one theme header through a shared LookAndFeel.
 
-## Threading and process model
+**app**. `Main.cpp` connects all the parts. It opens the device and builds the graph. It connects the UI callbacks to the model commands. It runs the autosave timer. It keeps the recent files and the audio device settings. It owns the file dialogs for open, save, import, and export.
 
-Three kinds of threads exist, plus one kind of child process:
+## Threads and processes
 
-1. **The message thread.** All UI, all edits, all file dialogs. Model mutations happen here through commands. Timers on this thread drain the MIDI control change queue, mirror mixer state into the UI, collect preview player garbage, and write autosaves.
-2. **The audio thread.** Calls `Graph::process` once per block. Code on this path never allocates, never locks, never touches files, and never throws. It reads shared state through atomics and receives requests through lock free queues.
-3. **Worker threads.** The plugin scanner runs on its own thread and caches results to disk. Offline jobs like track freezing, audio warping, and WAV export pause the device first, then render on the message thread, so they never race the audio callback.
-4. **Sandbox child processes.** One `howl-host` process per sandboxed plugin. The audio thread exchanges blocks with it through shared memory under a bounded wait, so a hung or dead child costs at most a fixed budget before the plugin is bypassed.
+The app has three types of threads and one type of child process:
 
-An `XrunWatcher` polls the device for buffer underruns so regressions in real time safety show up during development instead of in a recording.
+1. **The message thread.** All UI code, all edits, and all file dialogs run here. Model changes occur here through commands. Timers on this thread do these tasks: they empty the MIDI control change queue, they copy the mixer state to the UI, they release old preview buffers, and they write autosaves.
+2. **The audio thread.** This thread calls `Graph::process` one time for each block. Code on this path does not allocate memory, does not use locks, does not touch files, and does not throw exceptions. It reads shared state through atomic values. It receives requests through lock free queues.
+3. **Worker threads.** The plugin scanner runs on its own thread and writes results to a cache on the disk. Offline jobs stop the device first and then render on the message thread. These jobs include the track freeze function, the audio warp function, and the WAV export. Thus they cannot have a race with the audio callback.
+4. **Sandbox child processes.** Each plugin in a sandbox has one `howl-host` process. The audio thread sends blocks to it through shared memory with a wait limit. Thus a child that stops or dies costs a fixed time before the app sets the plugin to bypass.
+
+An `XrunWatcher` monitors the device for buffer underruns. Thus a real time safety problem shows during development and not in your work.
