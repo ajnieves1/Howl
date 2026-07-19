@@ -1,4 +1,7 @@
-/* Howl website styles. The palette mirrors the app's theme exactly:
+/* Howl website styles. The site borrows the look of the app itself:
+   the nav is a transport bar, section headings are track headers, feature
+   cards are clips, download cards are mixer strips, and a step sequencer
+   runs in the hero. Palette mirrors the app theme exactly:
    window #17191C, panel #1F2226, raised #282C31, hover #333940, border #3A4046,
    text #E6E9EC / #9AA1A8, accent #E98A3C, audio teal #4E9DA8, pattern violet #9B7BD4 */
 
@@ -13,6 +16,9 @@
     --accent: #E98A3C;
     --audio: #4E9DA8;
     --pattern: #9B7BD4;
+    --lcd-bg: #0C0E10;
+    --ink-on-tint: #14161A;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 }
 
 * {
@@ -33,6 +39,11 @@ body {
     line-height: 1.6;
 }
 
+::selection {
+    background: var(--accent);
+    color: var(--ink-on-tint);
+}
+
 a {
     color: var(--accent);
     text-decoration: none;
@@ -48,36 +59,64 @@ a:hover {
     padding: 0 24px;
 }
 
-/* Sticky top navigation */
+/* Sticky top navigation, styled like the transport bar */
 
 nav {
     position: sticky;
     top: 0;
     z-index: 10;
-    background: rgba(23, 25, 28, 0.92);
-    backdrop-filter: blur(8px);
+    background: linear-gradient(#22262B, #1B1E22);
     border-bottom: 1px solid var(--border);
+    box-shadow: 0 1px 0 rgba(0, 0, 0, 0.4);
 }
 
 .nav-inner {
     max-width: 1040px;
     margin: 0 auto;
-    padding: 14px 24px;
+    padding: 12px 24px;
     display: flex;
     align-items: center;
-    gap: 22px;
+    gap: 18px;
     flex-wrap: wrap;
 }
 
 .wordmark {
-    font-size: 20px;
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    font-family: var(--mono);
+    font-size: 18px;
     font-weight: 700;
     color: var(--text-primary);
-    letter-spacing: 0.5px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+}
+
+/* Play triangle in front of the wordmark */
+.wordmark::before {
+    content: "";
+    width: 0;
+    height: 0;
+    border-left: 11px solid var(--accent);
+    border-top: 7px solid transparent;
+    border-bottom: 7px solid transparent;
 }
 
 .wordmark:hover {
     text-decoration: none;
+}
+
+/* Small readout next to the wordmark, like the tempo display */
+.lcd {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 1px;
+    color: var(--accent);
+    background: var(--lcd-bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 3px 9px;
+    white-space: nowrap;
 }
 
 .nav-links {
@@ -106,19 +145,25 @@ nav {
 .button {
     display: inline-block;
     padding: 10px 22px;
-    border-radius: 8px;
+    border-radius: 6px;
     font-size: 15px;
     font-weight: 600;
     border: 1px solid transparent;
+    transition: filter 0.12s, background 0.12s, transform 0.06s;
 }
 
 .button:hover {
     text-decoration: none;
 }
 
+.button:active {
+    transform: translateY(1px);
+}
+
 .button-primary {
     background: var(--accent);
-    color: var(--window-bg);
+    color: var(--ink-on-tint);
+    box-shadow: 0 2px 0 rgba(0, 0, 0, 0.35);
 }
 
 .button-primary:hover {
@@ -140,11 +185,12 @@ nav {
     font-size: 13px;
 }
 
-/* Hero */
+/* Hero, with a faint timeline grid behind it */
 
 .hero {
     text-align: center;
-    padding: 88px 0 56px;
+    padding: 80px 0 0;
+    background-image: repeating-linear-gradient(90deg, rgba(58, 64, 70, 0.28) 0 1px, transparent 1px 72px);
 }
 
 .hero h1 {
@@ -168,17 +214,112 @@ nav {
     flex-wrap: wrap;
 }
 
+/* Sixteen step sequencer strip above the headline */
+
+.seq {
+    position: relative;
+    display: grid;
+    grid-template-columns: repeat(16, 1fr);
+    width: min(440px, 84%);
+    margin: 0 auto 34px;
+}
+
+.seq span {
+    height: 15px;
+    background: var(--raised-bg);
+    border: 2px solid var(--window-bg);
+    border-radius: 4px;
+}
+
+/* Beat starts sit a touch lighter, like the rack grid */
+.seq span:nth-child(4n + 1) {
+    background: var(--hover-bg);
+}
+
+.seq span.on {
+    background: var(--accent);
+}
+
+.seq span.on-audio {
+    background: var(--audio);
+}
+
+.seq span.on-pattern {
+    background: var(--pattern);
+}
+
+.seq-playhead {
+    position: absolute;
+    top: -4px;
+    bottom: -4px;
+    left: 0;
+    width: calc(100% / 16);
+    background: rgba(230, 233, 236, 0.16);
+    border-radius: 4px;
+    animation: seq-sweep 3.2s steps(16, end) infinite;
+}
+
+@keyframes seq-sweep {
+    from { transform: translateX(0); }
+    to { transform: translateX(1600%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .seq-playhead {
+        animation: none;
+        opacity: 0;
+    }
+}
+
+/* Screenshot inside app window chrome */
+
 .hero-shot {
     margin: 56px auto 0;
     max-width: 960px;
     padding: 0 24px;
 }
 
+.app-window {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    background: var(--panel-bg);
+    box-shadow: 0 24px 48px rgba(0, 0, 0, 0.5);
+}
+
+.titlebar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    background: linear-gradient(#2A2E33, #22262B);
+    border-bottom: 1px solid var(--border);
+}
+
+.tb-dots {
+    display: flex;
+    gap: 6px;
+}
+
+.tb-dots i {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--hover-bg);
+}
+
+.tb-title {
+    margin: 0 auto;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-secondary);
+    /* Keeps the title visually centered against the dots on the left */
+    transform: translateX(-24px);
+}
+
 .hero-shot img,
 .screenshot-frame {
     width: 100%;
-    border: 1px solid var(--border);
-    border-radius: 10px;
     display: block;
 }
 
@@ -194,16 +335,91 @@ nav {
     aspect-ratio: 16 / 9;
 }
 
+/* Piano key strip dividing the hero from the content */
+
+.piano-strip {
+    height: 30px;
+    margin-top: 64px;
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    background-color: #B9BFC6;
+    background-image:
+        repeating-linear-gradient(90deg,
+            transparent 0 18px, var(--window-bg) 18px 30px,
+            transparent 30px 42px, var(--window-bg) 42px 54px,
+            transparent 54px 90px, var(--window-bg) 90px 102px,
+            transparent 102px 114px, var(--window-bg) 114px 126px,
+            transparent 126px 138px, var(--window-bg) 138px 150px,
+            transparent 150px 168px),
+        repeating-linear-gradient(90deg, transparent 0 23px, #878E96 23px 24px);
+    background-size: 168px 62%, 168px 100%;
+    background-repeat: repeat-x;
+}
+
 /* Sections */
 
 section {
     padding: 64px 0;
+}
+
+section + section {
     border-top: 1px solid var(--border);
 }
 
-section h2 {
-    font-size: 30px;
-    margin-bottom: 8px;
+/* Per section tint, used by the track header tab and anything inside */
+
+.tint-accent { --tint: var(--accent); }
+.tint-audio { --tint: var(--audio); }
+.tint-pattern { --tint: var(--pattern); }
+
+/* Section headings styled like arrangement track headers */
+
+.track-head {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 10px 16px;
+    margin-bottom: 10px;
+    background: var(--panel-bg);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--tint, var(--accent));
+    border-radius: 8px;
+}
+
+.track-num {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-secondary);
+    background: var(--window-bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 2px 7px;
+}
+
+.track-head h2 {
+    font-family: var(--mono);
+    font-size: 18px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+}
+
+.track-btns {
+    margin-left: auto;
+    display: flex;
+    gap: 6px;
+}
+
+.track-btns span {
+    width: 22px;
+    height: 22px;
+    display: grid;
+    place-items: center;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-secondary);
+    background: var(--raised-bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
 }
 
 .section-lead {
@@ -212,7 +428,7 @@ section h2 {
     margin-bottom: 36px;
 }
 
-/* Feature cards */
+/* Feature cards, drawn like clips with a colored name bar */
 
 .card-grid {
     display: grid;
@@ -223,25 +439,28 @@ section h2 {
 .card {
     background: var(--panel-bg);
     border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 24px;
+    border-radius: 8px;
+    overflow: hidden;
 }
 
 .card h3 {
-    font-size: 18px;
-    margin-bottom: 8px;
+    background: var(--tint, var(--accent));
+    color: var(--ink-on-tint);
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    padding: 7px 14px;
 }
 
 .card p {
     color: var(--text-secondary);
     font-size: 14.5px;
+    padding: 14px 16px 18px;
 }
 
-.card .tint-accent { color: var(--accent); }
-.card .tint-audio { color: var(--audio); }
-.card .tint-pattern { color: var(--pattern); }
-
-/* Download cards */
+/* Download cards, drawn like mixer channel strips */
 
 .download-grid {
     display: grid;
@@ -252,18 +471,73 @@ section h2 {
 .download-card {
     background: var(--panel-bg);
     border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 28px 24px;
+    border-radius: 8px;
+    padding: 24px;
     text-align: center;
 }
 
+.fader {
+    position: relative;
+    width: 44px;
+    height: 104px;
+    margin: 0 auto 16px;
+    background: repeating-linear-gradient(180deg, rgba(58, 64, 70, 0.55) 0 1px, transparent 1px 13px);
+}
+
+/* Fader slot down the middle */
+.fader::before {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 0;
+    bottom: 0;
+    width: 4px;
+    transform: translateX(-50%);
+    background: var(--lcd-bg);
+    border-radius: 2px;
+}
+
+.fader-cap {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 34px;
+    height: 20px;
+    background: linear-gradient(#3C4249, #2A2F35);
+    border: 1px solid var(--ink-on-tint);
+    border-radius: 4px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.4);
+}
+
+/* Center line across the fader cap */
+.fader-cap::after {
+    content: "";
+    position: absolute;
+    left: 5px;
+    right: 5px;
+    top: 50%;
+    height: 2px;
+    transform: translateY(-50%);
+    background: var(--accent);
+}
+
+/* Each platform sits at its own level, like a rough mix */
+.download-card:nth-child(1) .fader-cap { top: 20px; }
+.download-card:nth-child(2) .fader-cap { top: 38px; }
+.download-card:nth-child(3) .fader-cap { top: 29px; }
+
 .download-card h3 {
+    font-family: var(--mono);
+    font-size: 16px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
     margin-bottom: 4px;
 }
 
 .download-card .formats {
     color: var(--text-secondary);
-    font-size: 13.5px;
+    font-family: var(--mono);
+    font-size: 12.5px;
     margin-bottom: 18px;
 }
 
@@ -274,21 +548,28 @@ section h2 {
     text-align: center;
 }
 
-/* What's new */
+/* What's new, drawn like a pattern clip */
 
 .release-notes {
     background: var(--panel-bg);
     border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 28px;
+    border-radius: 8px;
+    overflow: hidden;
 }
 
 .release-notes h3 {
-    margin-bottom: 12px;
+    background: var(--pattern);
+    color: var(--ink-on-tint);
+    font-family: var(--mono);
+    font-size: 13px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    padding: 8px 16px;
 }
 
 .release-notes ul {
     list-style: none;
+    padding: 18px 24px 4px;
 }
 
 .release-notes li {
@@ -297,6 +578,7 @@ section h2 {
     color: var(--text-secondary);
 }
 
+/* Step cell bullets */
 .release-notes li::before {
     content: "";
     position: absolute;
@@ -305,19 +587,53 @@ section h2 {
     width: 8px;
     height: 8px;
     border-radius: 2px;
-    background: var(--accent);
+    background: var(--pattern);
 }
 
 .release-notes .all-releases {
     display: inline-block;
-    margin-top: 16px;
+    margin: 10px 24px 22px;
 }
 
-/* Contribute */
+/* Contribute steps, numbered like pattern slots */
 
 .contribute-steps {
+    counter-reset: step;
     display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
     gap: 18px;
+    align-items: start;
+}
+
+.contribute-steps > div {
+    counter-increment: step;
+    background: var(--panel-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 22px;
+}
+
+.contribute-steps > div::before {
+    content: counter(step, decimal-leading-zero);
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--tint, var(--accent));
+    background: var(--window-bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 2px 7px;
+    margin-bottom: 12px;
+}
+
+.contribute-steps h3 {
+    font-size: 17px;
+    margin-bottom: 6px;
+}
+
+.contribute-steps p {
+    color: var(--text-secondary);
+    font-size: 14.5px;
 }
 
 pre {
@@ -325,13 +641,14 @@ pre {
     border: 1px solid var(--border);
     border-radius: 8px;
     padding: 16px 20px;
+    margin-top: 14px;
     overflow-x: auto;
     font-size: 14px;
     color: var(--text-primary);
 }
 
 code {
-    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-family: var(--mono);
 }
 
 p code, li code {
@@ -347,14 +664,15 @@ p code, li code {
 .faq details {
     background: var(--panel-bg);
     border: 1px solid var(--border);
-    border-radius: 10px;
+    border-left: 3px solid var(--tint, var(--audio));
+    border-radius: 8px;
     margin-bottom: 12px;
     overflow: hidden;
 }
 
 .faq summary {
     cursor: pointer;
-    padding: 16px 20px;
+    padding: 15px 20px;
     font-weight: 600;
     list-style: none;
 }
@@ -363,14 +681,28 @@ p code, li code {
     display: none;
 }
 
+/* Expand marker drawn as a step cell */
 .faq summary::after {
     content: "+";
     float: right;
+    width: 22px;
+    height: 22px;
+    display: grid;
+    place-items: center;
+    font-family: var(--mono);
+    font-size: 14px;
     color: var(--text-secondary);
+    background: var(--raised-bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    line-height: 1;
 }
 
 .faq details[open] summary::after {
     content: "\2212";
+    color: var(--ink-on-tint);
+    background: var(--tint, var(--audio));
+    border-color: var(--tint, var(--audio));
 }
 
 .faq summary:hover {
@@ -408,7 +740,10 @@ footer {
 
 .footer-col h4 {
     color: var(--text-primary);
-    font-size: 14px;
+    font-family: var(--mono);
+    font-size: 13px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
     margin-bottom: 10px;
 }
 
@@ -429,15 +764,19 @@ footer {
     text-decoration: none;
 }
 
-.footer-legal {
-    border-top: 1px solid var(--border);
-    padding-top: 20px;
-    text-align: center;
-    font-size: 13.5px;
-}
+/* Legal line drawn like the status bar at the bottom of the app */
 
-.footer-legal p {
-    margin-bottom: 4px;
+.footer-legal {
+    background: var(--panel-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 18px;
+    display: flex;
+    justify-content: space-between;
+    gap: 8px 24px;
+    flex-wrap: wrap;
+    font-family: var(--mono);
+    font-size: 12.5px;
 }
 
 /* Documentation page */
@@ -456,10 +795,15 @@ footer {
 }
 
 .doc-page h2 {
-    font-size: 24px;
-    margin: 44px 0 12px;
-    padding-top: 20px;
-    border-top: 1px solid var(--border);
+    font-family: var(--mono);
+    font-size: 19px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    margin: 48px 0 12px;
+    padding: 8px 0 8px 14px;
+    border-left: 4px solid var(--accent);
+    background: linear-gradient(90deg, var(--panel-bg), transparent 70%);
+    border-radius: 4px;
 }
 
 .doc-page h3 {
@@ -483,7 +827,7 @@ footer {
 }
 
 .doc-page pre {
-    margin-bottom: 12px;
+    margin: 0 0 12px;
 }
 
 .module-table {
@@ -513,7 +857,7 @@ footer {
 
 .module-table td:first-child {
     color: var(--text-primary);
-    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-family: var(--mono);
     font-size: 13.5px;
     white-space: nowrap;
 }
@@ -523,12 +867,24 @@ footer {
         gap: 12px;
     }
 
+    .lcd {
+        display: none;
+    }
+
     .hero {
-        padding: 56px 0 40px;
+        padding: 56px 0 0;
+    }
+
+    .piano-strip {
+        margin-top: 44px;
     }
 
     section {
         padding: 44px 0;
+    }
+
+    .track-btns {
+        display: none;
     }
 
     .module-table {
