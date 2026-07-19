@@ -661,10 +661,16 @@ p code, li code {
 
 /* FAQ */
 
+/* The FAQ header keeps the color tab; the rows stay plain so the
+   header does not read as one of the entries */
+
+.faq .track-head {
+    margin-bottom: 24px;
+}
+
 .faq details {
-    background: var(--panel-bg);
+    background: var(--window-bg);
     border: 1px solid var(--border);
-    border-left: 3px solid var(--tint, var(--audio));
     border-radius: 8px;
     margin-bottom: 12px;
     overflow: hidden;
