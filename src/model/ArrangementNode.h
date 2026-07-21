@@ -104,6 +104,10 @@ private:
     std::atomic<std::ptrdiff_t> m_liveTargetTrack { -1 };
     PreviewPlayer* m_previewPlayer = nullptr;
 
+    // Whether the transport was playing on the previous process block, so the play to stop
+    // edge can release held notes exactly once when playback halts
+    bool m_wasPlaying = false;
+
     // Indexed by track, exactly one of the pair is non-null per index
     std::vector<std::unique_ptr<MidiTrackRenderer>> m_midiRenderers;
     std::vector<std::unique_ptr<AudioTrackRenderer>> m_audioRenderers;

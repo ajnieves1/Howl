@@ -6,6 +6,8 @@
 #include "engine/Transport.h"
 #include "model/Arrangement.h"
 #include "model/ArrangementNode.h"
+#include "model/MidiClip.h"
+#include "model/Note.h"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -20,6 +22,10 @@ using howl::engine::Instrument;
 using howl::engine::Transport;
 using howl::model::Arrangement;
 using howl::model::ArrangementNode;
+using howl::model::kTicksPerQuarter;
+using howl::model::MidiClip;
+using howl::model::MidiClipPlacement;
+using howl::model::Note;
 using howl::model::TrackKind;
 
 namespace {
@@ -109,6 +115,46 @@ TEST_CASE("ArrangementNode routes a queued live note to the selected track's ins
     REQUIRE(probe.events[0].velocity == 0.8f);
     REQUIRE_FALSE(probe.events[1].isNoteOn);
     REQUIRE(probe.events[1].key == 60);
+}
+
+TEST_CASE("ArrangementNode releases held sequenced notes when the transport stops", "[model][transport-stop]") {
+    Arrangement arrangement;
+    const std::size_t trackIndex = arrangement.addTrack("Lead", TrackKind::Midi);
+
+    // A note starting at tick 0 that lasts far past the blocks we process, so its note off is
+    // never reached before the stop
+    MidiClip clip;
+    clip.addNote(Note { 60, 0.8f, 0, kTicksPerQuarter * 64 });
+    clip.setLengthTicks(kTicksPerQuarter * 64);
+    arrangement.addMidiClipPlacement(trackIndex, MidiClipPlacement { 0, clip });
+
+    Transport transport;
+    ArrangementNode node(transport, arrangement);
+    node.prepare(44100.0, 512, 2);
+
+    ProbeInstrument probe;
+    node.setInstrumentForTrack(trackIndex, &probe);
+
+    transport.play();
+    processOneBlock(node, transport, 512);
+
+    REQUIRE_FALSE(probe.events.empty());
+    REQUIRE(probe.events.front().isNoteOn);
+    REQUIRE(probe.events.front().key == 60);
+
+    const std::size_t eventsWhilePlaying = probe.events.size();
+
+    transport.stop();
+    processOneBlock(node, transport, 512);
+
+    // The stop edge released the held note: a note off for key 60 arrived after playback halted
+    bool releasedHeldKey = false;
+    for (std::size_t i = eventsWhilePlaying; i < probe.events.size(); ++i) {
+        if (!probe.events[i].isNoteOn && probe.events[i].key == 60) {
+            releasedHeldKey = true;
+        }
+    }
+    REQUIRE(releasedHeldKey);
 }
 
 TEST_CASE("ArrangementNode plays live notes while the transport is stopped", "[model][live-midi]") {
