@@ -3,6 +3,7 @@
 
 #include "ui/ChannelRackPanel.h"
 
+#include "ui/BrowserFileTypes.h"
 #include "ui/Theme.h"
 
 #include <memory>
@@ -318,20 +319,26 @@ void ChannelRackPanel::mouseExit(const juce::MouseEvent&) {
     }
 }
 
-// Accepts a drag whose description matches the browser's "howl-sample" tag
+// Accepts a drag whose description matches the browser's "howl-file" tag
 bool ChannelRackPanel::isInterestedInDragSource(const juce::DragAndDropTarget::SourceDetails& dragSourceDetails) {
-    return dragSourceDetails.description == juce::var("howl-sample");
+    return dragSourceDetails.description == juce::var("howl-file");
 }
 
-// Assigns the dropped sample to the row under the drop point
+// Assigns the dropped file to the row under the drop point when it is an audio sample
 void ChannelRackPanel::itemDropped(const juce::DragAndDropTarget::SourceDetails& dragSourceDetails) {
     const int row = rowAtY(dragSourceDetails.localPosition.y);
     if (row < 0) {
         return;
     }
 
-    if (onSampleAssignRequested && browserFileProvider) {
-        onSampleAssignRequested(m_midiTrackIndices[static_cast<std::size_t>(row)], browserFileProvider());
+    if (onSampleAssignRequested == nullptr || browserFileProvider == nullptr) {
+        return;
+    }
+
+    // A channel row plays a sample, ignore MIDI and patch drops until patch loading lands
+    const juce::File file = browserFileProvider();
+    if (filetypes::isAudioFile(file)) {
+        onSampleAssignRequested(m_midiTrackIndices[static_cast<std::size_t>(row)], file);
     }
 }
 

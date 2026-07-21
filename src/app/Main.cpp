@@ -19,6 +19,7 @@
 #include "model/CommandStack.h"
 #include "model/Commands.h"
 #include "model/MidiClip.h"
+#include "model/MidiFileImport.h"
 #include "model/Note.h"
 #include "model/OfflineRenderer.h"
 #include "model/Pattern.h"
@@ -30,6 +31,7 @@
 #include "plugins/PluginInstrument.h"
 #include "plugins/SandboxedPluginInstance.h"
 #include "project/ProjectSerializer.h"
+#include "ui/BrowserFileTypes.h"
 #include "ui/HowlLookAndFeel.h"
 #include "ui/MainComponent.h"
 #include "ui/PluginWindow.h"
@@ -350,6 +352,7 @@ public:
             m_sampleRate, m_bufferSize, browserRoot);
 
         ui::MainComponent* mainComponent = m_mainWindow->mainComponent();
+        mainComponent->setBrowserWidth(m_settings->getIntValue("browserWidth", 220));
         mainComponent->onTracksChanged = [this] {
             reconcileTrackInstruments();
             rebuildAudioGraph();
@@ -387,8 +390,14 @@ public:
             m_settings->setValue("browserRoot", root.getFullPathName());
             m_settings->saveIfNeeded();
         };
+        mainComponent->onBrowserWidthChanged = [this](int width) {
+            m_settings->setValue("browserWidth", width);
+            m_settings->saveIfNeeded();
+        };
         mainComponent->onBrowserFileClicked = [this](juce::File file) {
-            startSamplePreview(file);
+            if (ui::filetypes::isAudioFile(file)) {
+                startSamplePreview(file);
+            }
         };
         mainComponent->onAudioFileDropped = [this](juce::String path, std::size_t trackIndex, int64_t tick) {
             std::size_t targetTrack = trackIndex;
@@ -397,6 +406,9 @@ public:
                 targetTrack = ensureFirstAudioTrack();
             }
             importAudioFile(juce::File(path), targetTrack, tick);
+        };
+        mainComponent->onMidiFileDropped = [this](juce::String path, std::size_t trackIndex, int64_t tick) {
+            importMidiFile(juce::File(path), trackIndex, tick);
         };
         mainComponent->onSampleAssignRequested = [this](std::size_t trackIndex, juce::File file) {
             assignSampleToTrack(trackIndex, file);
@@ -813,6 +825,46 @@ private:
             m_arrangement, m_arrangementNode->mixer(), m_session, m_patterns, "Audio 1", model::TrackKind::Audio));
         reconcileTrackInstruments();
         return newIndex;
+    }
+
+    // Returns the index of the first MIDI track, creating one (always at the current end,
+    // since addTrack always appends) if the arrangement has none yet
+    std::size_t ensureFirstMidiTrack()
+    {
+        for (std::size_t i = 0; i < m_arrangement.numTracks(); ++i) {
+            if (m_arrangement.track(i).kind == model::TrackKind::Midi) {
+                return i;
+            }
+        }
+
+        const std::size_t newIndex = m_arrangement.numTracks();
+        m_commandStack.perform(std::make_unique<model::AddTrackCommand>(
+            m_arrangement, m_arrangementNode->mixer(), m_session, m_patterns, "Lead", model::TrackKind::Midi));
+        reconcileTrackInstruments();
+        return newIndex;
+    }
+
+    // Reads a MIDI file into one clip, places it on a MIDI track, and rebuilds the graph/views
+    void importMidiFile(const juce::File& file, std::size_t trackIndex, int64_t startTick)
+    {
+        std::optional<model::MidiClip> clip = model::importMidiFileAsClip(file);
+        if (!clip.has_value()) {
+            juce::Logger::writeToLog("Howl: failed to import MIDI file " + file.getFullPathName());
+            return;
+        }
+
+        std::size_t targetTrack = trackIndex;
+        if (trackIndex >= m_arrangement.numTracks()
+            || m_arrangement.track(trackIndex).kind != model::TrackKind::Midi) {
+            targetTrack = ensureFirstMidiTrack();
+        }
+
+        m_commandStack.perform(std::make_unique<model::AddMidiClipCommand>(
+            m_arrangement, targetTrack, model::MidiClipPlacement { startTick, std::move(clip.value()) }));
+
+        reconcileTrackInstruments();
+        rebuildAudioGraph();
+        m_mainWindow->mainComponent()->refreshAllViews();
     }
 
     // Reads a WAV file fully into memory, places it as a clip, and rebuilds the graph/views

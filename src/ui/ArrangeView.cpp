@@ -4,6 +4,7 @@
 #include "ui/ArrangeView.h"
 
 #include "model/Commands.h"
+#include "ui/BrowserFileTypes.h"
 #include "ui/Theme.h"
 
 #include <algorithm>
@@ -938,10 +939,11 @@ void ArrangeView::mouseWheelMove(const juce::MouseEvent& event, const juce::Mous
     repaint();
 }
 
-// Accepts a drag hovering any .wav file
+// Accepts a drag hovering an audio or MIDI file
 bool ArrangeView::isInterestedInFileDrag(const juce::StringArray& files) {
     for (const auto& file : files) {
-        if (file.endsWithIgnoreCase(".wav")) {
+        const juce::File candidate(file);
+        if (filetypes::isAudioFile(candidate) || filetypes::isMidiFile(candidate)) {
             return true;
         }
     }
@@ -949,7 +951,7 @@ bool ArrangeView::isInterestedInFileDrag(const juce::StringArray& files) {
     return false;
 }
 
-// Fires onAudioFileDropped with the drop lane and snapped tick for each dropped .wav
+// Fires the audio or MIDI drop callback with the drop lane and snapped tick per file
 void ArrangeView::filesDropped(const juce::StringArray& files, int x, int y) {
     if (m_arrangement.numTracks() == 0 || y < kRulerHeight || isInPatternLane(y) || isInEmptyLaneArea(y)) {
         return;
@@ -960,18 +962,21 @@ void ArrangeView::filesDropped(const juce::StringArray& files, int x, int y) {
     const int64_t snappedTick = model::snapTickFloor(tick, snapDivision());
 
     for (const auto& file : files) {
-        if (file.endsWithIgnoreCase(".wav") && onAudioFileDropped) {
+        const juce::File candidate(file);
+        if (filetypes::isAudioFile(candidate) && onAudioFileDropped) {
             onAudioFileDropped(file, trackIndex, snappedTick);
+        } else if (filetypes::isMidiFile(candidate) && onMidiFileDropped) {
+            onMidiFileDropped(file, trackIndex, snappedTick);
         }
     }
 }
 
-// Accepts a drag whose description matches the browser's "howl-sample" tag
+// Accepts a drag whose description matches the browser's "howl-file" tag
 bool ArrangeView::isInterestedInDragSource(const juce::DragAndDropTarget::SourceDetails& dragSourceDetails) {
-    return dragSourceDetails.description == juce::var("howl-sample");
+    return dragSourceDetails.description == juce::var("howl-file");
 }
 
-// Fires onAudioFileDropped for the browser's currently selected file, same lane/tick math as filesDropped
+// Fires the audio or MIDI drop callback for the browser's selected file, same lane/tick math
 void ArrangeView::itemDropped(const juce::DragAndDropTarget::SourceDetails& dragSourceDetails) {
     if (m_arrangement.numTracks() == 0 || dragSourceDetails.localPosition.y < kRulerHeight
         || isInPatternLane(dragSourceDetails.localPosition.y)
@@ -979,7 +984,7 @@ void ArrangeView::itemDropped(const juce::DragAndDropTarget::SourceDetails& drag
         return;
     }
 
-    if (!browserFileProvider || !onAudioFileDropped) {
+    if (!browserFileProvider) {
         return;
     }
 
@@ -992,7 +997,11 @@ void ArrangeView::itemDropped(const juce::DragAndDropTarget::SourceDetails& drag
     const int64_t tick = xToTick(dragSourceDetails.localPosition.x);
     const int64_t snappedTick = model::snapTickFloor(tick, snapDivision());
 
-    onAudioFileDropped(file.getFullPathName(), trackIndex, snappedTick);
+    if (filetypes::isAudioFile(file) && onAudioFileDropped) {
+        onAudioFileDropped(file.getFullPathName(), trackIndex, snappedTick);
+    } else if (filetypes::isMidiFile(file) && onMidiFileDropped) {
+        onMidiFileDropped(file.getFullPathName(), trackIndex, snappedTick);
+    }
 }
 
 // Opens a "Delete Clip" popup for the given clip, with a mute toggle above it, plus

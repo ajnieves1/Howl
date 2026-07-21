@@ -40,7 +40,7 @@ public:
     // Fired after a step toggles on, the app previews the hit when stopped
     std::function<void(std::size_t)> onStepPreviewRequested;
 
-    // Provides the file behind a "howl-sample" drag, wired to the browser
+    // Provides the file behind a "howl-file" drag, wired to the browser
     std::function<juce::File()> browserFileProvider;
 
     // Nothing to lay out below the top bar, every row is custom painted
@@ -58,10 +58,10 @@ public:
     // Clears the hover highlight once the cursor leaves the panel
     void mouseExit(const juce::MouseEvent& event) override;
 
-    // Accepts a drag whose description matches the browser's "howl-sample" tag
+    // Accepts a drag whose description matches the browser's "howl-file" tag
     bool isInterestedInDragSource(const juce::DragAndDropTarget::SourceDetails& dragSourceDetails) override;
 
-    // Assigns the dropped sample to the row under the drop point
+    // Assigns the dropped file to the row under the drop point when it is an audio sample
     void itemDropped(const juce::DragAndDropTarget::SourceDetails& dragSourceDetails) override;
 
 private:

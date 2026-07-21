@@ -70,16 +70,16 @@ public:
     // rewinds to 0 on Home
     bool keyPressed(const juce::KeyPress& key) override;
 
-    // Accepts a drag hovering any .wav file
+    // Accepts a drag hovering an audio or MIDI file
     bool isInterestedInFileDrag(const juce::StringArray& files) override;
 
-    // Fires onAudioFileDropped with the drop lane and snapped tick for each dropped .wav
+    // Fires the audio or MIDI drop callback with the drop lane and snapped tick per file
     void filesDropped(const juce::StringArray& files, int x, int y) override;
 
-    // Accepts a drag whose description matches the browser's "howl-sample" tag
+    // Accepts a drag whose description matches the browser's "howl-file" tag
     bool isInterestedInDragSource(const juce::DragAndDropTarget::SourceDetails& dragSourceDetails) override;
 
-    // Fires onAudioFileDropped for the browser's currently selected file, same lane/tick math as filesDropped
+    // Fires the audio or MIDI drop callback for the browser's selected file, same lane/tick math
     void itemDropped(const juce::DragAndDropTarget::SourceDetails& dragSourceDetails) override;
 
     // Called with (trackIndex, placementIndex) when a MIDI clip is clicked without dragging
@@ -88,13 +88,16 @@ public:
     // Called when M is pressed to open the mixer
     std::function<void()> onMixerRequested;
 
-    // Called with (path, trackIndex, tick) when a .wav file is dropped onto a lane
+    // Called with (path, trackIndex, tick) when an audio file is dropped onto a lane
     std::function<void(juce::String, std::size_t, int64_t)> onAudioFileDropped;
+
+    // Called with (path, trackIndex, tick) when a MIDI file is dropped onto a lane
+    std::function<void(juce::String, std::size_t, int64_t)> onMidiFileDropped;
 
     // Called after an audio clip's warp toggle or original BPM changes
     std::function<void()> onWarpChanged;
 
-    // Provides the file behind a "howl-sample" drag, wired to the browser's selection
+    // Provides the file behind a "howl-file" drag, wired to the browser's selection
     std::function<juce::File()> browserFileProvider;
 
     // Called with the new offset whenever the vertical scroll changes, so the track header

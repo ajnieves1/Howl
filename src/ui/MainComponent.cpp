@@ -30,6 +30,9 @@ MainComponent::MainComponent(model::Arrangement& arrangement, engine::Transport&
 
     addAndMakeVisible(m_transportBar);
     addChildComponent(m_browserPanel);
+    addChildComponent(m_browserResizer);
+    m_browserResizeGuide.setInterceptsMouseClicks(false, false);
+    addChildComponent(m_browserResizeGuide);
     addAndMakeVisible(m_trackHeaderPanel);
     addAndMakeVisible(m_arrangeView);
 
@@ -41,6 +44,22 @@ MainComponent::MainComponent(model::Arrangement& arrangement, engine::Transport&
     m_browserPanel.onFileClicked = [this](juce::File file) {
         if (onBrowserFileClicked) {
             onBrowserFileClicked(file);
+        }
+    };
+    m_browserResizer.onDragStart = [this] {
+        m_browserResizeGuide.setVisible(true);
+        m_browserResizeGuide.toFront(false);
+    };
+    m_browserResizer.onDrag = [this](int parentX) {
+        // Move only the thin guide line while dragging, the heavy relayout waits for release
+        const int clamped = juce::jlimit(kBrowserMinWidth, kBrowserMaxWidth, parentX);
+        m_browserResizeGuide.setBounds(clamped - 1, kTransportHeight, 2, getHeight() - kTransportHeight);
+    };
+    m_browserResizer.onDragEnd = [this](int parentX) {
+        m_browserResizeGuide.setVisible(false);
+        setBrowserWidth(parentX);
+        if (onBrowserWidthChanged) {
+            onBrowserWidthChanged(m_browserWidth);
         }
     };
 
@@ -132,6 +151,11 @@ MainComponent::MainComponent(model::Arrangement& arrangement, engine::Transport&
             onAudioFileDropped(path, trackIndex, tick);
         }
     };
+    m_arrangeView.onMidiFileDropped = [this](juce::String path, std::size_t trackIndex, int64_t tick) {
+        if (onMidiFileDropped) {
+            onMidiFileDropped(path, trackIndex, tick);
+        }
+    };
     m_arrangeView.onWarpChanged = [this] {
         if (onRewarpRequested) {
             onRewarpRequested();
@@ -218,7 +242,11 @@ void MainComponent::resized() {
     m_transportBar.setBounds(bounds.removeFromTop(kTransportHeight));
 
     if (m_browserVisible) {
-        m_browserPanel.setBounds(bounds.removeFromLeft(kBrowserWidth));
+        auto browserColumn = bounds.removeFromLeft(m_browserWidth);
+        m_browserPanel.setBounds(browserColumn);
+        // The resizer sits over the column's right edge, on top of the tree
+        m_browserResizer.setBounds(browserColumn.getRight() - kBrowserResizerWidth, browserColumn.getY(),
+            kBrowserResizerWidth, browserColumn.getHeight());
     }
 
     if (m_bottomPanel != BottomPanel::None) {
@@ -413,6 +441,18 @@ void MainComponent::showAutomationEditorFor(std::size_t trackIndex) {
 void MainComponent::toggleBrowser() {
     m_browserVisible = !m_browserVisible;
     m_browserPanel.setVisible(m_browserVisible);
+    m_browserResizer.setVisible(m_browserVisible);
+    resized();
+}
+
+// Sets the browser column width in pixels, clamps it, and relays out
+void MainComponent::setBrowserWidth(int width) {
+    const int clamped = juce::jlimit(kBrowserMinWidth, kBrowserMaxWidth, width);
+    if (clamped == m_browserWidth) {
+        return;
+    }
+
+    m_browserWidth = clamped;
     resized();
 }
 

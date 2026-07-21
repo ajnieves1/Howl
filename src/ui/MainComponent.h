@@ -15,11 +15,13 @@
 #include "plugins/IPluginInstance.h"
 #include "ui/ArrangeView.h"
 #include "ui/AutomationEditor.h"
+#include "ui/BrowserResizerBar.h"
 #include "ui/ChannelRackPanel.h"
 #include "ui/FileBrowserPanel.h"
 #include "ui/MixerView.h"
 #include "ui/PianoRoll.h"
 #include "ui/SessionView.h"
+#include "ui/Theme.h"
 #include "ui/TrackHeaderPanel.h"
 #include "ui/TransportBar.h"
 
@@ -68,6 +70,9 @@ public:
     // Shows or hides the sample browser's left column
     void toggleBrowser();
 
+    // Sets the browser column width in pixels, clamps it, and relays out
+    void setBrowserWidth(int width);
+
     // Repaints the arrange view, refreshes mixer strips, track headers, and the session view,
     // closes any open effect editors
     void refreshAllViews();
@@ -113,8 +118,11 @@ public:
     // Fired when the browser's root folder changes, the app persists it
     std::function<void(juce::File)> onBrowserRootChanged;
 
-    // Fired when a .wav file is clicked in the browser, the app starts a preview
+    // Fired when a file is clicked in the browser, the app previews it when it is audio
     std::function<void(juce::File)> onBrowserFileClicked;
+
+    // Fired when the user drags the browser edge to a new width, the app persists it
+    std::function<void(int)> onBrowserWidthChanged;
 
     // Fired with (trackIndex, file) when a sample lands on a channel rack row
     std::function<void(std::size_t, juce::File)> onSampleAssignRequested;
@@ -122,8 +130,11 @@ public:
     // Fired with trackIndex after a step toggles on, the app previews the hit when stopped
     std::function<void(std::size_t)> onStepPreviewRequested;
 
-    // Fired with (path, trackIndex, tick) when a .wav file is dropped onto the arrange view
+    // Fired with (path, trackIndex, tick) when an audio file is dropped onto the arrange view
     std::function<void(juce::String, std::size_t, int64_t)> onAudioFileDropped;
+
+    // Fired with (path, trackIndex, tick) when a MIDI file is dropped onto the arrange view
+    std::function<void(juce::String, std::size_t, int64_t)> onMidiFileDropped;
 
     // Fired when File > New/Open/Save/Save As is picked
     std::function<void()> onNewProjectRequested;
@@ -173,7 +184,10 @@ private:
     static constexpr int kBottomPanelMaxHeight = 560;
     static constexpr int kBottomPanelTitleHeight = 22;
     static constexpr int kTrackHeaderWidth = TrackHeaderPanel::kWidth;
-    static constexpr int kBrowserWidth = 220;
+    static constexpr int kDefaultBrowserWidth = 220;
+    static constexpr int kBrowserMinWidth = 140;
+    static constexpr int kBrowserMaxWidth = 600;
+    static constexpr int kBrowserResizerWidth = 6;
     static constexpr int kRecentFileMenuIdBase = 1000;
 
     enum class BottomPanel {
@@ -202,6 +216,15 @@ private:
     // Shows only the component matching m_centerView, hides the other
     void updateCenterViewVisibility();
 
+    // A thin vertical line shown only while the browser edge is dragged, so the drag stays
+    // cheap (one 2 px column repaints) and the shell relays out once on release
+    struct ResizeGuide : public juce::Component {
+        // Draws the guide as a solid selection coloured line
+        void paint(juce::Graphics& graphics) override {
+            graphics.fillAll(theme::kSelection);
+        }
+    };
+
     model::Arrangement& m_arrangement;
     engine::Transport& m_transport;
     model::CommandStack& m_commandStack;
@@ -215,6 +238,7 @@ private:
 
     TransportBar m_transportBar;
     FileBrowserPanel m_browserPanel;
+    BrowserResizerBar m_browserResizer;
     TrackHeaderPanel m_trackHeaderPanel;
     ArrangeView m_arrangeView;
     std::unique_ptr<SessionView> m_sessionView; // created once in the ctor
@@ -230,6 +254,8 @@ private:
     BottomPanel m_bottomPanel = BottomPanel::None;
     CenterView m_centerView = CenterView::Arrange;
     bool m_browserVisible = false;
+    int m_browserWidth = kDefaultBrowserWidth;
+    ResizeGuide m_browserResizeGuide;
 };
 
 } // namespace howl::ui
