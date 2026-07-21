@@ -191,6 +191,18 @@ void ArrangementNode::process(AudioBlock& audio, SampleCount pos) noexcept {
     const int frames = audio.numFrames > m_maxFrames ? m_maxFrames : audio.numFrames;
     const int channels = m_numChannels < audio.numChannels ? m_numChannels : audio.numChannels;
 
+    // A note still held when the transport stops would ring on, its note off event is never
+    // reached once playback halts. On the play to stop edge, release every instrument once
+    const bool playing = m_transport.isPlaying();
+    if (m_wasPlaying && !playing) {
+        for (engine::Instrument* instrument : m_trackInstruments) {
+            if (instrument != nullptr) {
+                instrument->allNotesOff();
+            }
+        }
+    }
+    m_wasPlaying = playing;
+
     LaunchRequest request;
     while (m_launchQueue.pop(request)) {
         const bool requestTargetFrozen = request.trackIndex < m_frozenChannels.size()

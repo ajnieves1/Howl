@@ -21,6 +21,15 @@ public:
     // [RT] Releases a note by key
     virtual void noteOff(int key) noexcept = 0;
 
+    // [RT] Releases every note this instrument may be holding, called when playback stops so a
+    // sequenced note whose note off was never reached does not ring on. The default sends a note
+    // off across the whole MIDI range, an instrument may override with a cheaper voice reset
+    virtual void allNotesOff() noexcept {
+        for (int key = 0; key < 128; ++key) {
+            noteOff(key);
+        }
+    }
+
     // [RT] Renders active voices into audio, overwriting the block
     virtual void render(AudioBlock& audio) noexcept = 0;
 

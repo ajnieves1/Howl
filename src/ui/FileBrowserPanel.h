@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Howl DAW: folder tree of wav samples, click to preview and drag out
+// Howl DAW: folder tree of every file in a folder, click to preview audio and drag out
 
 #pragma once
 
@@ -10,7 +10,7 @@
 
 namespace howl::ui {
 
-// Folder tree of .wav samples with click to preview and drag out. Shows a hint
+// Folder tree of every file with click to preview audio and drag out. Shows a hint
 // label instead of the tree until a root folder that actually exists is set
 class FileBrowserPanel : public juce::Component, private juce::FileBrowserListener {
 public:
@@ -23,7 +23,7 @@ public:
     // Fired when the user picks a new root folder, the app persists it
     std::function<void(juce::File)> onRootChanged;
 
-    // Fired when a .wav file is clicked, the app starts a preview
+    // Fired when a file is clicked, the app previews it when it is audio
     std::function<void(juce::File)> onFileClicked;
 
     // Returns the file currently selected in the tree, for drop targets

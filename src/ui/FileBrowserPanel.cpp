@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Howl DAW: folder tree of wav samples, click to preview and drag out
+// Howl DAW: folder tree of every file in a folder, click to preview audio and drag out
 
 #include "ui/FileBrowserPanel.h"
 
@@ -10,7 +10,7 @@ namespace howl::ui {
 // Starts the scan thread, builds the tree over the given root, and shows the
 // set folder button above whichever of the hint label or the tree applies
 FileBrowserPanel::FileBrowserPanel(const juce::File& initialRoot)
-    : m_filter("*.wav", "*", "wav files")
+    : m_filter("*", "*", "all files")
 {
     m_scanThread.startThread();
 
@@ -18,7 +18,7 @@ FileBrowserPanel::FileBrowserPanel(const juce::File& initialRoot)
 
     m_tree = std::make_unique<juce::FileTreeComponent>(*m_contentsList);
     m_tree->addListener(this);
-    m_tree->setDragAndDropDescription("howl-sample");
+    m_tree->setDragAndDropDescription("howl-file");
     addChildComponent(*m_tree);
 
     m_hintLabel.setText("Set a folder with the button above", juce::dontSendNotification);

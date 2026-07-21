@@ -8,6 +8,7 @@ add_library(HowlModel STATIC
     CommandStack.cpp
     Commands.cpp
     MidiClip.cpp
+    MidiFileImport.cpp
     MidiTrackRenderer.cpp
     Mixer.cpp
     OfflineRenderer.cpp
