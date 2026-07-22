@@ -1,29 +1,46 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Howl DAW: pattern selector plus one step sequencer row per MIDI track
+// Howl DAW: per channel control surface plus a step sequencer row per MIDI track
 
 #include "ui/ChannelRackPanel.h"
 
 #include "ui/BrowserFileTypes.h"
 #include "ui/Theme.h"
 
+#include <array>
+#include <cstdint>
 #include <memory>
 #include <string>
 
 namespace howl::ui {
 
+namespace {
+
+// The fixed palette the recolor menu offers, packed 0xAARRGGBB
+constexpr std::array<uint32_t, 12> kChannelPalette = {
+    0xFFE53935, 0xFFFB8C00, 0xFFFDD835, 0xFF43A047,
+    0xFF00ACC1, 0xFF1E88E5, 0xFF5E35B1, 0xFFD81B60,
+    0xFF6D4C41, 0xFF757575, 0xFF00897B, 0xFFC0CA33
+};
+
+} // namespace
+
 // Stores model references, builds the pattern combo and rows
 ChannelRackPanel::ChannelRackPanel(model::Arrangement& arrangement, model::Session& session,
-                                    model::PatternBank& patterns, model::CommandStack& commandStack)
+                                    model::PatternBank& patterns, model::CommandStack& commandStack,
+                                    model::Mixer& mixer)
     : m_arrangement(arrangement)
     , m_session(session)
     , m_patterns(patterns)
     , m_commandStack(commandStack)
+    , m_mixer(mixer)
 {
     addAndMakeVisible(m_patternCombo);
     addAndMakeVisible(m_addButton);
     addAndMakeVisible(m_renameButton);
+    addAndMakeVisible(m_addChannelButton);
 
     m_patternCombo.onChange = [this] {
+        updateRowControls();
         repaint();
     };
     m_addButton.onClick = [this] {
@@ -31,6 +48,9 @@ ChannelRackPanel::ChannelRackPanel(model::Arrangement& arrangement, model::Sessi
     };
     m_renameButton.onClick = [this] {
         showRenameDialog();
+    };
+    m_addChannelButton.onClick = [this] {
+        addChannel();
     };
 
     refreshFromModel();
@@ -40,6 +60,7 @@ ChannelRackPanel::ChannelRackPanel(model::Arrangement& arrangement, model::Sessi
 void ChannelRackPanel::refreshFromModel() {
     ensurePatternExists();
     rebuildFromModel();
+    updateRowControls();
     repaint();
 }
 
@@ -56,13 +77,19 @@ void ChannelRackPanel::ensurePatternExists() {
     }
 }
 
-// Rebuilds the MIDI track row list and the pattern combo's items from the model
+// Recomputes the MIDI track list, rebuilds rows when it changed, and refreshes the combo
 void ChannelRackPanel::rebuildFromModel() {
-    m_midiTrackIndices.clear();
+    std::vector<std::size_t> newIndices;
     for (std::size_t i = 0; i < m_arrangement.numTracks(); ++i) {
         if (m_arrangement.track(i).kind == model::TrackKind::Midi) {
-            m_midiTrackIndices.push_back(i);
+            newIndices.push_back(i);
         }
+    }
+
+    if (newIndices != m_midiTrackIndices) {
+        m_midiTrackIndices = std::move(newIndices);
+        rebuildRows();
+        resized();
     }
 
     const int previousId = m_patternCombo.getSelectedId();
@@ -78,6 +105,118 @@ void ChannelRackPanel::rebuildFromModel() {
     }
 }
 
+// Destroys and recreates one Row of child controls per MIDI track, wiring the mixer strip
+void ChannelRackPanel::rebuildRows() {
+    m_rows.clear();
+    m_rows.reserve(m_midiTrackIndices.size());
+
+    for (const std::size_t trackIndex : m_midiTrackIndices) {
+        Row row;
+        row.trackIndex = trackIndex;
+
+        row.muteButton = std::make_unique<juce::TextButton>("M");
+        row.muteButton->setClickingTogglesState(true);
+        row.muteButton->setTooltip("Mute");
+        row.muteButton->onClick = [this, trackIndex, button = row.muteButton.get()] {
+            m_mixer.trackStrip(trackIndex).setMuted(button->getToggleState());
+        };
+        addAndMakeVisible(*row.muteButton);
+
+        row.soloButton = std::make_unique<juce::TextButton>("S");
+        row.soloButton->setClickingTogglesState(true);
+        row.soloButton->setTooltip("Solo");
+        row.soloButton->onClick = [this, trackIndex, button = row.soloButton.get()] {
+            m_mixer.trackStrip(trackIndex).setSoloed(button->getToggleState());
+        };
+        addAndMakeVisible(*row.soloButton);
+
+        row.panKnob = std::make_unique<juce::Slider>(juce::Slider::RotaryHorizontalVerticalDrag,
+            juce::Slider::NoTextBox);
+        row.panKnob->setRange(-1.0, 1.0, 0.0);
+        row.panKnob->setDoubleClickReturnValue(true, 0.0);
+        row.panKnob->setTooltip("Pan");
+        row.panKnob->onValueChange = [this, trackIndex, knob = row.panKnob.get()] {
+            m_mixer.trackStrip(trackIndex).setPan(static_cast<float>(knob->getValue()));
+        };
+        addAndMakeVisible(*row.panKnob);
+
+        row.volKnob = std::make_unique<juce::Slider>(juce::Slider::RotaryHorizontalVerticalDrag,
+            juce::Slider::NoTextBox);
+        row.volKnob->setRange(-60.0, 6.0, 0.0);
+        row.volKnob->setDoubleClickReturnValue(true, 0.0);
+        row.volKnob->setTooltip("Volume in decibels");
+        row.volKnob->onValueChange = [this, trackIndex, knob = row.volKnob.get()] {
+            m_mixer.trackStrip(trackIndex).setGainDb(static_cast<float>(knob->getValue()));
+        };
+        addAndMakeVisible(*row.volKnob);
+
+        row.nameButton = std::make_unique<juce::TextButton>();
+        row.nameButton->setTooltip("Open the instrument");
+        row.nameButton->onClick = [this, trackIndex] {
+            if (onInstrumentPickRequested) {
+                onInstrumentPickRequested(trackIndex);
+            }
+        };
+        addAndMakeVisible(*row.nameButton);
+
+        row.routeButton = std::make_unique<juce::TextButton>();
+        row.routeButton->setTooltip("Mixer routing");
+        row.routeButton->onClick = [this, trackIndex] {
+            juce::PopupMenu menu;
+            const std::size_t current = m_mixer.trackOutput(trackIndex);
+            menu.addItem(1, "Master", true, current == model::Mixer::kMaster);
+            for (std::size_t bus = 0; bus < m_mixer.numBuses(); ++bus) {
+                menu.addItem(static_cast<int>(bus + 2), juce::String(m_mixer.busName(bus)), true, current == bus);
+            }
+            menu.showMenuAsync(juce::PopupMenu::Options(), [this, trackIndex](int result) {
+                if (result <= 0) {
+                    return;
+                }
+                if (result == 1) {
+                    m_mixer.setTrackOutput(trackIndex, model::Mixer::kMaster);
+                } else {
+                    m_mixer.setTrackOutput(trackIndex, static_cast<std::size_t>(result - 2));
+                }
+                updateRowControls();
+            });
+        };
+        addAndMakeVisible(*row.routeButton);
+
+        m_rows.push_back(std::move(row));
+    }
+}
+
+// Syncs every row's control values and labels from the model without rebuilding
+void ChannelRackPanel::updateRowControls() {
+    for (Row& row : m_rows) {
+        model::ChannelStrip& strip = m_mixer.trackStrip(row.trackIndex);
+        row.muteButton->setToggleState(strip.muted(), juce::dontSendNotification);
+        row.soloButton->setToggleState(strip.soloed(), juce::dontSendNotification);
+        row.panKnob->setValue(strip.pan(), juce::dontSendNotification);
+        row.volKnob->setValue(strip.gainDb(), juce::dontSendNotification);
+
+        juce::String name = instrumentNameFor ? instrumentNameFor(row.trackIndex) : juce::String();
+        if (name.isEmpty()) {
+            name = juce::String(m_arrangement.track(row.trackIndex).name);
+        }
+        row.nameButton->setButtonText(name);
+        row.routeButton->setButtonText(routeLabelFor(row.trackIndex));
+
+        const juce::Colour channelColour(m_arrangement.track(row.trackIndex).color);
+        row.nameButton->setColour(juce::TextButton::buttonColourId, channelColour);
+        row.nameButton->setColour(juce::TextButton::textColourOffId, channelColour.contrasting());
+    }
+}
+
+// Returns the display label for a track's current output destination
+juce::String ChannelRackPanel::routeLabelFor(std::size_t trackIndex) const {
+    const std::size_t destination = m_mixer.trackOutput(trackIndex);
+    if (destination == model::Mixer::kMaster || destination >= m_mixer.numBuses()) {
+        return "Master";
+    }
+    return juce::String(m_mixer.busName(destination));
+}
+
 // Returns the row index at y, or -1 when above the rows or past the last one
 int ChannelRackPanel::rowAtY(int y) const {
     if (y < kTopBarHeight) {
@@ -90,11 +229,11 @@ int ChannelRackPanel::rowAtY(int y) const {
 
 // Returns the step index at x, or -1 when outside the 16 cell grid
 int ChannelRackPanel::stepAtX(int x) const {
-    if (x < kTrackLabelWidth) {
+    if (x < kControlsWidth) {
         return -1;
     }
 
-    const int step = (x - kTrackLabelWidth) / kRowHeight; // square cells, reusing row height as width
+    const int step = (x - kControlsWidth) / kStepSize;
     return step < kNumSteps ? step : -1;
 }
 
@@ -160,6 +299,7 @@ void ChannelRackPanel::addPattern() {
         "Pattern " + std::to_string(m_patterns.numPatterns() + 1), m_arrangement.numTracks());
     rebuildFromModel();
     m_patternCombo.setSelectedId(static_cast<int>(index + 1), juce::dontSendNotification);
+    updateRowControls();
     repaint();
 }
 
@@ -187,11 +327,75 @@ void ChannelRackPanel::showRenameDialog() {
     }), true);
 }
 
-// Opens a row's right click menu: Edit in Piano Roll, Assign Sample...
+// Adds a MIDI channel and opens the instrument picker on it
+void ChannelRackPanel::addChannel() {
+    const juce::String name = "Channel " + juce::String(m_arrangement.numTracks() + 1);
+    m_commandStack.perform(std::make_unique<model::AddTrackCommand>(
+        m_arrangement, m_mixer, m_session, m_patterns, name.toStdString(), model::TrackKind::Midi));
+
+    const std::size_t newTrackIndex = m_arrangement.numTracks() - 1;
+
+    refreshFromModel();
+    if (onTracksChanged) {
+        onTracksChanged();
+    }
+    if (onInstrumentPickRequested) {
+        onInstrumentPickRequested(newTrackIndex);
+    }
+}
+
+// Removes the channel's track through the command stack
+void ChannelRackPanel::deleteChannel(std::size_t trackIndex) {
+    m_commandStack.perform(std::make_unique<model::RemoveTrackCommand>(
+        m_arrangement, m_mixer, m_session, m_patterns, trackIndex));
+
+    // A remove shifts the indices of later tracks, so drop the arm rather than leave it stale
+    m_armedTrack = -1;
+    if (onTrackSelected) {
+        onTrackSelected(-1);
+    }
+
+    refreshFromModel();
+    if (onTracksChanged) {
+        onTracksChanged();
+    }
+}
+
+// Adds a channel that copies the source track's steps, pattern notes, and instrument
+void ChannelRackPanel::cloneChannel(std::size_t trackIndex) {
+    const juce::String name = juce::String(m_arrangement.track(trackIndex).name) + " copy";
+    m_commandStack.perform(std::make_unique<model::AddTrackCommand>(
+        m_arrangement, m_mixer, m_session, m_patterns, name.toStdString(), model::TrackKind::Midi));
+
+    const std::size_t newTrackIndex = m_arrangement.numTracks() - 1;
+
+    // Copy every pattern's lane notes from the source channel to the clone, not undoable
+    for (std::size_t p = 0; p < m_patterns.numPatterns(); ++p) {
+        model::Pattern& pattern = m_patterns.pattern(p);
+        if (trackIndex < pattern.trackClips.size() && newTrackIndex < pattern.trackClips.size()) {
+            pattern.trackClips[newTrackIndex] = pattern.trackClips[trackIndex];
+        }
+    }
+
+    refreshFromModel();
+    if (onTracksChanged) {
+        onTracksChanged();
+    }
+    // Deep plugin state is out of scope, the app copies the instrument kind and sample only
+    if (onCloneInstrumentRequested) {
+        onCloneInstrumentRequested(trackIndex, newTrackIndex);
+    }
+}
+
+// Opens a row's right click menu: piano roll, sample, recolor, rename, clone, delete
 void ChannelRackPanel::showRowMenu(std::size_t trackIndex) {
     juce::PopupMenu menu;
     menu.addItem(1, "Edit in Piano Roll");
     menu.addItem(2, "Assign Sample...");
+    menu.addItem(5, "Recolor...");
+    menu.addSeparator();
+    menu.addItem(3, "Clone Channel");
+    menu.addItem(4, "Delete Channel");
 
     menu.showMenuAsync(juce::PopupMenu::Options(), [this, trackIndex](int result) {
         if (result == 1) {
@@ -209,20 +413,85 @@ void ChannelRackPanel::showRowMenu(std::size_t trackIndex) {
                     onSampleAssignRequested(trackIndex, file);
                 }
             });
+        } else if (result == 5) {
+            recolorChannel(trackIndex);
+        } else if (result == 3) {
+            cloneChannel(trackIndex);
+        } else if (result == 4) {
+            deleteChannel(trackIndex);
         }
     });
 }
 
-// Nothing to lay out below the top bar, every row is custom painted
+// Opens a palette menu and applies the picked color to the channel's track
+void ChannelRackPanel::recolorChannel(std::size_t trackIndex) {
+    if (trackIndex >= m_arrangement.numTracks()) {
+        return;
+    }
+
+    juce::PopupMenu menu;
+    for (std::size_t i = 0; i < kChannelPalette.size(); ++i) {
+        menu.addColouredItem(static_cast<int>(i + 1), "     ", juce::Colour(kChannelPalette[i]));
+    }
+
+    menu.showMenuAsync(juce::PopupMenu::Options(), [this, trackIndex](int result) {
+        if (result <= 0 || result > static_cast<int>(kChannelPalette.size())) {
+            return;
+        }
+        if (trackIndex >= m_arrangement.numTracks()) {
+            return;
+        }
+        m_arrangement.track(trackIndex).color = kChannelPalette[static_cast<std::size_t>(result - 1)];
+        updateRowControls();
+        repaint();
+        if (onViewsNeedRefresh) {
+            onViewsNeedRefresh();
+        }
+    });
+}
+
+// Arms the row's track for live input and repaints the armed highlight
+void ChannelRackPanel::armTrack(std::ptrdiff_t trackIndex) {
+    m_armedTrack = trackIndex;
+    if (onTrackSelected) {
+        onTrackSelected(trackIndex);
+    }
+    repaint();
+}
+
+// Lays out the top bar controls and every row's child controls
 void ChannelRackPanel::resized() {
     auto bounds = getLocalBounds();
     auto topBar = bounds.removeFromTop(kTopBarHeight);
     m_patternCombo.setBounds(topBar.removeFromLeft(150).reduced(2));
     m_addButton.setBounds(topBar.removeFromLeft(30).reduced(2));
     m_renameButton.setBounds(topBar.removeFromLeft(80).reduced(2));
+    m_addChannelButton.setBounds(topBar.removeFromRight(110).reduced(2));
+
+    for (std::size_t rowIndex = 0; rowIndex < m_rows.size(); ++rowIndex) {
+        Row& row = m_rows[rowIndex];
+        const int y = kTopBarHeight + static_cast<int>(rowIndex) * kRowHeight;
+        const int controlY = y + 3;
+        const int controlHeight = kRowHeight - 6;
+
+        int x = kSelectorWidth + 3;
+        row.muteButton->setBounds(x, controlY, 22, controlHeight);
+        x += 24;
+        row.soloButton->setBounds(x, controlY, 22, controlHeight);
+        x += 26;
+        row.panKnob->setBounds(x, controlY, 32, controlHeight);
+        x += 34;
+        row.volKnob->setBounds(x, controlY, 32, controlHeight);
+        x += 36;
+
+        constexpr int routeWidth = 52;
+        const int routeX = kControlsWidth - routeWidth - 3;
+        row.nameButton->setBounds(x, controlY, routeX - x - 3, controlHeight);
+        row.routeButton->setBounds(routeX, controlY, routeWidth, controlHeight);
+    }
 }
 
-// Draws the pattern top bar's separator and every row's label plus 16 step cells
+// Draws the top bar separator, row backgrounds, the armed highlight, and the step cells
 void ChannelRackPanel::paint(juce::Graphics& g) {
     g.fillAll(theme::kWindowBg);
     g.setColour(theme::kBorder);
@@ -230,7 +499,7 @@ void ChannelRackPanel::paint(juce::Graphics& g) {
 
     if (m_midiTrackIndices.empty()) {
         g.setColour(theme::kTextSecondary);
-        g.drawText("Add a MIDI track to sequence steps",
+        g.drawText("Add a channel to sequence steps",
             juce::Rectangle<int> { 0, kTopBarHeight, getWidth(), getHeight() - kTopBarHeight },
             juce::Justification::centred);
         return;
@@ -243,35 +512,51 @@ void ChannelRackPanel::paint(juce::Graphics& g) {
     for (std::size_t row = 0; row < m_midiTrackIndices.size(); ++row) {
         const std::size_t trackIndex = m_midiTrackIndices[row];
         const int y = kTopBarHeight + static_cast<int>(row) * kRowHeight;
+        const bool armed = static_cast<std::ptrdiff_t>(trackIndex) == m_armedTrack;
 
-        g.setColour(theme::kTextPrimary);
-        g.drawText(juce::String(m_arrangement.track(trackIndex).name), 4, y, kTrackLabelWidth - 8, kRowHeight,
-            juce::Justification::centredLeft);
+        const juce::Colour channelColour(m_arrangement.track(trackIndex).color);
+
+        if (armed) {
+            g.setColour(theme::kSelection.withAlpha(0.12f));
+            g.fillRect(0, y, getWidth(), kRowHeight);
+        }
+
+        // The arm strip on the far left doubles as the channel color chip, click it to arm
+        g.setColour(channelColour);
+        g.fillRect(1, y + 2, kSelectorWidth - 3, kRowHeight - 4);
+        if (armed) {
+            g.setColour(theme::kAccent);
+            g.drawRect(1, y + 2, kSelectorWidth - 3, kRowHeight - 4, 1);
+        }
 
         const model::MidiClip* clip = (pattern != nullptr && trackIndex < pattern->trackClips.size())
             ? &pattern->trackClips[trackIndex]
             : nullptr;
 
+        const int cellY = y + (kRowHeight - kStepSize) / 2;
         for (int step = 0; step < kNumSteps; ++step) {
-            const int x = kTrackLabelWidth + step * kRowHeight;
+            const int x = kControlsWidth + step * kStepSize;
             const bool onBeat = (step % 4) == 0;
 
             g.setColour(onBeat ? theme::kRaisedBg.brighter(0.15f) : theme::kRaisedBg.darker(0.3f));
-            g.fillRect(x, y, kRowHeight, kRowHeight);
+            g.fillRect(x, cellY, kStepSize, kStepSize);
 
             if (clip != nullptr && stepFilled(*clip, step)) {
-                g.setColour(theme::kAccent);
-                g.fillRect(x + 2, y + 2, kRowHeight - 4, kRowHeight - 4);
+                g.setColour(channelColour);
+                g.fillRect(x + 2, cellY + 2, kStepSize - 4, kStepSize - 4);
             }
 
             if (m_hoverRow == static_cast<int>(row) && m_hoverStep == step) {
                 g.setColour(theme::kHoverBg.withAlpha(0.6f));
-                g.fillRect(x, y, kRowHeight, kRowHeight);
+                g.fillRect(x, cellY, kStepSize, kStepSize);
             }
 
             g.setColour(theme::kBorder);
-            g.drawRect(x, y, kRowHeight, kRowHeight);
+            g.drawRect(x, cellY, kStepSize, kStepSize);
         }
+
+        g.setColour(theme::kBorder.withAlpha(0.4f));
+        g.drawHorizontalLine(y + kRowHeight - 1, 0.0f, static_cast<float>(getWidth()));
     }
 }
 
@@ -283,6 +568,13 @@ void ChannelRackPanel::mouseDown(const juce::MouseEvent& event) {
     }
 
     const std::size_t trackIndex = m_midiTrackIndices[static_cast<std::size_t>(row)];
+
+    if (event.x < kSelectorWidth) {
+        armTrack(m_armedTrack == static_cast<std::ptrdiff_t>(trackIndex)
+            ? static_cast<std::ptrdiff_t>(-1)
+            : static_cast<std::ptrdiff_t>(trackIndex));
+        return;
+    }
 
     if (event.mods.isPopupMenu()) {
         showRowMenu(trackIndex);
@@ -298,7 +590,7 @@ void ChannelRackPanel::mouseDown(const juce::MouseEvent& event) {
     repaint();
 }
 
-// Tracks which cell the cursor is over, for the hover highlight
+// Tracks which step cell the cursor is over, for the hover highlight
 void ChannelRackPanel::mouseMove(const juce::MouseEvent& event) {
     const int row = rowAtY(event.y);
     const int step = row < 0 ? -1 : stepAtX(event.x);

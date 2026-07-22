@@ -114,6 +114,7 @@ TEST_CASE("ProjectSerializer round-trips tracks, clips, mixer state, effects, se
     BuiltInEffectFactory factory;
 
     const std::size_t midiTrack = arrangement.addTrack("Lead", TrackKind::Midi);
+    arrangement.track(midiTrack).color = 0xFF00FF00; // a non default green to prove color persists
     MidiClip clip;
     clip.setLengthTicks(1920);
     clip.addNote(Note { 60, 0.8f, 0, 480 });
@@ -226,6 +227,8 @@ TEST_CASE("ProjectSerializer round-trips tracks, clips, mixer state, effects, se
     REQUIRE(loadedArrangement.numTracks() == 2);
     REQUIRE(loadedArrangement.track(midiTrack).name == "Lead");
     REQUIRE(loadedArrangement.track(midiTrack).kind == TrackKind::Midi);
+    REQUIRE(loadedArrangement.track(midiTrack).color == 0xFF00FF00u);
+    REQUIRE(loadedArrangement.track(audioTrack).color == howl::model::kDefaultChannelColor);
     REQUIRE(loadedArrangement.track(midiTrack).midiClips.size() == 1);
     REQUIRE(loadedArrangement.track(midiTrack).midiClips[0].clip.lengthTicks() == 1920);
     REQUIRE(loadedArrangement.track(midiTrack).midiClips[0].clip.notes().size() == 2);

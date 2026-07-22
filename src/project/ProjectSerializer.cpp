@@ -213,6 +213,7 @@ juce::var trackToVar(const model::Track& track, model::Mixer& mixer, std::size_t
     auto* obj = new juce::DynamicObject();
     obj->setProperty("name", juce::String(track.name));
     obj->setProperty("kind", track.kind == model::TrackKind::Midi ? "midi" : "audio");
+    obj->setProperty("color", static_cast<juce::int64>(track.color));
 
     juce::Array<juce::var> midiClips;
     for (const auto& placement : track.midiClips) {
@@ -441,6 +442,10 @@ bool ProjectSerializer::load(const juce::String& json, model::Arrangement& arran
             const std::string name = trackVar.getProperty("name", juce::var()).toString().toStdString();
 
             const std::size_t trackIndex = arrangement.addTrack(name, kind);
+
+            const auto storedColor = static_cast<juce::int64>(trackVar.getProperty("color",
+                static_cast<juce::int64>(model::kDefaultChannelColor)));
+            arrangement.track(trackIndex).color = static_cast<uint32_t>(storedColor);
 
             if (const auto* midiClipsArray = trackVar.getProperty("midiClips", juce::var()).getArray()) {
                 for (const auto& clipVar : *midiClipsArray) {

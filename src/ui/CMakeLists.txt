@@ -9,6 +9,7 @@ add_library(HowlUi STATIC
     MainComponent.cpp
     MixerView.cpp
     PianoRoll.cpp
+    PianoRollWindow.cpp
     PluginWindow.cpp
     SessionView.cpp
     TrackHeaderPanel.cpp

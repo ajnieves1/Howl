@@ -46,7 +46,8 @@ public:
     // and re-clamps the vertical scroll on any later resize
     void resized() override;
 
-    // Wheel scrolls the key grid vertically; rows are a fixed height, no zoom
+    // Plain wheel scrolls keys, Ctrl wheel zooms time around the cursor, Shift wheel scrolls
+    // time, Alt wheel zooms the key height
     void mouseWheelMove(const juce::MouseEvent& event, const juce::MouseWheelDetails& wheel) override;
 
     // Alt+click on a note performs SplitNoteCommand at the snapped click tick, otherwise
@@ -70,14 +71,20 @@ private:
     static constexpr int kLowestKey = 36; // labeled C3 (MIDI 60 labels as C5)
     static constexpr int kHighestKey = 96; // labeled C8
     static constexpr int kNumKeys = kHighestKey - kLowestKey + 1;
-    static constexpr int kKeyboardWidth = 48;
-    static constexpr float kKeyRowHeight = 12.0f; // fixed row height, the grid scrolls vertically
+    static constexpr int kKeyboardWidth = 84;
+    static constexpr float kBaseKeyRowHeight = 12.0f; // row height at vertical zoom 1
     static constexpr int64_t kDefaultNoteLengthTicks = model::kTicksPerQuarter;
     static constexpr int kResizeHandlePixels = 6;
     static constexpr int kDragThresholdPixels = 4;
-    static constexpr int kVelocityLaneHeight = 60;
+    static constexpr int kDefaultVelocityLaneHeight = 90;
+    static constexpr int kMinVelocityLaneHeight = 40;
+    static constexpr int kVelocityDividerZone = 5; // pixels above the lane that grab the divider
     static constexpr int kVelocityBarWidth = 5;
     static constexpr int kVelocityHitPixels = 6;
+    static constexpr float kMinHorizontalZoom = 1.0f; // 1 fits the whole clip to the grid width
+    static constexpr float kMaxHorizontalZoom = 48.0f;
+    static constexpr float kMinVerticalZoom = 1.0f;
+    static constexpr float kMaxVerticalZoom = 4.0f;
 
     enum class DragMode {
         None,
@@ -94,6 +101,16 @@ private:
 
     // Height of the key grid, the component's height less the velocity lane
     float keyGridHeight() const;
+
+    // Row height for one key, never smaller than the height that fits every key into the grid
+    // so the grid always fills, and larger when the vertical zoom is raised
+    float rowHeight() const;
+
+    // Content width of the grid in pixels at the current horizontal zoom
+    float contentWidth() const;
+
+    // Clamps the horizontal scroll into range, applies it, repaints on change
+    void applyHorizontalScroll(int requested);
 
     // Ticks spanned by the visible grid, at least 4 beats even for an empty or unresolved clip
     int64_t visibleTickSpan(int64_t clipLengthTicks) const;
@@ -176,6 +193,21 @@ private:
     // Vertical scroll of the key grid in pixels, centered on first layout, then wheel-driven
     int m_verticalScroll = 0;
     bool m_scrollCentered = false;
+
+    // Horizontal zoom, 1 fits the whole clip to the grid width, higher zooms into the notes
+    float m_horizontalZoom = 1.0f;
+
+    // Horizontal scroll of the grid in pixels, only meaningful once zoomed past a fit
+    int m_horizontalScroll = 0;
+
+    // Vertical zoom multiplier over the fit height, raises the key row height
+    float m_verticalZoom = 1.0f;
+
+    // The velocity lane height, dragged by the divider at its top edge
+    int m_velocityLaneHeight = kDefaultVelocityLaneHeight;
+
+    // True while the velocity lane divider is being dragged
+    bool m_draggingVelocityDivider = false;
 };
 
 } // namespace howl::ui
