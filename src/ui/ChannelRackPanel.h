@@ -82,6 +82,12 @@ public:
     // Tracks which step cell the cursor is over, for the hover highlight
     void mouseMove(const juce::MouseEvent& event) override;
 
+    // Drags a graph value while a graph edit is active
+    void mouseDrag(const juce::MouseEvent& event) override;
+
+    // Commits a graph drag as one undoable command
+    void mouseUp(const juce::MouseEvent& event) override;
+
     // Clears the hover highlight once the cursor leaves the panel
     void mouseExit(const juce::MouseEvent& event) override;
 
@@ -100,6 +106,16 @@ private:
     static constexpr int kNumSteps = 16;
     static constexpr int64_t kStepTicks = model::kTicksPerQuarter / 4; // one 16th
     static constexpr int64_t kMinLaneLengthTicks = model::kTicksPerQuarter * 4; // one bar
+    static constexpr int kGraphLaneHeight = 100;
+    static constexpr int kGraphHeaderHeight = 22;
+    static constexpr int kMinGraphKey = 36; // lane bottom pitch, matches the piano roll range
+    static constexpr int kMaxGraphKey = 96; // lane top pitch
+
+    // The per step value the graph lane edits
+    enum class GraphParam {
+        Velocity,
+        Pitch
+    };
 
     // The child controls for one channel row, all bound to the track's mixer strip
     struct Row {
@@ -167,6 +183,24 @@ private:
     // Arms the row's track for live input and repaints the armed highlight
     void armTrack(std::ptrdiff_t trackIndex);
 
+    // Shows or hides the graph lane and relays out
+    void toggleGraph();
+
+    // The y where the graph lane starts, the component bottom when the lane is hidden
+    int graphLaneTop() const;
+
+    // The parameter the graph lane currently edits
+    GraphParam graphParam() const;
+
+    // Draws the graph lane, one value bar per filled step of the armed channel
+    void paintGraphLane(juce::Graphics& g);
+
+    // Returns the index of the first note in the step's window, or -1 when the step is empty
+    int stepNoteIndex(const model::MidiClip& clip, int stepIndex) const;
+
+    // Mutates the dragged step's note from the graph cursor y, live, no command until mouseUp
+    void dragGraphValue(int y);
+
     model::Arrangement& m_arrangement;
     model::Session& m_session;
     model::PatternBank& m_patterns;
@@ -177,13 +211,22 @@ private:
     juce::TextButton m_addButton { "+" };
     juce::TextButton m_renameButton { "Rename..." };
     juce::TextButton m_addChannelButton { "Add Channel" };
+    juce::TextButton m_graphButton { "Graph" };
+    juce::ComboBox m_graphParamCombo;
 
     // Row index -> arrangement track index, MIDI kind tracks only
     std::vector<std::size_t> m_midiTrackIndices;
     std::vector<Row> m_rows;
 
-    // The armed track for live input, -1 when none, drives the row highlight
+    // The armed track for live input, -1 when none, drives the row highlight and the graph lane
     std::ptrdiff_t m_armedTrack = -1;
+
+    // Graph lane state
+    bool m_graphVisible = false;
+    bool m_draggingGraph = false;
+    int m_graphDragStep = -1;
+    int m_graphDragNoteIndex = -1;
+    model::Note m_graphDragBefore {};
 
     // The cell currently under the cursor, for the hover highlight; -1 when over neither
     int m_hoverRow = -1;

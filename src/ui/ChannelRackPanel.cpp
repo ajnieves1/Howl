@@ -7,6 +7,7 @@
 #include "ui/Theme.h"
 
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -52,6 +53,20 @@ ChannelRackPanel::ChannelRackPanel(model::Arrangement& arrangement, model::Sessi
     m_addChannelButton.onClick = [this] {
         addChannel();
     };
+
+    m_graphButton.setClickingTogglesState(true);
+    m_graphButton.onClick = [this] {
+        toggleGraph();
+    };
+    addAndMakeVisible(m_graphButton);
+
+    m_graphParamCombo.addItem("Velocity", 1);
+    m_graphParamCombo.addItem("Pitch", 2);
+    m_graphParamCombo.setSelectedId(1, juce::dontSendNotification);
+    m_graphParamCombo.onChange = [this] {
+        repaint();
+    };
+    addChildComponent(m_graphParamCombo);
 
     refreshFromModel();
 }
@@ -467,10 +482,29 @@ void ChannelRackPanel::resized() {
     m_addButton.setBounds(topBar.removeFromLeft(30).reduced(2));
     m_renameButton.setBounds(topBar.removeFromLeft(80).reduced(2));
     m_addChannelButton.setBounds(topBar.removeFromRight(110).reduced(2));
+    m_graphButton.setBounds(topBar.removeFromRight(70).reduced(2));
+
+    const int graphTop = graphLaneTop();
+    if (m_graphVisible) {
+        m_graphParamCombo.setBounds(4, graphTop + 3, kControlsWidth - 8, kGraphHeaderHeight - 4);
+    }
 
     for (std::size_t rowIndex = 0; rowIndex < m_rows.size(); ++rowIndex) {
         Row& row = m_rows[rowIndex];
         const int y = kTopBarHeight + static_cast<int>(rowIndex) * kRowHeight;
+
+        // A row whose foot falls under the graph lane hides, so its knobs never poke through
+        const bool rowFits = (y + kRowHeight) <= graphTop;
+        row.muteButton->setVisible(rowFits);
+        row.soloButton->setVisible(rowFits);
+        row.panKnob->setVisible(rowFits);
+        row.volKnob->setVisible(rowFits);
+        row.nameButton->setVisible(rowFits);
+        row.routeButton->setVisible(rowFits);
+        if (!rowFits) {
+            continue;
+        }
+
         const int controlY = y + 3;
         const int controlHeight = kRowHeight - 6;
 
@@ -508,6 +542,10 @@ void ChannelRackPanel::paint(juce::Graphics& g) {
     const std::size_t patternIndex = currentPatternIndex();
     const bool hasPattern = patternIndex < m_patterns.numPatterns();
     const model::Pattern* pattern = hasPattern ? &m_patterns.pattern(patternIndex) : nullptr;
+
+    const int graphTop = graphLaneTop();
+    g.saveState();
+    g.reduceClipRegion(0, kTopBarHeight, getWidth(), graphTop - kTopBarHeight);
 
     for (std::size_t row = 0; row < m_midiTrackIndices.size(); ++row) {
         const std::size_t trackIndex = m_midiTrackIndices[row];
@@ -558,10 +596,132 @@ void ChannelRackPanel::paint(juce::Graphics& g) {
         g.setColour(theme::kBorder.withAlpha(0.4f));
         g.drawHorizontalLine(y + kRowHeight - 1, 0.0f, static_cast<float>(getWidth()));
     }
+
+    g.restoreState();
+
+    if (m_graphVisible) {
+        paintGraphLane(g);
+    }
+}
+
+// Shows or hides the graph lane and relays out
+void ChannelRackPanel::toggleGraph() {
+    m_graphVisible = m_graphButton.getToggleState();
+    m_graphParamCombo.setVisible(m_graphVisible);
+    resized();
+    repaint();
+}
+
+// The y where the graph lane starts, the component bottom when the lane is hidden
+int ChannelRackPanel::graphLaneTop() const {
+    return m_graphVisible ? getHeight() - kGraphLaneHeight : getHeight();
+}
+
+// The parameter the graph lane currently edits
+ChannelRackPanel::GraphParam ChannelRackPanel::graphParam() const {
+    return m_graphParamCombo.getSelectedId() == 2 ? GraphParam::Pitch : GraphParam::Velocity;
+}
+
+// Returns the index of the first note in the step's window, or -1 when the step is empty
+int ChannelRackPanel::stepNoteIndex(const model::MidiClip& clip, int stepIndex) const {
+    const auto& notes = clip.notes();
+    for (std::size_t i = 0; i < notes.size(); ++i) {
+        if (noteOverlapsStep(notes[i], stepIndex)) {
+            return static_cast<int>(i);
+        }
+    }
+    return -1;
+}
+
+// Draws the graph lane, one value bar per filled step of the armed channel
+void ChannelRackPanel::paintGraphLane(juce::Graphics& g) {
+    const int top = graphLaneTop();
+    g.setColour(theme::kPanelBg);
+    g.fillRect(0, top, getWidth(), kGraphLaneHeight);
+    g.setColour(theme::kBorder);
+    g.drawHorizontalLine(top, 0.0f, static_cast<float>(getWidth()));
+
+    const int contentTop = top + kGraphHeaderHeight;
+    const int contentHeight = kGraphLaneHeight - kGraphHeaderHeight;
+
+    const bool armedValid = m_armedTrack >= 0
+        && static_cast<std::size_t>(m_armedTrack) < m_arrangement.numTracks();
+    if (!armedValid) {
+        g.setColour(theme::kTextSecondary);
+        g.drawText("Arm a channel to edit its steps",
+            juce::Rectangle<int> { kControlsWidth, contentTop, getWidth() - kControlsWidth, contentHeight },
+            juce::Justification::centred);
+        return;
+    }
+
+    const std::size_t armed = static_cast<std::size_t>(m_armedTrack);
+    const std::size_t patternIndex = currentPatternIndex();
+    const model::MidiClip* clip = (patternIndex < m_patterns.numPatterns()
+        && armed < m_patterns.pattern(patternIndex).trackClips.size())
+        ? &m_patterns.pattern(patternIndex).trackClips[armed]
+        : nullptr;
+
+    g.setColour(theme::kBorder.withAlpha(0.3f));
+    for (int step = 0; step <= kNumSteps; ++step) {
+        const int x = kControlsWidth + step * kStepSize;
+        g.drawVerticalLine(x, static_cast<float>(contentTop), static_cast<float>(top + kGraphLaneHeight));
+    }
+
+    if (clip == nullptr) {
+        return;
+    }
+
+    const juce::Colour channelColour(m_arrangement.track(armed).color);
+    for (int step = 0; step < kNumSteps; ++step) {
+        const int noteIndex = stepNoteIndex(*clip, step);
+        if (noteIndex < 0) {
+            continue;
+        }
+
+        const model::Note& note = clip->notes()[static_cast<std::size_t>(noteIndex)];
+        const float value = graphParam() == GraphParam::Pitch
+            ? juce::jlimit(0.0f, 1.0f,
+                static_cast<float>(note.key - kMinGraphKey) / static_cast<float>(kMaxGraphKey - kMinGraphKey))
+            : note.velocity;
+
+        const int barHeight = static_cast<int>(value * static_cast<float>(contentHeight));
+        const int x = kControlsWidth + step * kStepSize;
+        g.setColour(channelColour);
+        g.fillRect(x + 3, contentTop + contentHeight - barHeight, kStepSize - 6, barHeight);
+    }
 }
 
 // Left click toggles the step under the cursor, right click opens the row menu
 void ChannelRackPanel::mouseDown(const juce::MouseEvent& event) {
+    // A click inside the graph lane's content edits the armed channel's step values
+    if (m_graphVisible && event.y >= graphLaneTop() + kGraphHeaderHeight) {
+        const int step = stepAtX(event.x);
+        const bool armedValid = m_armedTrack >= 0
+            && static_cast<std::size_t>(m_armedTrack) < m_arrangement.numTracks();
+        if (step < 0 || !armedValid) {
+            return;
+        }
+
+        const model::ClipAddress address { model::ClipAddress::Source::Pattern,
+            static_cast<std::size_t>(m_armedTrack), currentPatternIndex() };
+        model::MidiClip* clip = model::resolveClip(m_arrangement, m_session, &m_patterns, address);
+        if (clip == nullptr) {
+            return;
+        }
+
+        const int noteIndex = stepNoteIndex(*clip, step);
+        if (noteIndex < 0) {
+            return;
+        }
+
+        m_draggingGraph = true;
+        m_graphDragStep = step;
+        m_graphDragNoteIndex = noteIndex;
+        m_graphDragBefore = clip->notes()[static_cast<std::size_t>(noteIndex)];
+        dragGraphValue(event.y);
+        return;
+    }
+
     const int row = rowAtY(event.y);
     if (row < 0) {
         return;
@@ -587,6 +747,69 @@ void ChannelRackPanel::mouseDown(const juce::MouseEvent& event) {
     }
 
     toggleStep(trackIndex, step);
+    repaint();
+}
+
+// Mutates the dragged step's note from the graph cursor y, live, no command until mouseUp
+void ChannelRackPanel::dragGraphValue(int y) {
+    if (!m_draggingGraph || m_graphDragNoteIndex < 0) {
+        return;
+    }
+
+    const model::ClipAddress address { model::ClipAddress::Source::Pattern,
+        static_cast<std::size_t>(m_armedTrack), currentPatternIndex() };
+    model::MidiClip* clip = model::resolveClip(m_arrangement, m_session, &m_patterns, address);
+    if (clip == nullptr || static_cast<std::size_t>(m_graphDragNoteIndex) >= clip->notes().size()) {
+        return;
+    }
+
+    const int contentTop = graphLaneTop() + kGraphHeaderHeight;
+    const int contentHeight = kGraphLaneHeight - kGraphHeaderHeight;
+    const float ratio = juce::jlimit(0.0f, 1.0f,
+        1.0f - static_cast<float>(y - contentTop) / static_cast<float>(contentHeight));
+
+    model::Note note = clip->notes()[static_cast<std::size_t>(m_graphDragNoteIndex)];
+    if (graphParam() == GraphParam::Pitch) {
+        note.key = kMinGraphKey + static_cast<int>(std::lround(ratio * static_cast<float>(kMaxGraphKey - kMinGraphKey)));
+    } else {
+        note.velocity = juce::jlimit(0.05f, 1.0f, ratio);
+    }
+
+    m_graphDragNoteIndex = static_cast<int>(
+        clip->replaceNoteAt(static_cast<std::size_t>(m_graphDragNoteIndex), note));
+    repaint();
+}
+
+// Drags a graph value while a graph edit is active
+void ChannelRackPanel::mouseDrag(const juce::MouseEvent& event) {
+    if (m_draggingGraph) {
+        dragGraphValue(event.y);
+    }
+}
+
+// Commits a graph drag as one undoable command, the live mutation is already the after state
+void ChannelRackPanel::mouseUp(const juce::MouseEvent&) {
+    if (!m_draggingGraph) {
+        return;
+    }
+    m_draggingGraph = false;
+
+    const bool armedValid = m_armedTrack >= 0
+        && static_cast<std::size_t>(m_armedTrack) < m_arrangement.numTracks();
+    if (m_graphDragNoteIndex >= 0 && armedValid) {
+        const model::ClipAddress address { model::ClipAddress::Source::Pattern,
+            static_cast<std::size_t>(m_armedTrack), currentPatternIndex() };
+        model::MidiClip* clip = model::resolveClip(m_arrangement, m_session, &m_patterns, address);
+        if (clip != nullptr && static_cast<std::size_t>(m_graphDragNoteIndex) < clip->notes().size()) {
+            const model::Note after = clip->notes()[static_cast<std::size_t>(m_graphDragNoteIndex)];
+            m_commandStack.perform(std::make_unique<model::ReplaceNotesCommand>(
+                m_arrangement, m_session, &m_patterns, address,
+                std::vector<model::Note> { m_graphDragBefore }, std::vector<model::Note> { after }));
+        }
+    }
+
+    m_graphDragNoteIndex = -1;
+    m_graphDragStep = -1;
     repaint();
 }
 
