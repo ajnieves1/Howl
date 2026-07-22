@@ -13,6 +13,7 @@
 
 namespace juce {
 class Component;
+class File;
 }
 
 namespace howl::plugins {
@@ -44,6 +45,13 @@ public:
     // State, off the audio thread
     virtual StateBlob saveState() const = 0;
     virtual void loadState(const StateBlob&) = 0;
+
+    // Asks the plugin to load a preset from a file it recognizes, off the audio thread and only
+    // when the instance is not being processed. Returns false when the format or the plugin does
+    // not support it. The default is no support
+    virtual bool loadPresetFile(const juce::File&) {
+        return false;
+    }
 
     // Params, UI calls setParam, value reaches [RT] via queue or atomic, not directly
     virtual const std::vector<ParamInfo>& params() const = 0;

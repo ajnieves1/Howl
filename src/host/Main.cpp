@@ -346,6 +346,15 @@ int main(int argc, char* argv[]) {
                 const auto* bytes = static_cast<const uint8_t*>(decoded.getData());
                 plugin->loadState(StateBlob(bytes, bytes + decoded.getDataSize()));
             }
+        } else if (cmd == "loadPreset") {
+            bool ok = false;
+            if (plugin != nullptr) {
+                const juce::File file(parsed.getProperty("path", juce::var()).toString());
+                ok = plugin->loadPresetFile(file);
+            }
+            auto* obj = new juce::DynamicObject();
+            obj->setProperty("ok", ok);
+            sendReply(juce::var(obj));
         } else if (cmd == "openEditor") {
             if (plugin != nullptr && plugin->hasEditor()) {
                 if (editorWindow == nullptr) {

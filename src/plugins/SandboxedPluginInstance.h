@@ -81,6 +81,9 @@ public:
 
     void loadState(const StateBlob& state) override;
 
+    // Forwards a preset load to the child, false when the child reports it could not take it
+    bool loadPresetFile(const juce::File& file) override;
+
     const std::vector<ParamInfo>& params() const override;
     void setParamNormalized(uint32_t id, float value) override;
 

@@ -76,6 +76,37 @@ void Vst3Adapter::loadState(const StateBlob& state) {
     m_plugin->setStateInformation(state.data(), static_cast<int>(state.size()));
 }
 
+// Loads a .vstpreset file into the instance through JUCE's VST3 preset extension
+bool Vst3Adapter::loadPresetFile(const juce::File& file) {
+    if (!file.hasFileExtension("vstpreset")) {
+        return false;
+    }
+
+    juce::MemoryBlock block;
+    if (!file.loadFileAsData(block)) {
+        return false;
+    }
+
+    // Visits the VST3 client extension of the hosted instance and feeds it the preset bytes
+    struct PresetSetter : juce::ExtensionsVisitor {
+        // Stores the preset data to hand to the client
+        explicit PresetSetter(const juce::MemoryBlock& presetData)
+            : data(presetData) {}
+
+        // Loads the preset into the VST3 client, recording whether it took
+        void visitVST3Client(const VST3Client& client) override {
+            ok = client.setPreset(data);
+        }
+
+        const juce::MemoryBlock& data;
+        bool ok = false;
+    };
+
+    PresetSetter setter(block);
+    m_plugin->getExtensions(setter);
+    return setter.ok;
+}
+
 // Returns the snapshot taken by the last prepare() call
 const std::vector<ParamInfo>& Vst3Adapter::params() const {
     return m_params;

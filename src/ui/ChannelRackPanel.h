@@ -40,6 +40,9 @@ public:
     // Fired when a sample lands on a row, the app installs a SamplerInstrument
     std::function<void(std::size_t, juce::File)> onSampleAssignRequested;
 
+    // Fired when a preset file lands on a row, the app loads it into that channel's plugin
+    std::function<void(std::size_t, juce::File)> onPatchDropRequested;
+
     // Fired after a step toggles on, the app previews the hit when stopped
     std::function<void(std::size_t)> onStepPreviewRequested;
 

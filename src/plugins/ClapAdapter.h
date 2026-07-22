@@ -53,6 +53,10 @@ public:
     // Restores a previously serialized state
     void loadState(const StateBlob& state) override;
 
+    // Asks the plugin to load a preset file through the CLAP preset-load extension, false when
+    // the plugin does not expose it or the load fails
+    bool loadPresetFile(const juce::File& file) override;
+
     // Returns the snapshot taken by the last prepare() call
     const std::vector<ParamInfo>& params() const override;
 
