@@ -358,6 +358,9 @@ public:
             rebuildAudioGraph();
             m_mainWindow->mainComponent()->refreshAllViews();
         };
+        mainComponent->onCloneInstrumentRequested = [this](std::size_t source, std::size_t dest) {
+            cloneInstrument(source, dest);
+        };
         mainComponent->onInstrumentPickRequested = [this](std::size_t trackIndex) {
             showInstrumentPicker(trackIndex);
         };
@@ -865,6 +868,24 @@ private:
         reconcileTrackInstruments();
         rebuildAudioGraph();
         m_mainWindow->mainComponent()->refreshAllViews();
+    }
+
+    // Copies the source channel's instrument kind and sample onto the cloned channel; a
+    // built in synth clone keeps the default the reconcile pass already assigned, a hosted
+    // plugin is not deep cloned and keeps that default
+    void cloneInstrument(std::size_t source, std::size_t dest)
+    {
+        if (source >= m_trackInstruments.size() || m_trackInstruments[source] == nullptr) {
+            return;
+        }
+
+        engine::Instrument* sourceInstrument = m_trackInstruments[source].get();
+        if (auto* sampler = dynamic_cast<dsp::SamplerInstrument*>(sourceInstrument)) {
+            const juce::File sampleFile(juce::String(sampler->sourcePath()));
+            if (sampleFile.existsAsFile()) {
+                assignSampleToTrack(dest, sampleFile);
+            }
+        }
     }
 
     // Reads a WAV file fully into memory, places it as a clip, and rebuilds the graph/views

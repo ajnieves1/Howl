@@ -72,7 +72,7 @@ MainComponent::MainComponent(model::Arrangement& arrangement, engine::Transport&
         refreshAllViews();
     };
 
-    m_channelRackPanel = std::make_unique<ChannelRackPanel>(arrangement, session, patterns, commandStack);
+    m_channelRackPanel = std::make_unique<ChannelRackPanel>(arrangement, session, patterns, commandStack, mixer);
     addChildComponent(*m_channelRackPanel);
     m_channelRackPanel->onSlotEditRequested = [this](model::ClipAddress address) {
         showPianoRollForPattern(address);
@@ -86,6 +86,37 @@ MainComponent::MainComponent(model::Arrangement& arrangement, engine::Transport&
         if (onStepPreviewRequested) {
             onStepPreviewRequested(trackIndex);
         }
+    };
+    m_channelRackPanel->onInstrumentPickRequested = [this](std::size_t trackIndex) {
+        if (onInstrumentPickRequested) {
+            onInstrumentPickRequested(trackIndex);
+        }
+    };
+    m_channelRackPanel->onInstrumentEditRequested = [this](std::size_t trackIndex) {
+        if (onInstrumentEditRequested) {
+            onInstrumentEditRequested(trackIndex);
+        }
+    };
+    m_channelRackPanel->instrumentNameFor = [this](std::size_t trackIndex) -> juce::String {
+        return instrumentNameFor ? instrumentNameFor(trackIndex) : juce::String();
+    };
+    m_channelRackPanel->onTrackSelected = [this](std::ptrdiff_t trackIndex) {
+        if (onTrackSelected) {
+            onTrackSelected(trackIndex);
+        }
+    };
+    m_channelRackPanel->onTracksChanged = [this] {
+        if (onTracksChanged) {
+            onTracksChanged();
+        }
+    };
+    m_channelRackPanel->onCloneInstrumentRequested = [this](std::size_t source, std::size_t dest) {
+        if (onCloneInstrumentRequested) {
+            onCloneInstrumentRequested(source, dest);
+        }
+    };
+    m_channelRackPanel->onViewsNeedRefresh = [this] {
+        refreshAllViews();
     };
     m_channelRackPanel->browserFileProvider = [this] {
         return m_browserPanel.selectedFile();
@@ -256,9 +287,7 @@ void MainComponent::resized() {
         m_bottomPanelCloseButton.setBounds(titleStrip.removeFromRight(titleStrip.getHeight()));
         m_bottomPanelTitleLabel.setBounds(titleStrip);
 
-        if (m_bottomPanel == BottomPanel::PianoRoll && m_pianoRoll != nullptr) {
-            m_pianoRoll->setBounds(bottomBounds);
-        } else if (m_bottomPanel == BottomPanel::Mixer && m_mixerView != nullptr) {
+        if (m_bottomPanel == BottomPanel::Mixer && m_mixerView != nullptr) {
             m_mixerView->setBounds(bottomBounds);
         } else if (m_bottomPanel == BottomPanel::Automation && m_automationEditor != nullptr) {
             m_automationEditor->setBounds(bottomBounds);
@@ -341,53 +370,46 @@ bool MainComponent::keyPressed(const juce::KeyPress& key) {
     return false;
 }
 
-// Shows the piano roll for a clip in the bottom panel (replaces whatever is there)
-void MainComponent::showPianoRollFor(std::size_t trackIndex, std::size_t placementIndex) {
-    if (m_pianoRoll != nullptr) {
-        removeChildComponent(m_pianoRoll.get());
+// Creates the pop out window if needed and hands it a fresh piano roll for the given title
+void MainComponent::openPianoRoll(std::unique_ptr<PianoRoll> roll, const juce::String& title) {
+    if (m_pianoRollWindow == nullptr) {
+        m_pianoRollWindow = std::make_unique<PianoRollWindow>([this] {
+            if (m_pianoRollWindow != nullptr) {
+                m_pianoRollWindow->setVisible(false);
+            }
+        });
     }
 
-    const model::ClipAddress address { model::ClipAddress::Source::Arrangement, trackIndex, placementIndex };
-    m_pianoRoll = std::make_unique<PianoRoll>(m_arrangement, m_session, m_patterns, address, m_commandStack,
-        m_transport, m_sampleRate, [this] { return m_snapDivision; });
-    addAndMakeVisible(*m_pianoRoll);
-
-    setBottomPanelTitle("Piano Roll - " + juce::String(m_arrangement.track(trackIndex).name));
-    m_bottomPanel = BottomPanel::PianoRoll;
-    updateBottomPanelVisibility();
-    resized();
+    m_pianoRollWindow->showRoll(std::move(roll), title);
 }
 
-// Shows the piano roll for a session slot's MIDI clip in the bottom panel
+// Opens the piano roll for a clip in its own pop out window
+void MainComponent::showPianoRollFor(std::size_t trackIndex, std::size_t placementIndex) {
+    const model::ClipAddress address { model::ClipAddress::Source::Arrangement, trackIndex, placementIndex };
+    auto roll = std::make_unique<PianoRoll>(m_arrangement, m_session, m_patterns, address, m_commandStack,
+        m_transport, m_sampleRate, [this] { return m_snapDivision; });
+
+    openPianoRoll(std::move(roll), "Piano Roll - " + juce::String(m_arrangement.track(trackIndex).name));
+}
+
+// Opens the piano roll for a session slot's MIDI clip in its own pop out window
 void MainComponent::showPianoRollForSession(std::size_t trackIndex, std::size_t sceneIndex) {
     if (m_session.slot(trackIndex, sceneIndex).content != model::SlotContent::Midi) {
         return;
     }
 
-    if (m_pianoRoll != nullptr) {
-        removeChildComponent(m_pianoRoll.get());
-    }
-
     const model::ClipAddress address { model::ClipAddress::Source::Session, trackIndex, sceneIndex };
-    m_pianoRoll = std::make_unique<PianoRoll>(m_arrangement, m_session, m_patterns, address, m_commandStack,
+    auto roll = std::make_unique<PianoRoll>(m_arrangement, m_session, m_patterns, address, m_commandStack,
         m_transport, m_sampleRate, [this] { return m_snapDivision; });
-    addAndMakeVisible(*m_pianoRoll);
 
-    setBottomPanelTitle("Piano Roll - " + juce::String(m_arrangement.track(trackIndex).name) + " (Session)");
-    m_bottomPanel = BottomPanel::PianoRoll;
-    updateBottomPanelVisibility();
-    resized();
+    openPianoRoll(std::move(roll),
+        "Piano Roll - " + juce::String(m_arrangement.track(trackIndex).name) + " (Session)");
 }
 
-// Shows the piano roll for a pattern lane's MIDI clip in the bottom panel
+// Opens the piano roll for a pattern lane's MIDI clip in its own pop out window
 void MainComponent::showPianoRollForPattern(model::ClipAddress address) {
-    if (m_pianoRoll != nullptr) {
-        removeChildComponent(m_pianoRoll.get());
-    }
-
-    m_pianoRoll = std::make_unique<PianoRoll>(m_arrangement, m_session, m_patterns, address, m_commandStack,
+    auto roll = std::make_unique<PianoRoll>(m_arrangement, m_session, m_patterns, address, m_commandStack,
         m_transport, m_sampleRate, [this] { return m_snapDivision; });
-    addAndMakeVisible(*m_pianoRoll);
 
     juce::String title = "Piano Roll";
     if (address.slotIndex < m_patterns.numPatterns()) {
@@ -396,11 +418,8 @@ void MainComponent::showPianoRollForPattern(model::ClipAddress address) {
     if (address.trackIndex < m_arrangement.numTracks()) {
         title << " / " << juce::String(m_arrangement.track(address.trackIndex).name);
     }
-    setBottomPanelTitle(title);
 
-    m_bottomPanel = BottomPanel::PianoRoll;
-    updateBottomPanelVisibility();
-    resized();
+    openPianoRoll(std::move(roll), title);
 }
 
 // Shows the mixer in the bottom panel, or hides the panel if the mixer is already shown
@@ -632,10 +651,6 @@ void MainComponent::menuItemSelected(int menuItemID, int) {
 
 // Shows only the component matching m_bottomPanel, hides the other
 void MainComponent::updateBottomPanelVisibility() {
-    if (m_pianoRoll != nullptr) {
-        m_pianoRoll->setVisible(m_bottomPanel == BottomPanel::PianoRoll);
-    }
-
     if (m_mixerView != nullptr) {
         m_mixerView->setVisible(m_bottomPanel == BottomPanel::Mixer);
     }

@@ -442,9 +442,10 @@ void ArrangeView::paint(juce::Graphics& g) {
             const float x = tickToX(startTick);
             const float width = tickToX(startTick + placement.clip.lengthTicks()) - x;
             juce::Rectangle<float> r { x, y + 2.0f, juce::jmax(2.0f, width), height - 5.0f };
-            g.setColour(placement.muted ? theme::kAccent.withAlpha(0.35f) : theme::kAccent);
+            const juce::Colour clipColour(track.color);
+            g.setColour(placement.muted ? clipColour.withAlpha(0.35f) : clipColour);
             g.fillRect(r);
-            g.setColour(isSelected(ClipKind::Midi, i, p) ? theme::kSelection : theme::kAccent.darker(0.8f));
+            g.setColour(isSelected(ClipKind::Midi, i, p) ? theme::kSelection : clipColour.darker(0.8f));
             g.drawRect(r, isSelected(ClipKind::Midi, i, p) ? 2.5f : 1.5f);
         }
 

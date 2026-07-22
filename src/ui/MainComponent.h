@@ -20,6 +20,7 @@
 #include "ui/FileBrowserPanel.h"
 #include "ui/MixerView.h"
 #include "ui/PianoRoll.h"
+#include "ui/PianoRollWindow.h"
 #include "ui/SessionView.h"
 #include "ui/Theme.h"
 #include "ui/TrackHeaderPanel.h"
@@ -49,13 +50,13 @@ public:
     // Ctrl+Z / Ctrl+Y undo/redo, Ctrl+N/O/S/Shift+S new/open/save/save as
     bool keyPressed(const juce::KeyPress& key) override;
 
-    // Shows the piano roll for a clip in the bottom panel (replaces whatever is there)
+    // Opens the piano roll for a clip in its own pop out window
     void showPianoRollFor(std::size_t trackIndex, std::size_t placementIndex);
 
-    // Shows the piano roll for a session slot's MIDI clip in the bottom panel
+    // Opens the piano roll for a session slot's MIDI clip in its own pop out window
     void showPianoRollForSession(std::size_t trackIndex, std::size_t sceneIndex);
 
-    // Shows the piano roll for a pattern lane's MIDI clip in the bottom panel
+    // Opens the piano roll for a pattern lane's MIDI clip in its own pop out window
     void showPianoRollForPattern(model::ClipAddress address);
 
     // Shows the mixer in the bottom panel, or hides the panel if the mixer is already shown
@@ -84,6 +85,9 @@ public:
 
     // Fired after any track add/remove so the app rebuilds the audio graph and views
     std::function<void()> onTracksChanged;
+
+    // Fired to copy the instrument from a source channel to a cloned one, app owned
+    std::function<void(std::size_t, std::size_t)> onCloneInstrumentRequested;
 
     // Fired when a MIDI track's instrument button is clicked, the app shows the picker
     std::function<void(std::size_t)> onInstrumentPickRequested;
@@ -192,7 +196,6 @@ private:
 
     enum class BottomPanel {
         None,
-        PianoRoll,
         Mixer,
         Automation
     };
@@ -215,6 +218,9 @@ private:
 
     // Shows only the component matching m_centerView, hides the other
     void updateCenterViewVisibility();
+
+    // Creates the pop out window if needed and hands it a fresh piano roll for the given title
+    void openPianoRoll(std::unique_ptr<PianoRoll> roll, const juce::String& title);
 
     // A thin vertical line shown only while the browser edge is dragged, so the drag stays
     // cheap (one 2 px column repaints) and the shell relays out once on release
@@ -243,7 +249,7 @@ private:
     ArrangeView m_arrangeView;
     std::unique_ptr<SessionView> m_sessionView; // created once in the ctor
     std::unique_ptr<ChannelRackPanel> m_channelRackPanel; // created once in the ctor
-    std::unique_ptr<PianoRoll> m_pianoRoll; // recreated per selected clip
+    std::unique_ptr<PianoRollWindow> m_pianoRollWindow; // created on first open, reused after
     std::unique_ptr<MixerView> m_mixerView; // created once in the ctor
     std::unique_ptr<AutomationEditor> m_automationEditor; // recreated per requested track
 

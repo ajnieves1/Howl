@@ -40,9 +40,14 @@ struct AutomationLaneSlot {
 };
 
 // A track holds placements matching its own kind, the other kind's vector stays empty
+// Default packed 0xAARRGGBB color a new channel takes until the user recolors it
+constexpr uint32_t kDefaultChannelColor = 0xFF4C8DFF;
+
 struct Track {
     std::string name;
     TrackKind kind;
+    // Packed 0xAARRGGBB channel color, tints the rack row and this track's clips
+    uint32_t color = kDefaultChannelColor;
     std::vector<MidiClipPlacement> midiClips;
     std::vector<AudioClipPlacement> audioClips;
     std::vector<AutomationLaneSlot> automation;
