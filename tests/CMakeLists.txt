@@ -23,6 +23,7 @@ add_executable(HowlTests
     LimiterTests.cpp
     LiveMidiInputTests.cpp
     MeterTests.cpp
+    MetronomeTests.cpp
     MidiClipTests.cpp
     MidiFileImportTests.cpp
     MidiTrackRendererTests.cpp

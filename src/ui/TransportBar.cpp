@@ -23,6 +23,24 @@ TransportBar::TransportBar(engine::Transport& transport, model::CommandStack& co
     m_playButton.setTooltip("Play or stop (Space)");
     addAndMakeVisible(m_playButton);
 
+    m_metronomeButton.setClickingTogglesState(true);
+    m_metronomeButton.setTooltip("Metronome click during playback");
+    m_metronomeButton.onClick = [this] {
+        if (onMetronomeToggled) {
+            onMetronomeToggled(m_metronomeButton.getToggleState());
+        }
+    };
+    addAndMakeVisible(m_metronomeButton);
+
+    m_countInButton.setClickingTogglesState(true);
+    m_countInButton.setTooltip("Play one bar of clicks before playback starts");
+    m_countInButton.onClick = [this] {
+        if (onCountInToggled) {
+            onCountInToggled(m_countInButton.getToggleState());
+        }
+    };
+    addAndMakeVisible(m_countInButton);
+
     m_positionLabel.setJustificationType(juce::Justification::centred);
     m_positionLabel.setTooltip("Bar.beat and minutes:seconds");
     addAndMakeVisible(m_positionLabel);
@@ -117,6 +135,8 @@ void TransportBar::resized() {
     auto bounds = getLocalBounds().reduced(2);
 
     m_playButton.setBounds(bounds.removeFromLeft(60));
+    m_metronomeButton.setBounds(bounds.removeFromLeft(56));
+    m_countInButton.setBounds(bounds.removeFromLeft(70));
     m_positionLabel.setBounds(bounds.removeFromLeft(100));
     m_tempoLabel.setBounds(bounds.removeFromLeft(60));
 
@@ -128,6 +148,16 @@ void TransportBar::resized() {
     m_mixerButton.setBounds(bounds.removeFromRight(60));
     m_redoButton.setBounds(bounds.removeFromRight(60));
     m_undoButton.setBounds(bounds.removeFromRight(60));
+}
+
+// Sets the metronome toggle's shown state without firing its callback
+void TransportBar::setMetronomeEnabled(bool enabled) {
+    m_metronomeButton.setToggleState(enabled, juce::dontSendNotification);
+}
+
+// Sets the count in toggle's shown state without firing its callback
+void TransportBar::setCountInEnabled(bool enabled) {
+    m_countInButton.setToggleState(enabled, juce::dontSendNotification);
 }
 
 // Highlights the given view switcher segment (0 Arrange, 1 Session, 2 Rack) as active

@@ -222,6 +222,16 @@ MainComponent::MainComponent(model::Arrangement& arrangement, engine::Transport&
         m_centerView = static_cast<CenterView>(index);
         updateCenterViewVisibility();
     };
+    m_transportBar.onMetronomeToggled = [this](bool enabled) {
+        if (onMetronomeToggled) {
+            onMetronomeToggled(enabled);
+        }
+    };
+    m_transportBar.onCountInToggled = [this](bool enabled) {
+        if (onCountInToggled) {
+            onCountInToggled(enabled);
+        }
+    };
 
     m_mixerView = std::make_unique<MixerView>(mixer, arrangement, factory, pluginHost,
         commandStack, sampleRate, maxBlockSize);
@@ -478,6 +488,16 @@ void MainComponent::setBrowserWidth(int width) {
 
     m_browserWidth = clamped;
     resized();
+}
+
+// Sets the transport bar's metronome toggle to its persisted state
+void MainComponent::setMetronomeEnabled(bool enabled) {
+    m_transportBar.setMetronomeEnabled(enabled);
+}
+
+// Sets the transport bar's count in toggle to its persisted state
+void MainComponent::setCountInEnabled(bool enabled) {
+    m_transportBar.setCountInEnabled(enabled);
 }
 
 // Cycles the center view Arrange -> Session -> Rack -> Arrange

@@ -37,8 +37,20 @@ public:
     // Fired when a view switcher segment is clicked: 0 Arrange, 1 Session, 2 Rack
     std::function<void(int)> onViewSelected;
 
+    // Fired with the new state when the metronome toggle is clicked
+    std::function<void(bool)> onMetronomeToggled;
+
+    // Fired with the new state when the count in toggle is clicked
+    std::function<void(bool)> onCountInToggled;
+
     // Highlights the given view switcher segment (0 Arrange, 1 Session, 2 Rack) as active
     void setActiveView(int index);
+
+    // Sets the metronome toggle's shown state without firing its callback
+    void setMetronomeEnabled(bool enabled);
+
+    // Sets the count in toggle's shown state without firing its callback
+    void setCountInEnabled(bool enabled);
 
     void resized() override;
     void paint(juce::Graphics& g) override;
@@ -58,6 +70,8 @@ private:
     double m_sampleRate;
 
     juce::TextButton m_playButton { "Play" };
+    juce::TextButton m_metronomeButton { "Metro" };
+    juce::TextButton m_countInButton { "Count In" };
     juce::Label m_positionLabel;
     juce::Label m_tempoLabel;
     juce::TextButton m_undoButton { "Undo" };
