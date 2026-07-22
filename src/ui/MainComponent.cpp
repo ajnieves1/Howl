@@ -82,6 +82,11 @@ MainComponent::MainComponent(model::Arrangement& arrangement, engine::Transport&
             onSampleAssignRequested(trackIndex, file);
         }
     };
+    m_channelRackPanel->onPatchDropRequested = [this](std::size_t trackIndex, juce::File file) {
+        if (onPatchDropRequested) {
+            onPatchDropRequested(trackIndex, file);
+        }
+    };
     m_channelRackPanel->onStepPreviewRequested = [this](std::size_t trackIndex) {
         if (onStepPreviewRequested) {
             onStepPreviewRequested(trackIndex);

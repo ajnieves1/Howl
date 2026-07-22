@@ -619,18 +619,22 @@ bool ChannelRackPanel::isInterestedInDragSource(const juce::DragAndDropTarget::S
 // Assigns the dropped file to the row under the drop point when it is an audio sample
 void ChannelRackPanel::itemDropped(const juce::DragAndDropTarget::SourceDetails& dragSourceDetails) {
     const int row = rowAtY(dragSourceDetails.localPosition.y);
-    if (row < 0) {
+    if (row < 0 || browserFileProvider == nullptr) {
         return;
     }
 
-    if (onSampleAssignRequested == nullptr || browserFileProvider == nullptr) {
-        return;
-    }
-
-    // A channel row plays a sample, ignore MIDI and patch drops until patch loading lands
     const juce::File file = browserFileProvider();
+    const std::size_t trackIndex = m_midiTrackIndices[static_cast<std::size_t>(row)];
+
+    // An audio file installs a sampler, a preset file loads into the channel's plugin
     if (filetypes::isAudioFile(file)) {
-        onSampleAssignRequested(m_midiTrackIndices[static_cast<std::size_t>(row)], file);
+        if (onSampleAssignRequested) {
+            onSampleAssignRequested(trackIndex, file);
+        }
+    } else if (filetypes::isPatchFile(file)) {
+        if (onPatchDropRequested) {
+            onPatchDropRequested(trackIndex, file);
+        }
     }
 }
 

@@ -22,6 +22,8 @@ namespace {
 constexpr int kNumChannels = 2;
 constexpr int kHandshakeTimeoutMs = 5000;
 constexpr int kControlTimeoutMs = 2000;
+// A preset can pull wavetables or samples off disk, so allow longer than a plain control reply
+constexpr int kPresetLoadTimeoutMs = 8000;
 } // namespace
 
 // Runs one health tick, message thread only
@@ -391,6 +393,23 @@ void SandboxedPluginInstance::loadState(const StateBlob& state) {
     juce::String line = "{\"cmd\":\"setState\",\"stateBase64\":\"";
     line << base64 << "\"}";
     sendLine(line);
+}
+
+// Forwards a preset load to the child, false when the child reports it could not take it
+bool SandboxedPluginInstance::loadPresetFile(const juce::File& file) {
+    if (!m_valid) {
+        return false;
+    }
+
+    // Build the command through JSON so a path with spaces or quotes stays valid
+    auto* command = new juce::DynamicObject();
+    command->setProperty("cmd", "loadPreset");
+    command->setProperty("path", file.getFullPathName());
+    const juce::String line = juce::JSON::toString(juce::var(command), true);
+
+    const juce::String reply = sendLineAndWaitForReply(line, kPresetLoadTimeoutMs);
+    const juce::var parsed = juce::JSON::parse(reply);
+    return static_cast<bool>(parsed.getProperty("ok", false));
 }
 
 const std::vector<ParamInfo>& SandboxedPluginInstance::params() const {

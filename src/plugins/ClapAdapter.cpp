@@ -19,8 +19,25 @@ namespace howl::plugins {
 
 namespace {
 
-// Host callbacks, this is a minimal offline host that offers no extensions
-const void* CLAP_ABI hostGetExtension(const clap_host_t*, const char*) {
+// The plugin reports a failed preset load, logged so a bad drop is not silent
+void CLAP_ABI hostPresetLoadOnError(const clap_host_t*, uint32_t, const char* location, const char*,
+                                    int32_t, const char* msg) {
+    juce::Logger::writeToLog(juce::String("Howl: CLAP preset load failed for ")
+        + (location != nullptr ? location : "") + ": " + (msg != nullptr ? msg : ""));
+}
+
+// The plugin reports a successful preset load, nothing for this host to sync
+void CLAP_ABI hostPresetLoadLoaded(const clap_host_t*, uint32_t, const char*, const char*) {
+}
+
+// Host callbacks, a minimal offline host that offers only the preset-load extension so plugins
+// that require it will load a preset from a file path
+const void* CLAP_ABI hostGetExtension(const clap_host_t*, const char* extensionId) {
+    if (std::strcmp(extensionId, CLAP_EXT_PRESET_LOAD) == 0
+        || std::strcmp(extensionId, CLAP_EXT_PRESET_LOAD_COMPAT) == 0) {
+        static const clap_host_preset_load_t presetLoad { hostPresetLoadOnError, hostPresetLoadLoaded };
+        return &presetLoad;
+    }
     return nullptr;
 }
 
@@ -424,6 +441,28 @@ void ClapAdapter::loadState(const StateBlob& state) {
         stream.read = istreamRead;
         stateExt->load(plugin, &stream);
     }
+}
+
+// Asks the plugin to load a preset file through the CLAP preset-load extension, false when the
+// plugin does not expose it or the load fails
+bool ClapAdapter::loadPresetFile(const juce::File& file) {
+    const clap_plugin_t* plugin = m_impl->plugin;
+    if (plugin == nullptr) {
+        return false;
+    }
+
+    const auto* presetLoad = static_cast<const clap_plugin_preset_load_t*>(
+        plugin->get_extension(plugin, CLAP_EXT_PRESET_LOAD));
+    if (presetLoad == nullptr) {
+        presetLoad = static_cast<const clap_plugin_preset_load_t*>(
+            plugin->get_extension(plugin, CLAP_EXT_PRESET_LOAD_COMPAT));
+    }
+    if (presetLoad == nullptr || presetLoad->from_location == nullptr) {
+        return false;
+    }
+
+    return presetLoad->from_location(plugin, CLAP_PRESET_DISCOVERY_LOCATION_FILE,
+        file.getFullPathName().toRawUTF8(), nullptr);
 }
 
 // Returns the snapshot taken by the last prepare() call

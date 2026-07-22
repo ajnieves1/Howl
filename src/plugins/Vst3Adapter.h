@@ -37,6 +37,9 @@ public:
     // Restores a previously serialized state
     void loadState(const StateBlob& state) override;
 
+    // Loads a .vstpreset file into the instance, false for any other extension or on failure
+    bool loadPresetFile(const juce::File& file) override;
+
     // Returns the snapshot taken by the last prepare() call
     const std::vector<ParamInfo>& params() const override;
 

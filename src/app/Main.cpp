@@ -416,6 +416,9 @@ public:
         mainComponent->onSampleAssignRequested = [this](std::size_t trackIndex, juce::File file) {
             assignSampleToTrack(trackIndex, file);
         };
+        mainComponent->onPatchDropRequested = [this](std::size_t trackIndex, juce::File file) {
+            loadPatchOntoTrack(trackIndex, file);
+        };
         mainComponent->onStepPreviewRequested = [this](std::size_t trackIndex) {
             if (m_transport.isPlaying()) {
                 return;
@@ -885,6 +888,37 @@ private:
             if (sampleFile.existsAsFile()) {
                 assignSampleToTrack(dest, sampleFile);
             }
+        }
+    }
+
+    // Loads a preset file into the plugin on trackIndex, stopping the device around the load so
+    // the audio thread is never inside the instance while it changes. Tells the user when the
+    // channel has no plugin or the plugin can not take that preset
+    void loadPatchOntoTrack(std::size_t trackIndex, const juce::File& file)
+    {
+        plugins::PluginInstrument* pluginInstrument = trackIndex < m_trackInstruments.size()
+            ? dynamic_cast<plugins::PluginInstrument*>(m_trackInstruments[trackIndex].get())
+            : nullptr;
+
+        if (pluginInstrument == nullptr) {
+            juce::NativeMessageBox::showMessageBoxAsync(juce::MessageBoxIconType::InfoIcon, "Load Preset",
+                "This channel has no plugin instrument to load a preset into.");
+            return;
+        }
+
+        m_audioDevice.stop();
+        const bool ok = pluginInstrument->instance().loadPresetFile(file);
+        m_audioDevice.start([this](AudioBlock& block) {
+            const SampleCount pos = m_transport.advance(block.numFrames);
+            m_graph.process(block, pos);
+        });
+
+        if (ok) {
+            m_mainWindow->mainComponent()->refreshAllViews();
+        } else {
+            juce::NativeMessageBox::showMessageBoxAsync(juce::MessageBoxIconType::InfoIcon, "Load Preset",
+                file.getFileName() + " could not be loaded into this instrument. A native preset such "
+                "as .serumpreset or .vital only loads when the synth is added as CLAP.");
         }
     }
 

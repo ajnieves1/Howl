@@ -113,3 +113,8 @@ TEST_CASE("PluginInstrument.render clears queued MIDI after each call", "[plugin
     instrument.render(block);
     REQUIRE(rawStub->lastMidiEventCount == 0);
 }
+
+TEST_CASE("IPluginInstance reports no preset support by default", "[plugins]") {
+    StubPluginInstance stub;
+    REQUIRE_FALSE(stub.loadPresetFile(juce::File()));
+}

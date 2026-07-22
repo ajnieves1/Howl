@@ -131,6 +131,9 @@ public:
     // Fired with (trackIndex, file) when a sample lands on a channel rack row
     std::function<void(std::size_t, juce::File)> onSampleAssignRequested;
 
+    // Fired with (trackIndex, file) when a preset file lands on a channel rack row
+    std::function<void(std::size_t, juce::File)> onPatchDropRequested;
+
     // Fired with trackIndex after a step toggles on, the app previews the hit when stopped
     std::function<void(std::size_t)> onStepPreviewRequested;
 
