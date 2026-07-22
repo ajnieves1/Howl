@@ -74,6 +74,10 @@ public:
     // Sets the browser column width in pixels, clamps it, and relays out
     void setBrowserWidth(int width);
 
+    // Sets the transport bar's metronome and count in toggles to their persisted state
+    void setMetronomeEnabled(bool enabled);
+    void setCountInEnabled(bool enabled);
+
     // Repaints the arrange view, refreshes mixer strips, track headers, and the session view,
     // closes any open effect editors
     void refreshAllViews();
@@ -88,6 +92,10 @@ public:
 
     // Fired to copy the instrument from a source channel to a cloned one, app owned
     std::function<void(std::size_t, std::size_t)> onCloneInstrumentRequested;
+
+    // Fired with the new state when the metronome or count in toggle changes
+    std::function<void(bool)> onMetronomeToggled;
+    std::function<void(bool)> onCountInToggled;
 
     // Fired when a MIDI track's instrument button is clicked, the app shows the picker
     std::function<void(std::size_t)> onInstrumentPickRequested;

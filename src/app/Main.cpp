@@ -8,6 +8,7 @@
 #include "dsp/SubtractiveSynth.h"
 #include "engine/Graph.h"
 #include "engine/Instrument.h"
+#include "engine/Metronome.h"
 #include "engine/Node.h"
 #include "engine/Transport.h"
 #include "io/AudioDevice.h"
@@ -42,6 +43,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstdint>
 #include <limits>
@@ -353,6 +355,24 @@ public:
 
         ui::MainComponent* mainComponent = m_mainWindow->mainComponent();
         mainComponent->setBrowserWidth(m_settings->getIntValue("browserWidth", 220));
+
+        const bool metronomeOn = m_settings->getBoolValue("metronomeEnabled", false);
+        const bool countInOn = m_settings->getBoolValue("countInEnabled", false);
+        m_metronomeEnabled.store(metronomeOn, std::memory_order_relaxed);
+        m_countInEnabled.store(countInOn, std::memory_order_relaxed);
+        mainComponent->setMetronomeEnabled(metronomeOn);
+        mainComponent->setCountInEnabled(countInOn);
+        mainComponent->onMetronomeToggled = [this](bool enabled) {
+            m_metronomeEnabled.store(enabled, std::memory_order_relaxed);
+            m_settings->setValue("metronomeEnabled", enabled);
+            m_settings->saveIfNeeded();
+        };
+        mainComponent->onCountInToggled = [this](bool enabled) {
+            m_countInEnabled.store(enabled, std::memory_order_relaxed);
+            m_settings->setValue("countInEnabled", enabled);
+            m_settings->saveIfNeeded();
+        };
+
         mainComponent->onTracksChanged = [this] {
             reconcileTrackInstruments();
             rebuildAudioGraph();
@@ -508,10 +528,7 @@ public:
         mainComponent->refreshAllViews();
         m_mainWindow->setProjectTitle({});
 
-        m_audioDevice.start([this](AudioBlock& block) {
-            const SampleCount pos = m_transport.advance(block.numFrames);
-            m_graph.process(block, pos);
-        });
+        startAudioDevice();
 
         m_xrunWatcher = std::make_unique<XrunWatcher>(m_audioDevice);
         m_xrunWatcher->start();
@@ -550,6 +567,56 @@ public:
     }
 
 private:
+    // Starts the device on the one audio callback, used by every place that resumes the device
+    void startAudioDevice()
+    {
+        m_audioDevice.start([this](AudioBlock& block) {
+            audioCallback(block);
+        });
+    }
+
+    // [RT] Runs the count in pre-roll if one is pending, then advances the transport, processes
+    // the graph, and mixes the metronome click when it is on
+    void audioCallback(AudioBlock& block)
+    {
+        const bool nowPlaying = m_transport.isPlaying();
+        if (nowPlaying && !m_wasPlaying) {
+            m_metronome.reset();
+            m_countingIn = m_countInEnabled.load(std::memory_order_relaxed);
+            m_countInPos = 0;
+        }
+        if (!nowPlaying) {
+            m_countingIn = false;
+        }
+        m_wasPlaying = nowPlaying;
+
+        const double tempo = m_transport.tempo();
+
+        if (m_countingIn) {
+            // Freeze the arrangement for one bar and play only the count in clicks
+            for (int channel = 0; channel < block.numChannels; ++channel) {
+                for (int frame = 0; frame < block.numFrames; ++frame) {
+                    block.channels[channel][frame] = 0.0f;
+                }
+            }
+            m_metronome.process(block, m_countInPos, block.numFrames, tempo, m_sampleRate);
+            m_countInPos += static_cast<SampleCount>(block.numFrames);
+
+            const double samplesPerBar = 4.0 * (60.0 / tempo) * m_sampleRate;
+            if (static_cast<double>(m_countInPos) >= samplesPerBar) {
+                m_countingIn = false;
+                m_metronome.reset();
+            }
+            return;
+        }
+
+        const SampleCount pos = m_transport.advance(block.numFrames);
+        m_graph.process(block, pos);
+        if (nowPlaying && m_metronomeEnabled.load(std::memory_order_relaxed)) {
+            m_metronome.process(block, pos, block.numFrames, tempo, m_sampleRate);
+        }
+    }
+
     // Pauses the device, re-prepares the arrangement node (which re-prepares the mixer in
     // place, preserving gain/pan/routing/sends), re-applies every track's instrument, resumes
     void rebuildAudioGraph()
@@ -560,10 +627,7 @@ private:
         m_audioDevice.stop();
         m_arrangementNode->prepare(m_sampleRate, m_bufferSize, 2);
         applyTrackInstruments();
-        m_audioDevice.start([this](AudioBlock& block) {
-            const SampleCount pos = m_transport.advance(block.numFrames);
-            m_graph.process(block, pos);
-        });
+        startAudioDevice();
     }
 
     // Assigns every track's current instrument pointer onto the arrangement node
@@ -908,10 +972,7 @@ private:
 
         m_audioDevice.stop();
         const bool ok = pluginInstrument->instance().loadPresetFile(file);
-        m_audioDevice.start([this](AudioBlock& block) {
-            const SampleCount pos = m_transport.advance(block.numFrames);
-            m_graph.process(block, pos);
-        });
+        startAudioDevice();
 
         if (ok) {
             m_mainWindow->mainComponent()->refreshAllViews();
@@ -1073,10 +1134,7 @@ private:
             }
         }
 
-        m_audioDevice.start([this](AudioBlock& block) {
-            const SampleCount pos = m_transport.advance(block.numFrames);
-            m_graph.process(block, pos);
-        });
+        startAudioDevice();
 
         m_mainWindow->mainComponent()->refreshAllViews();
     }
@@ -1097,10 +1155,7 @@ private:
             m_arrangementNode->setFrozen(trackIndex, std::move(rendered));
         }
 
-        m_audioDevice.start([this](AudioBlock& block) {
-            const SampleCount pos = m_transport.advance(block.numFrames);
-            m_graph.process(block, pos);
-        });
+        startAudioDevice();
 
         m_mainWindow->mainComponent()->refreshAllViews();
     }
@@ -1112,10 +1167,7 @@ private:
         m_audioDevice.stop();
         m_arrangementNode->clearFrozen(trackIndex);
 
-        m_audioDevice.start([this](AudioBlock& block) {
-            const SampleCount pos = m_transport.advance(block.numFrames);
-            m_graph.process(block, pos);
-        });
+        startAudioDevice();
 
         m_mainWindow->mainComponent()->refreshAllViews();
     }
@@ -1183,10 +1235,7 @@ private:
                 juce::Logger::writeToLog("Howl: failed to export audio to " + file.getFullPathName());
             }
 
-            m_audioDevice.start([this](AudioBlock& block) {
-                const SampleCount pos = m_transport.advance(block.numFrames);
-                m_graph.process(block, pos);
-            });
+            startAudioDevice();
         });
     }
 
@@ -1520,10 +1569,7 @@ private:
 
         if (!ok) {
             juce::Logger::writeToLog("Howl: failed to parse project file");
-            m_audioDevice.start([this](AudioBlock& block) {
-                const SampleCount pos = m_transport.advance(block.numFrames);
-                m_graph.process(block, pos);
-            });
+            startAudioDevice();
             return;
         }
 
@@ -1774,9 +1820,19 @@ private:
     std::vector<MidiMapping> m_midiMappings;
     std::optional<MidiLearnTarget> m_midiLearnTarget;
     engine::Graph m_graph;
+    engine::Metronome m_metronome;
     model::ArrangementNode* m_arrangementNode = nullptr;
     double m_sampleRate = 44100.0;
     int m_bufferSize = 0;
+
+    // Set from the UI thread, read on the audio thread
+    std::atomic<bool> m_metronomeEnabled { false };
+    std::atomic<bool> m_countInEnabled { false };
+
+    // Audio thread only, drives the count in pre-roll
+    bool m_wasPlaying = false;
+    bool m_countingIn = false;
+    SampleCount m_countInPos = 0;
     std::vector<std::unique_ptr<engine::Instrument>> m_trackInstruments;
     std::vector<juce::String> m_instrumentNames;
     juce::File m_currentProjectFile;
