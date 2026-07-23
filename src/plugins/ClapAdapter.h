@@ -63,13 +63,14 @@ public:
     // Queues a normalized parameter change for the next process() call
     void setParamNormalized(uint32_t id, float value) override;
 
-    // CLAP editor hosting is a later task, always false for now
+    // True when the plugin exposes the CLAP gui extension for this platform's window api
     bool hasEditor() const override;
 
-    // Always nullptr, CLAP GUI embedding is not implemented yet
+    // Creates the plugin's gui. Returns a component the plugin parents its window into when
+    // embedding is supported, or nullptr when the plugin opened its own floating window
     juce::Component* openEditor() override;
 
-    // No-op, CLAP GUI embedding is not implemented yet
+    // Hides and destroys the plugin's gui and drops the host side component
     void closeEditor() override;
 
 private:
@@ -80,6 +81,12 @@ private:
 
     std::unique_ptr<Impl> m_impl;
     std::vector<ParamInfo> m_params;
+
+    // The component the plugin embeds into, null for a floating gui or no gui
+    std::unique_ptr<juce::Component> m_editor;
+
+    // True once the plugin's gui has been created and still needs destroying
+    bool m_guiCreated = false;
 };
 
 } // namespace howl::plugins

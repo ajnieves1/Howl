@@ -155,6 +155,10 @@ private:
     // True when any note in clip overlaps step index's window
     static bool stepFilled(const model::MidiClip& clip, int stepIndex);
 
+    // True when the lane holds notes the 16 step grid cannot represent, so the row previews the
+    // notes instead of drawing step cells, the way a channel switches once the roll is used
+    static bool laneNeedsNotePreview(const model::MidiClip& clip);
+
     // Adds a note when the step is off, removes every overlapping note as one CompositeCommand
     // when it is on; raises the lane's lengthTicks to at least one bar before an add
     void toggleStep(std::size_t trackIndex, int stepIndex);

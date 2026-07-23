@@ -29,6 +29,10 @@ struct ShmHeader {
     // Geometry both sides agreed on at setup
     std::int32_t numChannels;
     std::int32_t blockSize;
+    // Frames the parent actually wrote for this one exchange, never more than blockSize. The
+    // renderer splits a block at every note event, so a sub block is normal and the child must
+    // render exactly this many frames or the plugin's own timeline runs ahead
+    std::int32_t numFrames;
     // Events the parent wrote for this block, instrument plugins read them
     std::int32_t numEvents;
 };
@@ -44,8 +48,14 @@ class ShmAudioChannel {
 public:
     static constexpr int kMaxEvents = 64;
 
-    // The parent gives up and returns silence past this deadline, taken once per exchange()
+    // Floor for the exchange deadline. The real deadline is set from the block period by
+    // setExchangeTimeoutMicros(), since a fixed 2 ms cuts a plugin off long before its actual
+    // real time budget and makes a larger buffer size do nothing for glitching
     static constexpr int kExchangeTimeoutMicros = 2000;
+
+    // Sets the deadline exchange() waits for the child, clamped to a sane range. Call from the
+    // message thread before streaming, it is read on the audio thread
+    void setExchangeTimeoutMicros(int micros) noexcept;
 
     // Child side: waitForInput() busy spins with no sleep at all up to this long before
     // it falls back to sleeping between checks. Windows rounds a sub millisecond
@@ -95,6 +105,9 @@ public:
     // Child side: direct views into the mapped input/output/event regions
     float* const* inputChannels();
     float* const* outputChannels();
+
+    // Child side: frames the parent wrote for the exchange just received, clamped to blockSize
+    int numFrames() const;
     const MidiEvent* events(int& numEvents) const;
 
 private:
@@ -120,6 +133,9 @@ private:
 
     int m_numChannels = 0;
     int m_blockSize = 0;
+
+    // The live exchange deadline, set from the block period, read on the audio thread
+    std::atomic<int> m_exchangeTimeoutMicros { kExchangeTimeoutMicros };
 
     // The child's own record of the last block it fully handled, so publishOutput() stamps
     // the exact sequence it processed even if the parent has since moved further ahead

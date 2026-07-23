@@ -4,6 +4,7 @@
 #include "ui/ChannelRackPanel.h"
 
 #include "ui/BrowserFileTypes.h"
+#include "ui/NotePreview.h"
 #include "ui/Theme.h"
 
 #include <array>
@@ -217,9 +218,9 @@ void ChannelRackPanel::updateRowControls() {
         row.nameButton->setButtonText(name);
         row.routeButton->setButtonText(routeLabelFor(row.trackIndex));
 
-        const juce::Colour channelColour(m_arrangement.track(row.trackIndex).color);
-        row.nameButton->setColour(juce::TextButton::buttonColourId, channelColour);
-        row.nameButton->setColour(juce::TextButton::textColourOffId, channelColour.contrasting());
+        const juce::Colour channelColor(m_arrangement.track(row.trackIndex).color);
+        row.nameButton->setColour(juce::TextButton::buttonColourId, channelColor);
+        row.nameButton->setColour(juce::TextButton::textColourOffId, channelColor.contrasting());
     }
 }
 
@@ -257,6 +258,19 @@ bool ChannelRackPanel::noteOverlapsStep(const model::Note& note, int stepIndex) 
     const int64_t windowStart = static_cast<int64_t>(stepIndex) * kStepTicks;
     const int64_t windowEnd = windowStart + kStepTicks;
     return note.startTick < windowEnd && note.startTick + note.lengthTicks > windowStart;
+}
+
+// True when the lane holds notes the 16 step grid cannot represent, so the row previews the
+// notes instead of drawing step cells
+bool ChannelRackPanel::laneNeedsNotePreview(const model::MidiClip& clip) {
+    for (const model::Note& note : clip.notes()) {
+        const bool offGrid = (note.startTick % kStepTicks) != 0 || note.lengthTicks != kStepTicks;
+        const bool pastWindow = note.startTick >= static_cast<int64_t>(kNumSteps) * kStepTicks;
+        if (offGrid || pastWindow) {
+            return true;
+        }
+    }
+    return false;
 }
 
 // True when any note in clip overlaps step index's window
@@ -406,6 +420,7 @@ void ChannelRackPanel::cloneChannel(std::size_t trackIndex) {
 void ChannelRackPanel::showRowMenu(std::size_t trackIndex) {
     juce::PopupMenu menu;
     menu.addItem(1, "Edit in Piano Roll");
+    menu.addItem(6, "Open Instrument Editor");
     menu.addItem(2, "Assign Sample...");
     menu.addItem(5, "Recolor...");
     menu.addSeparator();
@@ -428,6 +443,10 @@ void ChannelRackPanel::showRowMenu(std::size_t trackIndex) {
                     onSampleAssignRequested(trackIndex, file);
                 }
             });
+        } else if (result == 6) {
+            if (onInstrumentEditRequested) {
+                onInstrumentEditRequested(trackIndex);
+            }
         } else if (result == 5) {
             recolorChannel(trackIndex);
         } else if (result == 3) {
@@ -552,7 +571,7 @@ void ChannelRackPanel::paint(juce::Graphics& g) {
         const int y = kTopBarHeight + static_cast<int>(row) * kRowHeight;
         const bool armed = static_cast<std::ptrdiff_t>(trackIndex) == m_armedTrack;
 
-        const juce::Colour channelColour(m_arrangement.track(trackIndex).color);
+        const juce::Colour channelColor(m_arrangement.track(trackIndex).color);
 
         if (armed) {
             g.setColour(theme::kSelection.withAlpha(0.12f));
@@ -560,7 +579,7 @@ void ChannelRackPanel::paint(juce::Graphics& g) {
         }
 
         // The arm strip on the far left doubles as the channel color chip, click it to arm
-        g.setColour(channelColour);
+        g.setColour(channelColor);
         g.fillRect(1, y + 2, kSelectorWidth - 3, kRowHeight - 4);
         if (armed) {
             g.setColour(theme::kAccent);
@@ -572,6 +591,26 @@ void ChannelRackPanel::paint(juce::Graphics& g) {
             : nullptr;
 
         const int cellY = y + (kRowHeight - kStepSize) / 2;
+
+        // Once a channel carries notes the step grid cannot express, the row shows the notes
+        // themselves instead of step cells
+        if (clip != nullptr && laneNeedsNotePreview(*clip)) {
+            const juce::Rectangle<int> previewArea { kControlsWidth, cellY, kNumSteps * kStepSize, kStepSize };
+            g.setColour(theme::kRaisedBg.darker(0.3f));
+            g.fillRect(previewArea);
+
+            const int64_t previewLength = juce::jmax<int64_t>(clip->lengthTicks(),
+                static_cast<int64_t>(kNumSteps) * kStepTicks);
+            paintNotePreview(g, *clip, previewLength, previewArea.toFloat().reduced(1.0f), channelColor);
+
+            g.setColour(theme::kBorder);
+            g.drawRect(previewArea);
+
+            g.setColour(theme::kBorder.withAlpha(0.4f));
+            g.drawHorizontalLine(y + kRowHeight - 1, 0.0f, static_cast<float>(getWidth()));
+            continue;
+        }
+
         for (int step = 0; step < kNumSteps; ++step) {
             const int x = kControlsWidth + step * kStepSize;
             const bool onBeat = (step % 4) == 0;
@@ -580,7 +619,7 @@ void ChannelRackPanel::paint(juce::Graphics& g) {
             g.fillRect(x, cellY, kStepSize, kStepSize);
 
             if (clip != nullptr && stepFilled(*clip, step)) {
-                g.setColour(channelColour);
+                g.setColour(channelColor);
                 g.fillRect(x + 2, cellY + 2, kStepSize - 4, kStepSize - 4);
             }
 
@@ -671,7 +710,7 @@ void ChannelRackPanel::paintGraphLane(juce::Graphics& g) {
         return;
     }
 
-    const juce::Colour channelColour(m_arrangement.track(armed).color);
+    const juce::Colour channelColor(m_arrangement.track(armed).color);
     for (int step = 0; step < kNumSteps; ++step) {
         const int noteIndex = stepNoteIndex(*clip, step);
         if (noteIndex < 0) {
@@ -686,7 +725,7 @@ void ChannelRackPanel::paintGraphLane(juce::Graphics& g) {
 
         const int barHeight = static_cast<int>(value * static_cast<float>(contentHeight));
         const int x = kControlsWidth + step * kStepSize;
-        g.setColour(channelColour);
+        g.setColour(channelColor);
         g.fillRect(x + 3, contentTop + contentHeight - barHeight, kStepSize - 6, barHeight);
     }
 }

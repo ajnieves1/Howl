@@ -262,6 +262,10 @@ private:
     int64_t m_rulerAnchorTick = 0;
     int64_t m_rulerCurrentTick = 0;
 
+    // Where the ruler press landed, so a sub threshold drag counts as a click and never
+    // leaves an accidental loop behind
+    int m_rulerAnchorX = 0;
+
     // True while a pattern lane block is being dragged; a plain click (never past the
     // threshold) on a placement is a deliberate no-op, nothing is pinned for it
     bool m_patternDragActive = false;

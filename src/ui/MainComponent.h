@@ -236,7 +236,7 @@ private:
     // A thin vertical line shown only while the browser edge is dragged, so the drag stays
     // cheap (one 2 px column repaints) and the shell relays out once on release
     struct ResizeGuide : public juce::Component {
-        // Draws the guide as a solid selection coloured line
+        // Draws the guide as a solid selection colored line
         void paint(juce::Graphics& graphics) override {
             graphics.fillAll(theme::kSelection);
         }

@@ -7,7 +7,7 @@
 
 namespace howl::ui {
 
-// Sets the LookAndFeel_V4 colour scheme and per-widget colour ids from Theme.h
+// Sets the LookAndFeel_V4 color scheme and per widget color ids from Theme.h
 HowlLookAndFeel::HowlLookAndFeel() {
     setColourScheme({
         theme::kWindowBg,    // windowBackground

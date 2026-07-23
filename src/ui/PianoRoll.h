@@ -68,8 +68,11 @@ public:
     bool keyPressed(const juce::KeyPress& key) override;
 
 private:
-    static constexpr int kLowestKey = 36; // labeled C3 (MIDI 60 labels as C5)
-    static constexpr int kHighestKey = 96; // labeled C8
+    // The full MIDI range. A narrower range silently drops notes outside it, which hid the
+    // low notes of imported MIDI files entirely. The grid scrolls and the view centres on the
+    // clip's own notes, so the extra range costs nothing on screen
+    static constexpr int kLowestKey = 0;
+    static constexpr int kHighestKey = 127;
     static constexpr int kNumKeys = kHighestKey - kLowestKey + 1;
     static constexpr int kKeyboardWidth = 84;
     static constexpr float kBaseKeyRowHeight = 12.0f; // row height at vertical zoom 1

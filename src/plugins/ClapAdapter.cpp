@@ -10,14 +10,147 @@
 
 #include <juce_audio_basics/juce_audio_basics.h>
 #include <juce_core/juce_core.h>
+#include <juce_gui_basics/juce_gui_basics.h>
 
 #include <algorithm>
+#include <cstdint>
 #include <cstdlib>
 #include <cstring>
 
 namespace howl::plugins {
 
 namespace {
+
+// The window api this platform embeds through, CLAP names one per windowing system
+#if JUCE_WINDOWS
+constexpr const char* kWindowApi = CLAP_WINDOW_API_WIN32;
+#elif JUCE_MAC
+constexpr const char* kWindowApi = CLAP_WINDOW_API_COCOA;
+#else
+constexpr const char* kWindowApi = CLAP_WINDOW_API_X11;
+#endif
+
+// Fills a clap_window for this platform from a native peer handle
+clap_window_t makeClapWindow(void* nativeHandle) {
+    clap_window_t window {};
+    window.api = kWindowApi;
+#if JUCE_WINDOWS
+    window.win32 = nativeHandle;
+#elif JUCE_MAC
+    window.cocoa = nativeHandle;
+#else
+    window.x11 = static_cast<clap_xwnd>(reinterpret_cast<uintptr_t>(nativeHandle));
+#endif
+    return window;
+}
+
+// Hosts an embedded CLAP gui: the plugin parents its own window into this component as soon as
+// the component has a native peer to hand it, which is only true once it is on screen
+class ClapEditorComponent : public juce::Component, private juce::Timer {
+public:
+    // Stores the plugin and its gui extension and takes the plugin's preferred size
+    ClapEditorComponent(const clap_plugin_t* plugin, const clap_plugin_gui_t* gui, int width, int height)
+        : m_plugin(plugin)
+        , m_gui(gui)
+    {
+        setSize(width, height);
+
+        // A child component has no native handle until its window reaches the screen, and no
+        // callback fires on the child at that moment, so poll until the handle exists
+        startTimerHz(30);
+    }
+
+    // Stops the attach poll
+    ~ClapEditorComponent() override {
+        stopTimer();
+    }
+
+    // Tries to attach once this component joins a window
+    void parentHierarchyChanged() override {
+        attachToPlugin();
+    }
+
+    // Tries to attach once this component becomes visible
+    void visibilityChanged() override {
+        attachToPlugin();
+    }
+
+    // Keeps the plugin's window matching this component when the host resizes it
+    void resized() override {
+        if (m_attached && m_gui != nullptr && m_gui->set_size != nullptr) {
+            m_gui->set_size(m_plugin, static_cast<uint32_t>(getWidth()), static_cast<uint32_t>(getHeight()));
+        }
+    }
+
+private:
+    // Retries the attach until the component actually has a native window to hand over
+    void timerCallback() override {
+        attachToPlugin();
+    }
+
+    // Hands the plugin this component's native window to parent into, then shows the gui
+    void attachToPlugin() {
+        if (m_attached || m_plugin == nullptr || m_gui == nullptr || m_gui->set_parent == nullptr) {
+            return;
+        }
+
+        void* handle = getWindowHandle();
+        if (handle == nullptr) {
+            return; // not on screen yet, the timer tries again
+        }
+
+        const clap_window_t window = makeClapWindow(handle);
+        if (!m_gui->set_parent(m_plugin, &window)) {
+            juce::Logger::writeToLog("Howl: CLAP set_parent failed, the plugin refused this window");
+            stopTimer();
+            return;
+        }
+
+        m_attached = true;
+        stopTimer();
+
+        if (m_gui->show != nullptr && !m_gui->show(m_plugin)) {
+            juce::Logger::writeToLog("Howl: CLAP show failed after parenting the editor");
+        }
+    }
+
+    const clap_plugin_t* m_plugin = nullptr;
+    const clap_plugin_gui_t* m_gui = nullptr;
+    bool m_attached = false;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ClapEditorComponent)
+};
+
+// Returns the plugin's gui extension, null when it exposes none
+const clap_plugin_gui_t* guiFor(const clap_plugin_t* plugin) {
+    if (plugin == nullptr) {
+        return nullptr;
+    }
+    return static_cast<const clap_plugin_gui_t*>(plugin->get_extension(plugin, CLAP_EXT_GUI));
+}
+
+// The plugin's resize hints changed, this host reads them fresh when it needs them
+void CLAP_ABI hostGuiResizeHintsChanged(const clap_host_t*) {
+}
+
+// The plugin asks to resize its window, refused for now so it keeps its own reported size
+bool CLAP_ABI hostGuiRequestResize(const clap_host_t*, uint32_t, uint32_t) {
+    return false;
+}
+
+// The plugin asks to be shown, this host shows the gui when the editor is opened instead
+bool CLAP_ABI hostGuiRequestShow(const clap_host_t*) {
+    return false;
+}
+
+// The plugin asks to be hidden, this host hides the gui when the editor is closed instead
+bool CLAP_ABI hostGuiRequestHide(const clap_host_t*) {
+    return false;
+}
+
+// The plugin closed its own gui, nothing for this host to unwind
+void CLAP_ABI hostGuiClosed(const clap_host_t*, bool) {
+}
 
 // The plugin reports a failed preset load, logged so a bad drop is not silent
 void CLAP_ABI hostPresetLoadOnError(const clap_host_t*, uint32_t, const char* location, const char*,
@@ -37,6 +170,11 @@ const void* CLAP_ABI hostGetExtension(const clap_host_t*, const char* extensionI
         || std::strcmp(extensionId, CLAP_EXT_PRESET_LOAD_COMPAT) == 0) {
         static const clap_host_preset_load_t presetLoad { hostPresetLoadOnError, hostPresetLoadLoaded };
         return &presetLoad;
+    }
+    if (std::strcmp(extensionId, CLAP_EXT_GUI) == 0) {
+        static const clap_host_gui_t gui { hostGuiResizeHintsChanged, hostGuiRequestResize,
+            hostGuiRequestShow, hostGuiRequestHide, hostGuiClosed };
+        return &gui;
     }
     return nullptr;
 }
@@ -205,7 +343,10 @@ ClapAdapter::ClapAdapter(std::unique_ptr<Impl> impl)
 }
 
 // Closes the plugin and unloads its library
-ClapAdapter::~ClapAdapter() = default;
+ClapAdapter::~ClapAdapter() {
+    // The gui must be destroyed while the plugin is still alive, Impl tears the plugin down after
+    closeEditor();
+}
 
 // Searches the standard CLAP directories and returns every plugin found
 std::vector<ClapPluginInfo> ClapAdapter::scan() {
@@ -483,16 +624,78 @@ void ClapAdapter::setParamNormalized(uint32_t id, float value) {
 
 // CLAP editor hosting is a later task, always false for now
 bool ClapAdapter::hasEditor() const {
-    return false;
+    const clap_plugin_gui_t* gui = guiFor(m_impl->plugin);
+    if (gui == nullptr || gui->create == nullptr || gui->is_api_supported == nullptr) {
+        return false;
+    }
+
+    return gui->is_api_supported(m_impl->plugin, kWindowApi, false)
+        || gui->is_api_supported(m_impl->plugin, kWindowApi, true);
 }
 
-// Always nullptr, CLAP GUI embedding is not implemented yet
+// Creates the plugin's gui, embedding it into a component when the plugin supports that, else
+// letting the plugin open its own floating window and returning nothing to host
 juce::Component* ClapAdapter::openEditor() {
+    if (m_editor != nullptr) {
+        return m_editor.get();
+    }
+
+    const clap_plugin_gui_t* gui = guiFor(m_impl->plugin);
+    if (gui == nullptr || gui->create == nullptr || gui->is_api_supported == nullptr) {
+        return nullptr;
+    }
+
+    if (gui->is_api_supported(m_impl->plugin, kWindowApi, false)) {
+        if (!gui->create(m_impl->plugin, kWindowApi, false)) {
+            return nullptr;
+        }
+        m_guiCreated = true;
+
+        uint32_t width = 800;
+        uint32_t height = 600;
+        if (gui->get_size != nullptr) {
+            gui->get_size(m_impl->plugin, &width, &height);
+        }
+
+        m_editor = std::make_unique<ClapEditorComponent>(m_impl->plugin, gui,
+            static_cast<int>(width), static_cast<int>(height));
+        return m_editor.get();
+    }
+
+    // Floating: the plugin owns the window, there is nothing for the host to embed
+    if (gui->is_api_supported(m_impl->plugin, kWindowApi, true)) {
+        if (!gui->create(m_impl->plugin, kWindowApi, true)) {
+            return nullptr;
+        }
+        m_guiCreated = true;
+
+        if (gui->suggest_title != nullptr) {
+            gui->suggest_title(m_impl->plugin, "Howl");
+        }
+        if (gui->show != nullptr) {
+            gui->show(m_impl->plugin);
+        }
+    }
+
     return nullptr;
 }
 
-// No-op, CLAP GUI embedding is not implemented yet
+// Hides and destroys the plugin's gui and drops the host side component
 void ClapAdapter::closeEditor() {
+    const clap_plugin_gui_t* gui = guiFor(m_impl->plugin);
+
+    m_editor.reset();
+
+    if (gui != nullptr && m_guiCreated) {
+        if (gui->hide != nullptr) {
+            gui->hide(m_impl->plugin);
+        }
+        if (gui->destroy != nullptr) {
+            gui->destroy(m_impl->plugin);
+        }
+    }
+
+    m_guiCreated = false;
 }
 
 } // namespace howl::plugins

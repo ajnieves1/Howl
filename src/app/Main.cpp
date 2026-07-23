@@ -978,8 +978,10 @@ private:
             m_mainWindow->mainComponent()->refreshAllViews();
         } else {
             juce::NativeMessageBox::showMessageBoxAsync(juce::MessageBoxIconType::InfoIcon, "Load Preset",
-                file.getFileName() + " could not be loaded into this instrument. A native preset such "
-                "as .serumpreset or .vital only loads when the synth is added as CLAP.");
+                file.getFileName() + " could not be loaded into this instrument.\n\n"
+                "A VST3 plugin only accepts .vstpreset from the host. A plugin's own formats, such as "
+                ".fxp, .serumpreset or .vital, can only be dropped in when the synth is added as CLAP.\n\n"
+                "Otherwise open the instrument's editor and load the preset from the plugin's own browser.");
         }
     }
 
