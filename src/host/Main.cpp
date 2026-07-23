@@ -189,6 +189,10 @@ public:
         }
         centreWithSize(getWidth(), getHeight());
         setVisible(true);
+
+        // Without this the window shows but never takes keyboard focus, so the plugin's own
+        // text fields cannot be typed into
+        toFront(true);
     }
 
     void closeButtonPressed() override {
@@ -282,18 +286,25 @@ int main(int argc, char* argv[]) {
             float* const* inChannels = channel->inputChannels();
             float* const* outChannels = channel->outputChannels();
 
+            // The parent splits a block at every note event, so render exactly the frames it
+            // sent. Rendering a full block for a sub block would run the plugin's own timeline
+            // ahead and chew through stale input past what was written
+            const int framesThisExchange = channel->numFrames();
+
             if (plugin != nullptr) {
                 // Primed with the input first: an effect needs real audio to transform,
                 // an instrument just overwrites it, either way this is correct
                 for (int c = 0; c < args->numChannels; ++c) {
                     outPtrs[static_cast<std::size_t>(c)] = outChannels[c];
-                    std::memcpy(outChannels[c], inChannels[c], static_cast<std::size_t>(args->blockSize) * sizeof(float));
+                    std::memcpy(outChannels[c], inChannels[c],
+                        static_cast<std::size_t>(framesThisExchange) * sizeof(float));
                 }
-                AudioBlock block { outPtrs.data(), args->numChannels, args->blockSize };
+                AudioBlock block { outPtrs.data(), args->numChannels, framesThisExchange };
                 plugin->process(block, &midiBuffer);
             } else if (args->loopback) {
                 for (int c = 0; c < args->numChannels; ++c) {
-                    std::memcpy(outChannels[c], inChannels[c], static_cast<std::size_t>(args->blockSize) * sizeof(float));
+                    std::memcpy(outChannels[c], inChannels[c],
+                        static_cast<std::size_t>(framesThisExchange) * sizeof(float));
                 }
             }
 

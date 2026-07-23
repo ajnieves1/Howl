@@ -143,6 +143,15 @@ bool SandboxedPluginInstance::spawnChild(const juce::StringArray& extraArgs, dou
     close(stdinPipe[0]);
     close(stdoutPipe[1]);
 
+    // Give the child the block's actual real time budget rather than a fixed 2 ms. A plugin
+    // that needs longer than 2 ms used to have its block replaced with silence, which clicks,
+    // and no buffer size would help because the deadline never moved with the buffer
+    if (sampleRate > 0.0 && blockSize > 0) {
+        const int blockPeriodMicros = static_cast<int>(
+            (static_cast<double>(blockSize) / sampleRate) * 1000000.0);
+        m_shmChannel->setExchangeTimeoutMicros(blockPeriodMicros);
+    }
+
     // The child boots the JUCE GUI and, for a plugin bridged through Wine, Wine itself
     // before it can answer anything, a generous handshake timeout absorbs a slow first load
     const juce::String pingReply = sendLineAndWaitForReply("{\"cmd\":\"ping\"}", kHandshakeTimeoutMs);

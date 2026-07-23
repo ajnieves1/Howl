@@ -115,6 +115,13 @@ std::unique_ptr<ShmAudioChannel> ShmAudioChannel::fromMappedFile(std::unique_ptr
     return channel;
 }
 
+// Sets the deadline exchange() waits for the child, clamped to a sane range
+void ShmAudioChannel::setExchangeTimeoutMicros(int micros) noexcept {
+    constexpr int kMaxExchangeTimeoutMicros = 100000; // 100 ms, past this the child is simply gone
+    const int clamped = std::min(std::max(micros, kExchangeTimeoutMicros), kMaxExchangeTimeoutMicros);
+    m_exchangeTimeoutMicros.store(clamped, std::memory_order_relaxed);
+}
+
 // [RT] Writes input and events, bumps inputSeq, spin-waits for the output.
 // Returns false and outputs silence when the child misses the deadline
 bool ShmAudioChannel::exchange(AudioBlock& audio, const MidiEvent* events, int numEvents) noexcept {
@@ -125,6 +132,8 @@ bool ShmAudioChannel::exchange(AudioBlock& audio, const MidiEvent* events, int n
         std::memcpy(m_inputChannelPtrs[static_cast<size_t>(c)], audio.channels[c],
                     static_cast<size_t>(framesToCopy) * sizeof(float));
     }
+
+    m_header->numFrames = framesToCopy;
 
     const int clampedEventCount = std::min(numEvents, kMaxEvents);
     for (int i = 0; i < clampedEventCount; ++i) {
@@ -137,7 +146,8 @@ bool ShmAudioChannel::exchange(AudioBlock& audio, const MidiEvent* events, int n
 
     // One clock read anchors the deadline; steady_clock::now() is a vDSO read on Linux
     // with no syscall, the one exception in the codebase to reading a clock on this thread
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::microseconds(kExchangeTimeoutMicros);
+    const auto deadline = std::chrono::steady_clock::now()
+        + std::chrono::microseconds(m_exchangeTimeoutMicros.load(std::memory_order_relaxed));
 
     bool matched = false;
     while (std::chrono::steady_clock::now() < deadline) {
@@ -145,6 +155,14 @@ bool ShmAudioChannel::exchange(AudioBlock& audio, const MidiEvent* events, int n
             matched = true;
             break;
         }
+
+        // A relax hint keeps this spin from hammering the memory bus and starving the very
+        // child process it is waiting on, which is what makes the deadline miss in the first place
+#if defined(__x86_64__) || defined(__i386__)
+        __builtin_ia32_pause();
+#elif defined(__aarch64__) || defined(__arm__)
+        __asm__ __volatile__("yield");
+#endif
     }
 
     if (!matched) {
@@ -241,6 +259,15 @@ float* const* ShmAudioChannel::outputChannels() {
 const MidiEvent* ShmAudioChannel::events(int& numEvents) const {
     numEvents = m_header->numEvents;
     return m_events;
+}
+
+// Child side: frames the parent wrote for the exchange just received, clamped to blockSize
+int ShmAudioChannel::numFrames() const {
+    const int frames = m_header->numFrames;
+    if (frames <= 0 || frames > m_blockSize) {
+        return m_blockSize;
+    }
+    return frames;
 }
 
 } // namespace howl::plugins
