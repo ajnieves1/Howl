@@ -929,8 +929,33 @@ private:
             targetTrack = ensureFirstMidiTrack();
         }
 
-        m_commandStack.perform(std::make_unique<model::AddMidiClipCommand>(
-            m_arrangement, targetTrack, model::MidiClipPlacement { startTick, std::move(clip.value()) }));
+        // A drop landing inside an existing clip replaces that clip in place, rather than
+        // stacking a second clip on top of it where both would then play at once
+        const model::Track& track = m_arrangement.track(targetTrack);
+        std::optional<std::size_t> replaceIndex;
+        int64_t placeAtTick = startTick;
+        for (std::size_t i = 0; i < track.midiClips.size(); ++i) {
+            const model::MidiClipPlacement& placement = track.midiClips[i];
+            const int64_t endTick = placement.startTick + placement.clip.lengthTicks();
+            if (startTick >= placement.startTick && startTick < endTick) {
+                replaceIndex = i;
+                placeAtTick = placement.startTick;
+                break;
+            }
+        }
+
+        if (replaceIndex.has_value()) {
+            // One composite so the replace is a single undo step
+            auto composite = std::make_unique<model::CompositeCommand>();
+            composite->add(std::make_unique<model::RemoveMidiClipCommand>(
+                m_arrangement, targetTrack, *replaceIndex));
+            composite->add(std::make_unique<model::AddMidiClipCommand>(
+                m_arrangement, targetTrack, model::MidiClipPlacement { placeAtTick, std::move(clip.value()) }));
+            m_commandStack.perform(std::move(composite));
+        } else {
+            m_commandStack.perform(std::make_unique<model::AddMidiClipCommand>(
+                m_arrangement, targetTrack, model::MidiClipPlacement { startTick, std::move(clip.value()) }));
+        }
 
         reconcileTrackInstruments();
         rebuildAudioGraph();
