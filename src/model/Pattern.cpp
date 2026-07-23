@@ -75,11 +75,25 @@ const std::vector<PatternPlacement>& PatternBank::placements() const {
     return m_placements;
 }
 
-// Appends a placement, returns its index
+// Appends a placement with a freshly stamped id, returns its index
 std::size_t PatternBank::addPlacement(const PatternPlacement& placement) {
     const std::size_t index = m_placements.size();
-    m_placements.push_back(placement);
+    PatternPlacement stamped = placement;
+    stamped.id = m_nextPlacementId;
+    ++m_nextPlacementId;
+    m_placements.push_back(stamped);
     return index;
+}
+
+// Inserts a placement at index keeping its id, undo support
+void PatternBank::insertPlacementAt(std::size_t index, const PatternPlacement& placement) {
+    m_placements.insert(m_placements.begin() + static_cast<std::ptrdiff_t>(index), placement);
+
+    // A placement restored by undo keeps an id already handed out, so the counter only ever
+    // moves forward past it, never back onto a value some other placement is still using
+    if (placement.id >= m_nextPlacementId) {
+        m_nextPlacementId = placement.id + 1;
+    }
 }
 
 // Removes and returns the placement at index
@@ -92,6 +106,17 @@ PatternPlacement PatternBank::removePlacementAt(std::size_t index) {
 // Replaces the placement at index, for moves
 void PatternBank::replacePlacementAt(std::size_t index, const PatternPlacement& placement) {
     m_placements[index] = placement;
+}
+
+// Fills outIndex with the placement carrying id and returns true, false when none does
+bool PatternBank::indexOfPlacement(uint64_t id, std::size_t& outIndex) const {
+    for (std::size_t i = 0; i < m_placements.size(); ++i) {
+        if (m_placements[i].id == id) {
+            outIndex = i;
+            return true;
+        }
+    }
+    return false;
 }
 
 } // namespace howl::model

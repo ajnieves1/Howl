@@ -25,6 +25,7 @@ using howl::model::RemovePatternPlacementCommand;
 using howl::model::RemoveTrackCommand;
 using howl::model::resolveClip;
 using howl::model::Session;
+using howl::model::TogglePatternPlacementMuteCommand;
 using howl::model::TrackKind;
 
 TEST_CASE("PatternBank's columns grow and shrink with the track commands and round trip through undo", "[pattern]") {
@@ -64,12 +65,14 @@ TEST_CASE("Pattern placement commands round trip through execute and undo", "[pa
     REQUIRE(patterns.placements().empty());
 
     addCommand.execute();
-    MovePatternPlacementCommand moveCommand(patterns, 0, kTicksPerQuarter * 4, kTicksPerQuarter * 8);
+    MovePatternPlacementCommand moveCommand(patterns, 0, kTicksPerQuarter * 4, 0, kTicksPerQuarter * 8, 2);
     moveCommand.execute();
     REQUIRE(patterns.placements()[0].startTick == kTicksPerQuarter * 8);
+    REQUIRE(patterns.placements()[0].laneIndex == 2);
 
     moveCommand.undo();
     REQUIRE(patterns.placements()[0].startTick == kTicksPerQuarter * 4);
+    REQUIRE(patterns.placements()[0].laneIndex == 0);
 
     RemovePatternPlacementCommand removeCommand(patterns, 0);
     removeCommand.execute();
@@ -78,6 +81,65 @@ TEST_CASE("Pattern placement commands round trip through execute and undo", "[pa
     removeCommand.undo();
     REQUIRE(patterns.placements().size() == 1);
     REQUIRE(patterns.placements()[0].startTick == kTicksPerQuarter * 4);
+}
+
+TEST_CASE("PatternBank stamps a unique id on every placement and finds it again", "[pattern]") {
+    PatternBank patterns;
+    patterns.addPattern("Pattern 1", 1);
+
+    patterns.addPlacement(PatternPlacement { 0, 0 });
+    patterns.addPlacement(PatternPlacement { 0, kTicksPerQuarter * 4 });
+
+    const uint64_t firstId = patterns.placements()[0].id;
+    const uint64_t secondId = patterns.placements()[1].id;
+    REQUIRE(firstId != 0);
+    REQUIRE(secondId != 0);
+    REQUIRE(firstId != secondId);
+
+    std::size_t index = 99;
+    REQUIRE(patterns.indexOfPlacement(secondId, index));
+    REQUIRE(index == 1);
+    REQUIRE_FALSE(patterns.indexOfPlacement(secondId + 1000, index));
+
+    // An id handed back by addPlacement is never reused, so removing the first placement and
+    // adding another cannot hand the newcomer an id the survivor is still using
+    patterns.removePlacementAt(0);
+    patterns.addPlacement(PatternPlacement { 0, kTicksPerQuarter * 8 });
+    REQUIRE(patterns.placements()[1].id != secondId);
+}
+
+TEST_CASE("Undoing a pattern placement removal restores its original index and id", "[pattern]") {
+    PatternBank patterns;
+    patterns.addPattern("Pattern 1", 1);
+
+    patterns.addPlacement(PatternPlacement { 0, 0 });
+    patterns.addPlacement(PatternPlacement { 0, kTicksPerQuarter * 4 });
+    patterns.addPlacement(PatternPlacement { 0, kTicksPerQuarter * 8 });
+    const uint64_t firstId = patterns.placements()[0].id;
+
+    RemovePatternPlacementCommand removeCommand(patterns, 0);
+    removeCommand.execute();
+    REQUIRE(patterns.placements().size() == 2);
+    REQUIRE(patterns.placements()[0].startTick == kTicksPerQuarter * 4);
+
+    removeCommand.undo();
+    REQUIRE(patterns.placements().size() == 3);
+    REQUIRE(patterns.placements()[0].startTick == 0);
+    REQUIRE(patterns.placements()[0].id == firstId);
+}
+
+TEST_CASE("TogglePatternPlacementMuteCommand flips the mute flag and undo flips it back", "[pattern]") {
+    PatternBank patterns;
+    patterns.addPattern("Pattern 1", 1);
+    patterns.addPlacement(PatternPlacement { 0, 0 });
+    REQUIRE_FALSE(patterns.placements()[0].muted);
+
+    TogglePatternPlacementMuteCommand muteCommand(patterns, 0);
+    muteCommand.execute();
+    REQUIRE(patterns.placements()[0].muted);
+
+    muteCommand.undo();
+    REQUIRE_FALSE(patterns.placements()[0].muted);
 }
 
 TEST_CASE("resolveClip resolves a pattern lane and bounds checks", "[pattern]") {

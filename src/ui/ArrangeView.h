@@ -29,9 +29,8 @@ class ArrangeView : public juce::Component, public juce::FileDragAndDropTarget,
 public:
     // Lane metrics are public so TrackHeaderPanel can keep its rows aligned with the lanes
     static constexpr int kRulerHeight = 20;
-    static constexpr int kPatternLaneHeight = 24;
     static constexpr int kScrollbarHeight = 10;
-    static constexpr int kLanesTop = kRulerHeight + kPatternLaneHeight;
+    static constexpr int kLanesTop = kRulerHeight;
     static constexpr float kLaneHeight = 56.0f;
 
     // Stores references to the arrangement, transport, command stack, and pattern bank, starts
@@ -115,9 +114,12 @@ private:
     static constexpr double kMinZoom = 1.0;
     static constexpr double kMaxZoom = 64.0;
 
+    // A pattern clip's trackIndex is the lane it is drawn on and its placementIndex addresses
+    // the pattern bank's single global placement list, not a per track vector
     enum class ClipKind {
         Midi,
-        Audio
+        Audio,
+        Pattern
     };
 
     enum class ClipDragMode {
@@ -187,9 +189,6 @@ private:
     // Converts a pixel y position to a track index, clamped to numTracks() - 1
     std::size_t yToTrackIndex(int y) const;
 
-    // True when y sits in the pattern lane strip, between the ruler and the track lanes
-    bool isInPatternLane(int y) const;
-
     // True when y sits in the scrollbar strip along the bottom edge
     bool isInScrollbar(int y) const;
 
@@ -202,6 +201,9 @@ private:
 
     // Finds the clip under (trackIndex, tick), fills found and returns true on a hit
     bool hitTestClip(std::size_t trackIndex, int64_t tick, DraggedClip& found) const;
+
+    // Length in ticks of the clip a (kind, track, placement index) triple addresses
+    int64_t clipLengthTicks(ClipKind kind, std::size_t trackIndex, std::size_t placementIndex) const;
 
     // True when x sits within kResizeHandlePixels of clip's right edge, always false for audio
     bool isNearResizeHandle(const DraggedClip& clip, int x) const;
@@ -222,14 +224,17 @@ private:
     bool findGroupPreviewTick(ClipKind kind, std::size_t trackIndex, std::size_t placementIndex,
                               int64_t& outStartTick) const;
 
-    // Finds the pattern placement under tick, fills foundIndex and returns true on a hit
-    bool hitTestPatternPlacement(int64_t tick, std::size_t& foundIndex) const;
+    // The lane a pattern placement paints on right now, its own unless a move is dragging it
+    std::size_t patternPreviewLane(std::size_t placementIndex) const;
+
+    // The lane a pattern member of the current group move lands on, clamped to a real track
+    std::size_t draggedPatternLane(std::size_t originalLaneIndex) const;
 
     // Opens a "Delete Clip" popup for the given clip, with warp toggle and BPM entry for audio clips
     void showDeleteClipMenu(const DraggedClip& target);
 
-    // Opens a one-item "Delete Pattern Placement" popup for the given placement index
-    void showDeletePatternPlacementMenu(std::size_t placementIndex);
+    // Opens a single item "Place Pattern Here" popup for empty lane space
+    void showEmptyLaneMenu(std::size_t trackIndex, int64_t tick);
 
     // Opens an async "Set Original BPM..." dialog for the given audio clip
     void showSetOriginalBpmDialog(const DraggedClip& target);
@@ -257,6 +262,9 @@ private:
     ClipDragMode m_clipDragMode = ClipDragMode::None;
     DraggedClip m_draggedClip {};
     int64_t m_dragCurrentTick = 0;
+    // Move only: the lane row under the cursor, read by pattern clips so they change lane
+    // with the drag. MIDI and audio clips ignore it and stay on their own track
+    std::size_t m_dragCurrentLane = 0;
     // Resize only: the length at mouseDown (the command's "before") and the live, already
     // mutated length as the drag progresses (the command's "after" once mouseUp commits it)
     int64_t m_dragOriginalLengthTicks = 0;
@@ -272,13 +280,6 @@ private:
     // Where the ruler press landed, so a sub threshold drag counts as a click and never
     // leaves an accidental loop behind
     int m_rulerAnchorX = 0;
-
-    // True while a pattern lane block is being dragged; a plain click (never past the
-    // threshold) on a placement is a deliberate no-op, nothing is pinned for it
-    bool m_patternDragActive = false;
-    std::size_t m_patternDragIndex = 0;
-    int64_t m_patternDragOriginalTick = 0;
-    int64_t m_patternDragCurrentTick = 0;
 
     // The persistent multi-selection, independent of any drag in progress
     std::vector<ClipRef> m_selection;

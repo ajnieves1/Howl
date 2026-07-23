@@ -424,8 +424,8 @@ TEST_CASE("ProjectSerializer round trips a pattern bank's notes and placements",
     patterns.pattern(patternB).trackClips[0].addNote(Note { 67, 0.9f, 0, 960 });
     // patternB's second lane is deliberately left untouched, the default/null lane path
 
-    patterns.addPlacement(PatternPlacement { patternA, 0 });
-    patterns.addPlacement(PatternPlacement { patternB, 3840 });
+    patterns.addPlacement(PatternPlacement { patternA, 0, 0, false, 0 });
+    patterns.addPlacement(PatternPlacement { patternB, 3840, 1, true, 0 });
 
     const juce::var instruments;
     const juce::var midiMappings;
@@ -461,6 +461,40 @@ TEST_CASE("ProjectSerializer round trips a pattern bank's notes and placements",
     REQUIRE(loadedPatterns.placements().size() == 2);
     REQUIRE(loadedPatterns.placements()[0].patternIndex == patternA);
     REQUIRE(loadedPatterns.placements()[0].startTick == 0);
+    REQUIRE(loadedPatterns.placements()[0].laneIndex == 0);
+    REQUIRE_FALSE(loadedPatterns.placements()[0].muted);
     REQUIRE(loadedPatterns.placements()[1].patternIndex == patternB);
     REQUIRE(loadedPatterns.placements()[1].startTick == 3840);
+    REQUIRE(loadedPatterns.placements()[1].laneIndex == 1);
+    REQUIRE(loadedPatterns.placements()[1].muted);
+}
+
+TEST_CASE("A pattern placement saved before lanes existed loads onto the first lane, unmuted", "[project]") {
+    BuiltInEffectFactory factory;
+
+    const juce::String json = R"({
+        "version": 1,
+        "tempo": 120.0,
+        "tracks": [ { "name": "Lead", "kind": "midi", "midiClips": [], "audioClips": [] } ],
+        "patterns": [ { "name": "Verse", "trackClips": [ { "lengthTicks": 1920, "notes": [] } ] } ],
+        "patternPlacements": [ { "pattern": 0, "startTick": 960 } ]
+    })";
+
+    Arrangement arrangement;
+    Mixer mixer;
+    Session session;
+    PatternBank patterns;
+    juce::var instruments;
+    double tempo = 0.0;
+    juce::var midiMappings;
+
+    const bool ok = ProjectSerializer::load(json, arrangement, mixer, session, patterns, factory, nullptr,
+        instruments, tempo, midiMappings);
+    REQUIRE(ok);
+
+    REQUIRE(patterns.placements().size() == 1);
+    REQUIRE(patterns.placements()[0].startTick == 960);
+    REQUIRE(patterns.placements()[0].laneIndex == 0);
+    REQUIRE_FALSE(patterns.placements()[0].muted);
+    REQUIRE(patterns.placements()[0].id != 0);
 }

@@ -562,11 +562,12 @@ private:
     PatternPlacement m_removedPlacement {};
 };
 
-// Moves a pattern placement from oldTick to newTick, undo restores the old tick
+// Moves a pattern placement to a new tick and lane, undo restores both
 class MovePatternPlacementCommand : public Command {
 public:
-    // Stores the pattern bank, placement index, and both tick positions
-    MovePatternPlacementCommand(PatternBank& patterns, std::size_t placementIndex, int64_t oldTick, int64_t newTick);
+    // Stores the pattern bank, placement index, and both tick and lane positions
+    MovePatternPlacementCommand(PatternBank& patterns, std::size_t placementIndex, int64_t oldTick,
+                                std::size_t oldLaneIndex, int64_t newTick, std::size_t newLaneIndex);
 
     void execute() override;
     void undo() override;
@@ -575,7 +576,23 @@ private:
     PatternBank& m_patterns;
     std::size_t m_placementIndex;
     int64_t m_oldTick;
+    std::size_t m_oldLaneIndex;
     int64_t m_newTick;
+    std::size_t m_newLaneIndex;
+};
+
+// Flips a pattern placement's mute flag, undo flips it back
+class TogglePatternPlacementMuteCommand : public Command {
+public:
+    // Stores the pattern bank and the placement index to flip on execute()
+    TogglePatternPlacementMuteCommand(PatternBank& patterns, std::size_t placementIndex);
+
+    void execute() override;
+    void undo() override;
+
+private:
+    PatternBank& m_patterns;
+    std::size_t m_placementIndex;
 };
 
 // Groups child commands into one undo step, executed in order and undone in reverse

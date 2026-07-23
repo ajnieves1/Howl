@@ -166,11 +166,6 @@ std::size_t ArrangeView::yToTrackIndex(int y) const {
     return static_cast<std::size_t>(juce::jlimit(0, static_cast<int>(numTracks) - 1, yToLaneRow(y)));
 }
 
-// True when y sits in the pattern lane strip, between the ruler and the track lanes
-bool ArrangeView::isInPatternLane(int y) const {
-    return y >= kRulerHeight && y < kRulerHeight + kPatternLaneHeight;
-}
-
 // True when y sits in the scrollbar strip along the bottom edge
 bool ArrangeView::isInScrollbar(int y) const {
     return y >= getHeight() - kScrollbarHeight;
@@ -181,10 +176,38 @@ double ArrangeView::playheadTick() const {
     return static_cast<double>(m_transport.position()) / samplesPerTick();
 }
 
+// Length in ticks of the clip a (kind, track, placement index) triple addresses
+int64_t ArrangeView::clipLengthTicks(ClipKind kind, std::size_t trackIndex, std::size_t placementIndex) const {
+    if (kind == ClipKind::Pattern) {
+        return m_patterns.patternLengthTicks(m_patterns.placements()[placementIndex].patternIndex);
+    }
+
+    if (kind == ClipKind::Midi) {
+        return m_arrangement.track(trackIndex).midiClips[placementIndex].clip.lengthTicks();
+    }
+
+    const auto& placement = m_arrangement.track(trackIndex).audioClips[placementIndex];
+    return static_cast<int64_t>(static_cast<double>(placement.clip.activeLengthSamples()) / samplesPerTick());
+}
+
 // Finds the clip under (trackIndex, tick), fills found and returns true on a hit
 bool ArrangeView::hitTestClip(std::size_t trackIndex, int64_t tick, DraggedClip& found) const {
     const model::Track& track = m_arrangement.track(trackIndex);
-    const double spt = samplesPerTick();
+
+    // Pattern clips sit on top, so a pattern dropped over a MIDI clip is the one you grab
+    const auto& placements = m_patterns.placements();
+    for (std::size_t i = 0; i < placements.size(); ++i) {
+        const auto& placement = placements[i];
+        if (placement.laneIndex != trackIndex || placement.patternIndex >= m_patterns.numPatterns()) {
+            continue;
+        }
+
+        const int64_t endTick = placement.startTick + m_patterns.patternLengthTicks(placement.patternIndex);
+        if (tick >= placement.startTick && tick < endTick) {
+            found = DraggedClip { ClipKind::Pattern, trackIndex, i, placement.startTick };
+            return true;
+        }
+    }
 
     for (std::size_t i = 0; i < track.midiClips.size(); ++i) {
         const auto& placement = track.midiClips[i];
@@ -197,32 +220,13 @@ bool ArrangeView::hitTestClip(std::size_t trackIndex, int64_t tick, DraggedClip&
 
     for (std::size_t i = 0; i < track.audioClips.size(); ++i) {
         const auto& placement = track.audioClips[i];
-        const auto lengthTicks = static_cast<int64_t>(static_cast<double>(placement.clip.activeLengthSamples()) / spt);
-        const int64_t endTick = placement.startTick + lengthTicks;
+        const int64_t endTick = placement.startTick + clipLengthTicks(ClipKind::Audio, trackIndex, i);
         if (tick >= placement.startTick && tick < endTick) {
             found = DraggedClip { ClipKind::Audio, trackIndex, i, placement.startTick };
             return true;
         }
     }
 
-    return false;
-}
-
-// Finds the pattern placement under tick, fills foundIndex and returns true on a hit
-bool ArrangeView::hitTestPatternPlacement(int64_t tick, std::size_t& foundIndex) const {
-    const auto& placements = m_patterns.placements();
-    for (std::size_t i = 0; i < placements.size(); ++i) {
-        const auto& placement = placements[i];
-        if (placement.patternIndex >= m_patterns.numPatterns()) {
-            continue;
-        }
-
-        const int64_t length = m_patterns.patternLengthTicks(placement.patternIndex);
-        if (tick >= placement.startTick && tick < placement.startTick + length) {
-            foundIndex = i;
-            return true;
-        }
-    }
     return false;
 }
 
@@ -275,7 +279,6 @@ void ArrangeView::finalizeClipMarquee() {
     const auto minTrack = static_cast<std::size_t>(juce::jmax(0, juce::jmin(rowA, rowB)));
     const auto maxTrack = static_cast<std::size_t>(juce::jmin(numTracks - 1, juce::jmax(rowA, rowB)));
 
-    const double spt = samplesPerTick();
     for (std::size_t t = minTrack; t <= maxTrack && t < m_arrangement.numTracks(); ++t) {
         const model::Track& track = m_arrangement.track(t);
 
@@ -289,11 +292,24 @@ void ArrangeView::finalizeClipMarquee() {
 
         for (std::size_t p = 0; p < track.audioClips.size(); ++p) {
             const auto& placement = track.audioClips[p];
-            const auto lengthTicks = static_cast<int64_t>(static_cast<double>(placement.clip.activeLengthSamples()) / spt);
-            const int64_t endTick = placement.startTick + lengthTicks;
+            const int64_t endTick = placement.startTick + clipLengthTicks(ClipKind::Audio, t, p);
             if (placement.startTick < maxTick && endTick > minTick) {
                 m_selection.push_back(ClipRef { ClipKind::Audio, t, p });
             }
+        }
+    }
+
+    const auto& placements = m_patterns.placements();
+    for (std::size_t p = 0; p < placements.size(); ++p) {
+        const auto& placement = placements[p];
+        if (placement.laneIndex < minTrack || placement.laneIndex > maxTrack
+            || placement.patternIndex >= m_patterns.numPatterns()) {
+            continue;
+        }
+
+        const int64_t endTick = placement.startTick + m_patterns.patternLengthTicks(placement.patternIndex);
+        if (placement.startTick < maxTick && endTick > minTick) {
+            m_selection.push_back(ClipRef { ClipKind::Pattern, placement.laneIndex, p });
         }
     }
 }
@@ -310,6 +326,34 @@ bool ArrangeView::findGroupPreviewTick(ClipKind kind, std::size_t trackIndex, st
         }
     }
     return false;
+}
+
+// The lane a pattern member of the current group move lands on, clamped to a real track
+std::size_t ArrangeView::draggedPatternLane(std::size_t originalLaneIndex) const {
+    const std::size_t numTracks = m_arrangement.numTracks();
+    if (numTracks == 0) {
+        return originalLaneIndex;
+    }
+
+    // Every member shares the grabbed clip's lane delta, the same way they share its tick delta
+    const auto laneDelta = static_cast<int64_t>(m_dragCurrentLane) - static_cast<int64_t>(m_draggedClip.trackIndex);
+    const int64_t shifted = static_cast<int64_t>(originalLaneIndex) + laneDelta;
+    return static_cast<std::size_t>(juce::jlimit<int64_t>(0, static_cast<int64_t>(numTracks) - 1, shifted));
+}
+
+// The lane a pattern placement paints on right now, its own unless a move is dragging it
+std::size_t ArrangeView::patternPreviewLane(std::size_t placementIndex) const {
+    const std::size_t laneIndex = m_patterns.placements()[placementIndex].laneIndex;
+    if (m_clipDragMode != ClipDragMode::Move) {
+        return laneIndex;
+    }
+
+    for (const auto& member : m_dragGroupOriginal) {
+        if (member.kind == ClipKind::Pattern && member.placementIndex == placementIndex) {
+            return draggedPatternLane(laneIndex);
+        }
+    }
+    return laneIndex;
 }
 
 // Draws the ruler, one lane per track, each clip as a block, and the playhead
@@ -357,53 +401,8 @@ void ArrangeView::paint(juce::Graphics& g) {
         g.fillRect(juce::Rectangle<float> { x1, 0.0f, x2 - x1, static_cast<float>(kRulerHeight) });
     }
 
-    // Pattern lane, between the ruler and the track lanes; placements draw regardless of
-    // whether the arrangement has any tracks, since their timeline position never depends on that
-    g.setColour(theme::kPanelBg.withAlpha(0.5f));
-    g.fillRect(juce::Rectangle<float> { 0.0f, static_cast<float>(kRulerHeight),
-        static_cast<float>(getWidth()), static_cast<float>(kPatternLaneHeight) });
-
-    for (std::size_t i = 0; i < m_patterns.placements().size(); ++i) {
-        const auto& placement = m_patterns.placements()[i];
-        if (placement.patternIndex >= m_patterns.numPatterns()) {
-            continue;
-        }
-
-        int64_t startTick = placement.startTick;
-        if (m_patternDragActive && m_patternDragIndex == i) {
-            startTick = m_patternDragCurrentTick;
-        }
-
-        const int64_t length = m_patterns.patternLengthTicks(placement.patternIndex);
-        const float x = tickToX(startTick);
-        const float width = tickToX(startTick + length) - x;
-        juce::Rectangle<float> r { x, static_cast<float>(kRulerHeight) + 2.0f,
-            juce::jmax(2.0f, width), static_cast<float>(kPatternLaneHeight) - 4.0f };
-
-        g.setColour(theme::kPattern);
-        g.fillRect(r);
-
-        // A pattern clip carries every channel's lane, so preview them all, the way the whole
-        // pattern actually plays when this clip is reached
-        const model::Pattern& previewPattern = m_patterns.pattern(placement.patternIndex);
-        for (const model::MidiClip& lane : previewPattern.trackClips) {
-            paintNotePreview(g, lane, length, r.reduced(2.0f),
-                theme::kPattern.contrasting().withAlpha(0.8f));
-        }
-
-        g.setColour(theme::kPattern.darker(0.8f));
-        g.drawRect(r, 1.5f);
-
-        const juce::String patternName = juce::String(m_patterns.pattern(placement.patternIndex).name);
-        const int textWidth = juce::GlyphArrangement::getStringWidthInt(g.getCurrentFont(), patternName);
-        if (r.getWidth() > static_cast<float>(textWidth) + 4.0f) {
-            g.setColour(theme::kTextPrimary);
-            g.drawText(patternName, r.toNearestInt().reduced(2, 0), juce::Justification::centredLeft);
-        }
-    }
-
     g.setColour(theme::kBorder.withAlpha(0.4f));
-    g.drawHorizontalLine(kRulerHeight + kPatternLaneHeight - 1, 0.0f, static_cast<float>(getWidth()));
+    g.drawHorizontalLine(kRulerHeight - 1, 0.0f, static_cast<float>(getWidth()));
 
     const std::size_t numTracks = m_arrangement.numTracks();
     const float height = laneHeight();
@@ -432,11 +431,11 @@ void ArrangeView::paint(juce::Graphics& g) {
         }
     }
 
-    bool hasAnyMidiClip = false;
-    for (std::size_t i = 0; i < numTracks && !hasAnyMidiClip; ++i) {
-        hasAnyMidiClip = !m_arrangement.track(i).midiClips.empty();
+    bool hasAnyClip = !m_patterns.placements().empty();
+    for (std::size_t i = 0; i < numTracks && !hasAnyClip; ++i) {
+        hasAnyClip = !m_arrangement.track(i).midiClips.empty();
     }
-    if (!hasAnyMidiClip) {
+    if (!hasAnyClip) {
         g.setColour(theme::kTextSecondary);
         g.drawText("Double click a MIDI lane to create a clip",
             juce::Rectangle<int> { 0, kLanesTop, getWidth(), getHeight() - kLanesTop },
@@ -486,15 +485,53 @@ void ArrangeView::paint(juce::Graphics& g) {
             g.drawRect(r, isSelected(ClipKind::Audio, i, p) ? 2.5f : 1.5f);
         }
 
-        // Duplicate ghost: the original clip stays exactly where it is, this outline alone follows the drag
-        if (m_clipDragMode == ClipDragMode::Duplicate && m_draggedClip.trackIndex == i) {
-            int64_t ghostLengthTicks = 0;
-            if (m_draggedClip.kind == ClipKind::Midi) {
-                ghostLengthTicks = track.midiClips[m_draggedClip.placementIndex].clip.lengthTicks();
-            } else {
-                const auto& audioPlacement = track.audioClips[m_draggedClip.placementIndex];
-                ghostLengthTicks = static_cast<int64_t>(static_cast<double>(audioPlacement.clip.activeLengthSamples()) / spt);
+        // Pattern clips draw last so one dropped over a MIDI clip reads as being on top, which
+        // is also the order the hit test grabs them in
+        for (std::size_t p = 0; p < m_patterns.placements().size(); ++p) {
+            const auto& placement = m_patterns.placements()[p];
+            if (placement.patternIndex >= m_patterns.numPatterns() || patternPreviewLane(p) != i) {
+                continue;
             }
+
+            int64_t startTick = placement.startTick;
+            if (m_clipDragMode == ClipDragMode::Move) {
+                findGroupPreviewTick(ClipKind::Pattern, placement.laneIndex, p, startTick);
+            }
+
+            const int64_t length = m_patterns.patternLengthTicks(placement.patternIndex);
+            const float x = tickToX(startTick);
+            const float width = tickToX(startTick + length) - x;
+            juce::Rectangle<float> r { x, y + 2.0f, juce::jmax(2.0f, width), height - 5.0f };
+
+            g.setColour(placement.muted ? theme::kPattern.withAlpha(0.35f) : theme::kPattern);
+            g.fillRect(r);
+
+            // A pattern clip carries every channel's lane, so preview them all, the way the whole
+            // pattern actually plays when this clip is reached
+            const model::Pattern& previewPattern = m_patterns.pattern(placement.patternIndex);
+            for (const model::MidiClip& lane : previewPattern.trackClips) {
+                paintNotePreview(g, lane, length, r.reduced(2.0f),
+                    theme::kPattern.contrasting().withAlpha(0.8f));
+            }
+
+            const bool selected = isSelected(ClipKind::Pattern, placement.laneIndex, p);
+            g.setColour(selected ? theme::kSelection : theme::kPattern.darker(0.8f));
+            g.drawRect(r, selected ? 2.5f : 1.5f);
+
+            const juce::String patternName = juce::String(previewPattern.name);
+            const int textWidth = juce::GlyphArrangement::getStringWidthInt(g.getCurrentFont(), patternName);
+            if (r.getWidth() > static_cast<float>(textWidth) + 4.0f) {
+                g.setColour(theme::kTextPrimary);
+                g.drawText(patternName, r.toNearestInt().reduced(2, 0), juce::Justification::centredLeft);
+            }
+        }
+
+        // Duplicate ghost: the original clip stays exactly where it is, this outline alone follows the drag
+        const std::size_t ghostLane = m_draggedClip.kind == ClipKind::Pattern
+            ? draggedPatternLane(m_draggedClip.trackIndex) : m_draggedClip.trackIndex;
+        if (m_clipDragMode == ClipDragMode::Duplicate && ghostLane == i) {
+            const int64_t ghostLengthTicks = clipLengthTicks(m_draggedClip.kind, m_draggedClip.trackIndex,
+                m_draggedClip.placementIndex);
 
             const float ghostX = tickToX(m_dragCurrentTick);
             const float ghostWidth = tickToX(m_dragCurrentTick + ghostLengthTicks) - ghostX;
@@ -572,26 +609,6 @@ void ArrangeView::mouseDown(const juce::MouseEvent& event) {
         return;
     }
 
-    if (isInPatternLane(event.y)) {
-        const int64_t tick = xToTick(event.x);
-
-        std::size_t foundIndex = 0;
-        if (!hitTestPatternPlacement(tick, foundIndex)) {
-            return;
-        }
-
-        if (event.mods.isPopupMenu()) {
-            showDeletePatternPlacementMenu(foundIndex);
-            return;
-        }
-
-        m_patternDragActive = true;
-        m_patternDragIndex = foundIndex;
-        m_patternDragOriginalTick = m_patterns.placements()[foundIndex].startTick;
-        m_patternDragCurrentTick = m_patternDragOriginalTick;
-        return;
-    }
-
     // Empty placeholder lanes below the last real track: a marquee may start here (it can
     // sweep up into the real lanes), nothing else does
     if (isInEmptyLaneArea(event.y)) {
@@ -610,7 +627,9 @@ void ArrangeView::mouseDown(const juce::MouseEvent& event) {
 
     DraggedClip found {};
     if (!hitTestClip(trackIndex, tick, found)) {
-        if (!event.mods.isPopupMenu()) {
+        if (event.mods.isPopupMenu()) {
+            showEmptyLaneMenu(trackIndex, tick);
+        } else {
             m_clipMarqueeActive = true;
             m_clipMarqueeStart = event.getPosition();
             m_clipMarqueeCurrent = m_clipMarqueeStart;
@@ -631,7 +650,10 @@ void ArrangeView::mouseDown(const juce::MouseEvent& event) {
 
     // The tool decides what a plain click on a clip does. Draw keeps every existing gesture
     if (tool == EditTool::Delete) {
-        if (found.kind == ClipKind::Midi) {
+        if (found.kind == ClipKind::Pattern) {
+            m_commandStack.perform(std::make_unique<model::RemovePatternPlacementCommand>(
+                m_patterns, found.placementIndex));
+        } else if (found.kind == ClipKind::Midi) {
             m_commandStack.perform(std::make_unique<model::RemoveMidiClipCommand>(
                 m_arrangement, found.trackIndex, found.placementIndex));
         } else {
@@ -644,10 +666,15 @@ void ArrangeView::mouseDown(const juce::MouseEvent& event) {
     }
 
     if (tool == EditTool::Mute) {
-        const model::TrackKind kind = found.kind == ClipKind::Midi
-            ? model::TrackKind::Midi : model::TrackKind::Audio;
-        m_commandStack.perform(std::make_unique<model::ToggleClipMuteCommand>(
-            m_arrangement, kind, found.trackIndex, found.placementIndex));
+        if (found.kind == ClipKind::Pattern) {
+            m_commandStack.perform(std::make_unique<model::TogglePatternPlacementMuteCommand>(
+                m_patterns, found.placementIndex));
+        } else {
+            const model::TrackKind kind = found.kind == ClipKind::Midi
+                ? model::TrackKind::Midi : model::TrackKind::Audio;
+            m_commandStack.perform(std::make_unique<model::ToggleClipMuteCommand>(
+                m_arrangement, kind, found.trackIndex, found.placementIndex));
+        }
         repaint();
         return;
     }
@@ -662,6 +689,7 @@ void ArrangeView::mouseDown(const juce::MouseEvent& event) {
     }
 
     m_draggedClip = found;
+    m_dragCurrentLane = found.trackIndex;
 
     if (event.mods.isCommandDown()) {
         m_dragCurrentTick = found.originalStartTick;
@@ -687,9 +715,14 @@ void ArrangeView::mouseDown(const juce::MouseEvent& event) {
 
     m_dragGroupOriginal.clear();
     for (const ClipRef& ref : m_selection) {
-        const int64_t originalStartTick = ref.kind == ClipKind::Midi
-            ? m_arrangement.track(ref.trackIndex).midiClips[ref.placementIndex].startTick
-            : m_arrangement.track(ref.trackIndex).audioClips[ref.placementIndex].startTick;
+        int64_t originalStartTick = 0;
+        if (ref.kind == ClipKind::Pattern) {
+            originalStartTick = m_patterns.placements()[ref.placementIndex].startTick;
+        } else if (ref.kind == ClipKind::Midi) {
+            originalStartTick = m_arrangement.track(ref.trackIndex).midiClips[ref.placementIndex].startTick;
+        } else {
+            originalStartTick = m_arrangement.track(ref.trackIndex).audioClips[ref.placementIndex].startTick;
+        }
         m_dragGroupOriginal.push_back(DraggedClip { ref.kind, ref.trackIndex, ref.placementIndex, originalStartTick });
     }
 }
@@ -710,18 +743,6 @@ void ArrangeView::mouseDrag(const juce::MouseEvent& event) {
         const int64_t tick = xToTick(event.x);
         m_rulerCurrentTick = model::snapTick(tick, snapDivision());
         repaint();
-        return;
-    }
-
-    if (m_patternDragActive) {
-        if (event.getPosition().getDistanceFrom(m_mouseDownPosition) > kDragThresholdPixels) {
-            m_hasDraggedBeyondThreshold = true;
-        }
-        if (m_hasDraggedBeyondThreshold) {
-            const int64_t newTick = xToTick(event.x);
-            m_patternDragCurrentTick = model::snapTick(juce::jmax<int64_t>(0, newTick), snapDivision());
-            repaint();
-        }
         return;
     }
 
@@ -753,6 +774,11 @@ void ArrangeView::mouseDrag(const juce::MouseEvent& event) {
     } else {
         const int64_t newTick = xToTick(event.x);
         m_dragCurrentTick = model::snapTick(juce::jmax<int64_t>(0, newTick), snapDivision());
+
+        // Only pattern clips read this, they are the one kind a drag can carry to another lane
+        if (m_arrangement.numTracks() > 0 && !isInEmptyLaneArea(event.y) && event.y >= kLanesTop) {
+            m_dragCurrentLane = yToTrackIndex(event.y);
+        }
     }
 
     repaint();
@@ -762,13 +788,6 @@ void ArrangeView::mouseDrag(const juce::MouseEvent& event) {
 void ArrangeView::mouseMove(const juce::MouseEvent& event) {
     if (isInScrollbar(event.y)) {
         setMouseCursor(juce::MouseCursor::LeftRightResizeCursor);
-        return;
-    }
-
-    if (isInPatternLane(event.y)) {
-        std::size_t foundIndex = 0;
-        setMouseCursor(hitTestPatternPlacement(xToTick(event.x), foundIndex)
-            ? juce::MouseCursor::DraggingHandCursor : juce::MouseCursor::NormalCursor);
         return;
     }
 
@@ -825,18 +844,6 @@ void ArrangeView::mouseUp(const juce::MouseEvent& event) {
         return;
     }
 
-    if (m_patternDragActive) {
-        m_patternDragActive = false;
-
-        if (m_hasDraggedBeyondThreshold) {
-            m_commandStack.perform(std::make_unique<model::MovePatternPlacementCommand>(
-                m_patterns, m_patternDragIndex, m_patternDragOriginalTick, m_patternDragCurrentTick));
-        }
-
-        repaint();
-        return;
-    }
-
     if (m_clipMarqueeActive) {
         m_clipMarqueeActive = false;
         finalizeClipMarquee();
@@ -850,7 +857,12 @@ void ArrangeView::mouseUp(const juce::MouseEvent& event) {
 
     if (m_hasDraggedBeyondThreshold) {
         if (m_clipDragMode == ClipDragMode::Duplicate) {
-            if (m_draggedClip.kind == ClipKind::Midi) {
+            if (m_draggedClip.kind == ClipKind::Pattern) {
+                model::PatternPlacement copy = m_patterns.placements()[m_draggedClip.placementIndex];
+                copy.startTick = m_dragCurrentTick;
+                copy.laneIndex = draggedPatternLane(copy.laneIndex);
+                m_commandStack.perform(std::make_unique<model::AddPatternPlacementCommand>(m_patterns, copy));
+            } else if (m_draggedClip.kind == ClipKind::Midi) {
                 const model::MidiClip source = m_arrangement.track(m_draggedClip.trackIndex)
                     .midiClips[m_draggedClip.placementIndex].clip;
                 m_commandStack.perform(std::make_unique<model::AddMidiClipCommand>(m_arrangement,
@@ -891,9 +903,12 @@ void ArrangeView::mouseUp(const juce::MouseEvent& event) {
                 return a.placementIndex > b.placementIndex;
             });
 
+            // A pattern move never reorders the bank's list, so a pattern member's index and
+            // its resulting selection entry are both known up front and need no tracking
             struct TrackedMove {
                 ClipKind kind;
                 std::size_t trackIndex;
+                std::size_t settledIndex = 0;
                 model::MoveMidiClipCommand* midi = nullptr;
                 model::MoveAudioClipCommand* audio = nullptr;
             };
@@ -902,15 +917,21 @@ void ArrangeView::mouseUp(const juce::MouseEvent& event) {
 
             for (const auto& member : processingOrder) {
                 const int64_t newTick = juce::jmax<int64_t>(0, member.originalStartTick + tickDelta);
-                if (member.kind == ClipKind::Midi) {
+                if (member.kind == ClipKind::Pattern) {
+                    const std::size_t newLane = draggedPatternLane(member.trackIndex);
+                    composite->add(std::make_unique<model::MovePatternPlacementCommand>(
+                        m_patterns, member.placementIndex, member.originalStartTick, member.trackIndex,
+                        newTick, newLane));
+                    tracked.push_back(TrackedMove { ClipKind::Pattern, newLane, member.placementIndex });
+                } else if (member.kind == ClipKind::Midi) {
                     auto move = std::make_unique<model::MoveMidiClipCommand>(
                         m_arrangement, member.trackIndex, member.placementIndex, newTick);
-                    tracked.push_back(TrackedMove { ClipKind::Midi, member.trackIndex, move.get(), nullptr });
+                    tracked.push_back(TrackedMove { ClipKind::Midi, member.trackIndex, 0, move.get(), nullptr });
                     composite->add(std::move(move));
                 } else {
                     auto move = std::make_unique<model::MoveAudioClipCommand>(
                         m_arrangement, member.trackIndex, member.placementIndex, newTick);
-                    tracked.push_back(TrackedMove { ClipKind::Audio, member.trackIndex, nullptr, move.get() });
+                    tracked.push_back(TrackedMove { ClipKind::Audio, member.trackIndex, 0, nullptr, move.get() });
                     composite->add(std::move(move));
                 }
             }
@@ -919,8 +940,12 @@ void ArrangeView::mouseUp(const juce::MouseEvent& event) {
 
             m_selection.clear();
             for (const TrackedMove& move : tracked) {
-                const std::size_t resultIndex = move.kind == ClipKind::Midi
-                    ? move.midi->placementIndex() : move.audio->placementIndex();
+                std::size_t resultIndex = move.settledIndex;
+                if (move.kind == ClipKind::Midi) {
+                    resultIndex = move.midi->placementIndex();
+                } else if (move.kind == ClipKind::Audio) {
+                    resultIndex = move.audio->placementIndex();
+                }
                 m_selection.push_back(ClipRef { move.kind, move.trackIndex, resultIndex });
             }
         }
@@ -935,26 +960,6 @@ void ArrangeView::mouseUp(const juce::MouseEvent& event) {
 // Creates a new 4-bar MIDI clip on an empty MIDI lane, snapped to the bar
 void ArrangeView::mouseDoubleClick(const juce::MouseEvent& event) {
     if (isInScrollbar(event.y)) {
-        return;
-    }
-
-    if (isInPatternLane(event.y)) {
-        const int64_t tick = xToTick(event.x);
-
-        std::size_t existingIndex = 0;
-        if (hitTestPatternPlacement(tick, existingIndex)) {
-            return;
-        }
-
-        if (!m_currentPatternProvider || m_patterns.numPatterns() == 0) {
-            return;
-        }
-
-        const int64_t snappedTick = model::snapTickFloor(tick, snapDivision());
-        m_commandStack.perform(std::make_unique<model::AddPatternPlacementCommand>(
-            m_patterns, model::PatternPlacement { m_currentPatternProvider(), snappedTick }));
-
-        repaint();
         return;
     }
 
@@ -1025,7 +1030,7 @@ bool ArrangeView::isInterestedInFileDrag(const juce::StringArray& files) {
 
 // Fires the audio or MIDI drop callback with the drop lane and snapped tick per file
 void ArrangeView::filesDropped(const juce::StringArray& files, int x, int y) {
-    if (m_arrangement.numTracks() == 0 || y < kRulerHeight || isInPatternLane(y) || isInEmptyLaneArea(y)) {
+    if (m_arrangement.numTracks() == 0 || y < kRulerHeight || isInEmptyLaneArea(y)) {
         return;
     }
 
@@ -1051,7 +1056,6 @@ bool ArrangeView::isInterestedInDragSource(const juce::DragAndDropTarget::Source
 // Fires the audio or MIDI drop callback for the browser's selected file, same lane/tick math
 void ArrangeView::itemDropped(const juce::DragAndDropTarget::SourceDetails& dragSourceDetails) {
     if (m_arrangement.numTracks() == 0 || dragSourceDetails.localPosition.y < kRulerHeight
-        || isInPatternLane(dragSourceDetails.localPosition.y)
         || isInEmptyLaneArea(dragSourceDetails.localPosition.y)) {
         return;
     }
@@ -1079,9 +1083,14 @@ void ArrangeView::itemDropped(const juce::DragAndDropTarget::SourceDetails& drag
 // Opens a "Delete Clip" popup for the given clip, with a mute toggle above it, plus
 // warp toggle and BPM entry for audio clips
 void ArrangeView::showDeleteClipMenu(const DraggedClip& target) {
-    const bool muted = target.kind == ClipKind::Midi
-        ? m_arrangement.track(target.trackIndex).midiClips[target.placementIndex].muted
-        : m_arrangement.track(target.trackIndex).audioClips[target.placementIndex].muted;
+    bool muted = false;
+    if (target.kind == ClipKind::Pattern) {
+        muted = m_patterns.placements()[target.placementIndex].muted;
+    } else if (target.kind == ClipKind::Midi) {
+        muted = m_arrangement.track(target.trackIndex).midiClips[target.placementIndex].muted;
+    } else {
+        muted = m_arrangement.track(target.trackIndex).audioClips[target.placementIndex].muted;
+    }
 
     juce::PopupMenu menu;
     menu.addItem(4, "Mute Clip", true, muted);
@@ -1096,13 +1105,17 @@ void ArrangeView::showDeleteClipMenu(const DraggedClip& target) {
 
     menu.showMenuAsync(juce::PopupMenu::Options(), [this, target](int result) {
         if (result == 1) {
-            if (target.kind == ClipKind::Midi) {
+            if (target.kind == ClipKind::Pattern) {
+                m_commandStack.perform(std::make_unique<model::RemovePatternPlacementCommand>(
+                    m_patterns, target.placementIndex));
+            } else if (target.kind == ClipKind::Midi) {
                 m_commandStack.perform(std::make_unique<model::RemoveMidiClipCommand>(
                     m_arrangement, target.trackIndex, target.placementIndex));
             } else {
                 m_commandStack.perform(std::make_unique<model::RemoveAudioClipCommand>(
                     m_arrangement, target.trackIndex, target.placementIndex));
             }
+            m_selection.clear();
             repaint();
         } else if (result == 2 && target.kind == ClipKind::Audio) {
             model::AudioClip& clip = m_arrangement.track(target.trackIndex).audioClips[target.placementIndex].clip;
@@ -1113,23 +1126,34 @@ void ArrangeView::showDeleteClipMenu(const DraggedClip& target) {
         } else if (result == 3 && target.kind == ClipKind::Audio) {
             showSetOriginalBpmDialog(target);
         } else if (result == 4) {
-            const model::TrackKind kind = target.kind == ClipKind::Midi
-                ? model::TrackKind::Midi : model::TrackKind::Audio;
-            m_commandStack.perform(std::make_unique<model::ToggleClipMuteCommand>(
-                m_arrangement, kind, target.trackIndex, target.placementIndex));
+            if (target.kind == ClipKind::Pattern) {
+                m_commandStack.perform(std::make_unique<model::TogglePatternPlacementMuteCommand>(
+                    m_patterns, target.placementIndex));
+            } else {
+                const model::TrackKind kind = target.kind == ClipKind::Midi
+                    ? model::TrackKind::Midi : model::TrackKind::Audio;
+                m_commandStack.perform(std::make_unique<model::ToggleClipMuteCommand>(
+                    m_arrangement, kind, target.trackIndex, target.placementIndex));
+            }
             repaint();
         }
     });
 }
 
-// Opens a one-item "Delete Pattern Placement" popup for the given placement index
-void ArrangeView::showDeletePatternPlacementMenu(std::size_t placementIndex) {
-    juce::PopupMenu menu;
-    menu.addItem(1, "Delete Pattern Placement");
+// Opens a single item "Place Pattern Here" popup for empty lane space
+void ArrangeView::showEmptyLaneMenu(std::size_t trackIndex, int64_t tick) {
+    if (!m_currentPatternProvider || m_patterns.numPatterns() == 0) {
+        return;
+    }
 
-    menu.showMenuAsync(juce::PopupMenu::Options(), [this, placementIndex](int result) {
+    juce::PopupMenu menu;
+    menu.addItem(1, "Place Pattern Here");
+
+    const int64_t snappedTick = model::snapTickFloor(tick, snapDivision());
+    menu.showMenuAsync(juce::PopupMenu::Options(), [this, trackIndex, snappedTick](int result) {
         if (result == 1) {
-            m_commandStack.perform(std::make_unique<model::RemovePatternPlacementCommand>(m_patterns, placementIndex));
+            m_commandStack.perform(std::make_unique<model::AddPatternPlacementCommand>(m_patterns,
+                model::PatternPlacement { m_currentPatternProvider(), snappedTick, trackIndex, false, 0 }));
             repaint();
         }
     });
@@ -1187,7 +1211,16 @@ bool ArrangeView::keyPressed(const juce::KeyPress& key) {
         // Same trap as a group move: removing a placement shifts every later index in its
         // own track+kind array, so descending order within each bucket is the only order
         // that keeps every not-yet-removed sibling's captured index valid
-        std::vector<ClipRef> descending = m_selection;
+        std::vector<ClipRef> descending;
+        std::vector<ClipRef> descendingPatterns;
+        for (const ClipRef& ref : m_selection) {
+            if (ref.kind == ClipKind::Pattern) {
+                descendingPatterns.push_back(ref);
+            } else {
+                descending.push_back(ref);
+            }
+        }
+
         std::sort(descending.begin(), descending.end(), [](const ClipRef& a, const ClipRef& b) {
             if (a.trackIndex != b.trackIndex) {
                 return a.trackIndex < b.trackIndex;
@@ -1198,7 +1231,16 @@ bool ArrangeView::keyPressed(const juce::KeyPress& key) {
             return a.placementIndex > b.placementIndex;
         });
 
+        // Pattern placements share one global list rather than a per track vector, so their
+        // descending order is over that list alone, never grouped by lane first
+        std::sort(descendingPatterns.begin(), descendingPatterns.end(), [](const ClipRef& a, const ClipRef& b) {
+            return a.placementIndex > b.placementIndex;
+        });
+
         auto composite = std::make_unique<model::CompositeCommand>();
+        for (const ClipRef& ref : descendingPatterns) {
+            composite->add(std::make_unique<model::RemovePatternPlacementCommand>(m_patterns, ref.placementIndex));
+        }
         for (const ClipRef& ref : descending) {
             if (ref.kind == ClipKind::Midi) {
                 composite->add(std::make_unique<model::RemoveMidiClipCommand>(m_arrangement, ref.trackIndex, ref.placementIndex));
