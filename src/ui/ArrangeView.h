@@ -8,6 +8,7 @@
 #include "model/CommandStack.h"
 #include "model/Pattern.h"
 #include "model/SnapGrid.h"
+#include "ui/EditTool.h"
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
@@ -100,6 +101,9 @@ public:
     // Provides the file behind a "howl-file" drag, wired to the browser's selection
     std::function<juce::File()> browserFileProvider;
 
+    // Provides the selected edit tool, Draw when nothing is wired
+    std::function<EditTool()> toolProvider;
+
     // Called with the new offset whenever the vertical scroll changes, so the track header
     // panel scrolls in lockstep
     std::function<void(int)> onVerticalScrollChanged;
@@ -138,6 +142,9 @@ private:
         std::size_t trackIndex;
         std::size_t placementIndex;
     };
+
+    // The selected edit tool, Draw when no provider is wired
+    EditTool currentTool() const;
 
     // Repaints so the playhead position stays current during playback
     void timerCallback() override;

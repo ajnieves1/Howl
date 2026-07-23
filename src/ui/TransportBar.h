@@ -6,6 +6,7 @@
 #include "engine/Transport.h"
 #include "model/CommandStack.h"
 #include "model/SnapGrid.h"
+#include "ui/EditTool.h"
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
@@ -52,6 +53,12 @@ public:
     // Sets the count in toggle's shown state without firing its callback
     void setCountInEnabled(bool enabled);
 
+    // Fired when the edit tool selector changes
+    std::function<void(EditTool)> onToolSelected;
+
+    // Shows the given tool as selected without firing the callback
+    void setActiveTool(EditTool tool);
+
     void resized() override;
     void paint(juce::Graphics& g) override;
 
@@ -78,6 +85,7 @@ private:
     juce::TextButton m_redoButton { "Redo" };
     juce::TextButton m_mixerButton { "Mixer" };
     juce::ComboBox m_snapCombo;
+    juce::ComboBox m_toolCombo;
 
     juce::TextButton m_arrangeViewButton { "Arrange" };
     juce::TextButton m_sessionViewButton { "Session" };
