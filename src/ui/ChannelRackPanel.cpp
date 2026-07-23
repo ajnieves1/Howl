@@ -524,22 +524,22 @@ void ChannelRackPanel::resized() {
             continue;
         }
 
-        const int controlY = y + 3;
-        const int controlHeight = kRowHeight - 6;
+        const int controlY = y + 4;
+        const int controlHeight = kRowHeight - 8;
 
-        int x = kSelectorWidth + 3;
-        row.muteButton->setBounds(x, controlY, 22, controlHeight);
-        x += 24;
-        row.soloButton->setBounds(x, controlY, 22, controlHeight);
-        x += 26;
-        row.panKnob->setBounds(x, controlY, 32, controlHeight);
-        x += 34;
-        row.volKnob->setBounds(x, controlY, 32, controlHeight);
-        x += 36;
+        int x = kSelectorWidth + 4;
+        row.muteButton->setBounds(x, controlY, 26, controlHeight);
+        x += 29;
+        row.soloButton->setBounds(x, controlY, 26, controlHeight);
+        x += 31;
+        row.panKnob->setBounds(x, controlY, 38, controlHeight);
+        x += 41;
+        row.volKnob->setBounds(x, controlY, 38, controlHeight);
+        x += 43;
 
-        constexpr int routeWidth = 52;
-        const int routeX = kControlsWidth - routeWidth - 3;
-        row.nameButton->setBounds(x, controlY, routeX - x - 3, controlHeight);
+        constexpr int routeWidth = 62;
+        const int routeX = kControlsWidth - routeWidth - 4;
+        row.nameButton->setBounds(x, controlY, routeX - x - 4, controlHeight);
         row.routeButton->setBounds(routeX, controlY, routeWidth, controlHeight);
     }
 }

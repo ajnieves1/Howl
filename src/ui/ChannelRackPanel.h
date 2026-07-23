@@ -99,10 +99,10 @@ public:
 
 private:
     static constexpr int kTopBarHeight = 30;
-    static constexpr int kRowHeight = 36;
-    static constexpr int kControlsWidth = 300;
-    static constexpr int kSelectorWidth = 8;
-    static constexpr int kStepSize = 24;
+    static constexpr int kRowHeight = 44;
+    static constexpr int kControlsWidth = 360;
+    static constexpr int kSelectorWidth = 10;
+    static constexpr int kStepSize = 29;
     static constexpr int kNumSteps = 16;
     static constexpr int64_t kStepTicks = model::kTicksPerQuarter / 4; // one 16th
     static constexpr int64_t kMinLaneLengthTicks = model::kTicksPerQuarter * 4; // one bar
