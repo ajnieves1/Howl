@@ -362,9 +362,9 @@ void PianoRoll::paint(juce::Graphics& g) {
     }
 
     // The owning channel's color tints notes so the roll matches the rack and arrange clips
-    juce::Colour noteColour = theme::kAccent;
+    juce::Colour noteColor = theme::kAccent;
     if (m_address.trackIndex < m_arrangement.numTracks()) {
-        noteColour = juce::Colour(m_arrangement.track(m_address.trackIndex).color);
+        noteColor = juce::Colour(m_arrangement.track(m_address.trackIndex).color);
     }
 
     // Notes, fill alpha scales with velocity so loud notes read solid, selected notes get a border
@@ -377,12 +377,12 @@ void PianoRoll::paint(juce::Graphics& g) {
             const float width = tickToX(note.startTick + note.lengthTicks, clipLength) - x;
             const auto bounds = juce::Rectangle<float> { x, keyToY(note.key), juce::jmax(2.0f, width), rowH };
 
-            g.setColour(noteColour.withAlpha(0.4f + 0.6f * note.velocity));
+            g.setColour(noteColor.withAlpha(0.4f + 0.6f * note.velocity));
             g.fillRect(bounds);
 
             // The note name on the block, when it is wide and tall enough to hold the text
             if (bounds.getWidth() >= 16.0f && rowH >= 8.0f) {
-                g.setColour(noteColour.contrasting());
+                g.setColour(noteColor.contrasting());
                 g.setFont(juce::jmin(rowH - 2.0f, static_cast<float>(theme::kFontSizeSmall)));
                 g.drawText(noteName(note.key), bounds.reduced(3.0f, 0.0f),
                     juce::Justification::centredLeft, false);
@@ -418,7 +418,7 @@ void PianoRoll::paint(juce::Graphics& g) {
     g.fillRect(0.0f, gridHeight - 1.0f, static_cast<float>(getWidth()), 2.0f);
 
     if (clip != nullptr) {
-        g.setColour(noteColour);
+        g.setColour(noteColor);
         for (const model::Note& note : clip->notes()) {
             const float barX = tickToX(note.startTick, clipLength);
             const float barHeight = note.velocity * static_cast<float>(m_velocityLaneHeight);

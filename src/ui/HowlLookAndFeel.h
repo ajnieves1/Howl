@@ -10,7 +10,7 @@ namespace howl::ui {
 // Applies the theme to every stock JUCE widget the app uses
 class HowlLookAndFeel : public juce::LookAndFeel_V4 {
 public:
-    // Sets the LookAndFeel_V4 colour scheme and per-widget colour ids from Theme.h
+    // Sets the LookAndFeel_V4 color scheme and per widget color ids from Theme.h
     HowlLookAndFeel();
 };
 

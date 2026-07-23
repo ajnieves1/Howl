@@ -5,6 +5,7 @@
 
 #include "model/Commands.h"
 #include "ui/BrowserFileTypes.h"
+#include "ui/NotePreview.h"
 #include "ui/Theme.h"
 
 #include <algorithm>
@@ -376,6 +377,15 @@ void ArrangeView::paint(juce::Graphics& g) {
 
         g.setColour(theme::kPattern);
         g.fillRect(r);
+
+        // A pattern clip carries every channel's lane, so preview them all, the way the whole
+        // pattern actually plays when this clip is reached
+        const model::Pattern& previewPattern = m_patterns.pattern(placement.patternIndex);
+        for (const model::MidiClip& lane : previewPattern.trackClips) {
+            paintNotePreview(g, lane, length, r.reduced(2.0f),
+                theme::kPattern.contrasting().withAlpha(0.8f));
+        }
+
         g.setColour(theme::kPattern.darker(0.8f));
         g.drawRect(r, 1.5f);
 
@@ -399,8 +409,8 @@ void ArrangeView::paint(juce::Graphics& g) {
     g.saveState();
     g.reduceClipRegion(0, kLanesTop, getWidth(), getHeight() - kLanesTop);
 
-    // Zebra stripe: even rows are the plain canvas colour, odd rows a 50% blend toward
-    // the panel colour, so long sessions with many tracks stay easy to scan by eye
+    // Zebra stripe: even rows are the plain canvas color, odd rows a 50% blend toward
+    // the panel color, so long sessions with many tracks stay easy to scan by eye
     const juce::Colour zebraStripe = theme::kWindowBg.interpolatedWith(theme::kPanelBg, 0.5f);
     const int firstRow = juce::jmax(0, yToLaneRow(kLanesTop));
     for (int row = firstRow; laneTopY(static_cast<std::size_t>(row)) < static_cast<float>(getHeight()); ++row) {
@@ -442,10 +452,15 @@ void ArrangeView::paint(juce::Graphics& g) {
             const float x = tickToX(startTick);
             const float width = tickToX(startTick + placement.clip.lengthTicks()) - x;
             juce::Rectangle<float> r { x, y + 2.0f, juce::jmax(2.0f, width), height - 5.0f };
-            const juce::Colour clipColour(track.color);
-            g.setColour(placement.muted ? clipColour.withAlpha(0.35f) : clipColour);
+            const juce::Colour clipColor(track.color);
+            g.setColour(placement.muted ? clipColor.withAlpha(0.35f) : clipColor);
             g.fillRect(r);
-            g.setColour(isSelected(ClipKind::Midi, i, p) ? theme::kSelection : clipColour.darker(0.8f));
+
+            // The notes themselves, so a clip reads at a glance without opening the roll
+            paintNotePreview(g, placement.clip, placement.clip.lengthTicks(), r.reduced(2.0f),
+                clipColor.contrasting().withAlpha(0.85f));
+
+            g.setColour(isSelected(ClipKind::Midi, i, p) ? theme::kSelection : clipColor.darker(0.8f));
             g.drawRect(r, isSelected(ClipKind::Midi, i, p) ? 2.5f : 1.5f);
         }
 
@@ -547,6 +562,7 @@ void ArrangeView::mouseDown(const juce::MouseEvent& event) {
         const int64_t tick = xToTick(event.x);
         m_rulerAnchorTick = model::snapTick(tick, snapDivision());
         m_rulerCurrentTick = m_rulerAnchorTick;
+        m_rulerAnchorX = event.x;
         m_rulerDragging = true;
         return;
     }
@@ -730,7 +746,7 @@ void ArrangeView::mouseMove(const juce::MouseEvent& event) {
 // Finalizes a clip marquee, or issues the move/resize/duplicate clip command for a completed
 // drag (resize already mutated the clip live, this just makes it undoable), or fires
 // onMidiClipSelected for a plain click
-void ArrangeView::mouseUp(const juce::MouseEvent&) {
+void ArrangeView::mouseUp(const juce::MouseEvent& event) {
     if (m_scrollbarDragging) {
         m_scrollbarDragging = false;
         return;
@@ -739,9 +755,19 @@ void ArrangeView::mouseUp(const juce::MouseEvent&) {
     if (m_rulerDragging) {
         m_rulerDragging = false;
 
-        if (m_rulerAnchorTick == m_rulerCurrentTick) {
+        // A press that never travelled far enough is a click, not a loop drag. Snapping alone
+        // can jump the tick a whole bar, which used to leave an accidental loop behind
+        const bool wasClick = std::abs(event.x - m_rulerAnchorX) <= kDragThresholdPixels
+            || m_rulerAnchorTick == m_rulerCurrentTick;
+
+        if (wasClick) {
             const auto samplePos = static_cast<SampleCount>(static_cast<double>(m_rulerAnchorTick) * samplesPerTick());
             m_transport.setPosition(samplePos);
+
+            // Clicking the ruler also clears the loop, the quick way out of one set by accident
+            if (m_transport.loopEnabled()) {
+                m_transport.setLoop(m_transport.loopStart(), m_transport.loopEnd(), false);
+            }
         } else {
             const int64_t rangeStart = juce::jmin(m_rulerAnchorTick, m_rulerCurrentTick);
             const int64_t rangeEnd = juce::jmax(m_rulerAnchorTick, m_rulerCurrentTick);
