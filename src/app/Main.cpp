@@ -292,7 +292,7 @@ public:
     // Returns the app's version string
     const juce::String getApplicationVersion() override
     {
-        return "1.0.0";
+        return "1.1.0";
     }
 
     // Builds the arrangement, opens the app shell, starts the audio device, and starts the xrun watcher
