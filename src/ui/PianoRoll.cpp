@@ -63,6 +63,41 @@ void PianoRoll::timerCallback() {
     repaint();
 }
 
+// The selected edit tool, Draw when no provider is wired
+EditTool PianoRoll::currentTool() const {
+    return toolProvider ? toolProvider() : EditTool::Draw;
+}
+
+// Adds one note at the snapped cell under (tick, key) unless one is already there
+void PianoRoll::paintNoteAt(int64_t tick, int key) {
+    model::MidiClip* clip = resolveClip();
+    if (clip == nullptr) {
+        return;
+    }
+
+    const model::SnapDivision division = snapDivision();
+    const int64_t startTick = model::snapTickFloor(tick, division);
+    const int64_t lengthTicks = division == model::SnapDivision::Off
+        ? model::kTicksPerQuarter : model::snapUnitTicks(division);
+
+    // Painting over a cell that already holds a note would stack duplicates on top of it
+    if (hitTestNote(*clip, startTick, key) >= 0) {
+        return;
+    }
+
+    m_commandStack.perform(std::make_unique<model::AddNoteCommand>(
+        m_arrangement, m_session, &m_patterns, m_address, model::Note { key, 1.0f, startTick, lengthTicks }));
+
+    model::MidiClip* afterAdd = resolveClip();
+    if (afterAdd != nullptr && startTick + lengthTicks > afterAdd->lengthTicks()) {
+        afterAdd->setLengthTicks(startTick + lengthTicks);
+    }
+
+    m_paintLastTick = startTick;
+    m_paintLastKey = key;
+    repaint();
+}
+
 // Resolves the addressed clip fresh, nullptr when it no longer resolves
 model::MidiClip* PianoRoll::resolveClip() const {
     return model::resolveClip(m_arrangement, m_session, &m_patterns, m_address);
@@ -511,8 +546,58 @@ void PianoRoll::mouseDown(const juce::MouseEvent& event) {
     const int64_t tick = xToTick(event.x, clip->lengthTicks());
     const int key = yToKey(event.y);
     const int index = hitTestNote(*clip, tick, key);
+    const EditTool tool = currentTool();
 
-    if (event.mods.isAltDown()) {
+    // The tool decides what a plain click does. Draw keeps every gesture the roll always had
+    if (tool == EditTool::Delete) {
+        if (index >= 0) {
+            m_commandStack.perform(std::make_unique<model::RemoveNoteCommand>(
+                m_arrangement, m_session, &m_patterns, m_address,
+                clip->notes()[static_cast<std::size_t>(index)]));
+            m_selection.clear();
+            repaint();
+        }
+        m_dragMode = DragMode::None;
+        m_dragNoteIndex = -1;
+        return;
+    }
+
+    // A note carries no muted flag, so Mute has nothing to act on here. Do nothing rather than
+    // fall through to Draw, which would add notes under a tool that promises the opposite
+    if (tool == EditTool::Mute) {
+        m_dragMode = DragMode::None;
+        m_dragNoteIndex = -1;
+        return;
+    }
+
+    if (tool == EditTool::Paint) {
+        // Paint lays a note down and keeps laying them as the pointer travels
+        m_painting = true;
+        m_paintLastTick = -1;
+        m_paintLastKey = -1;
+        paintNoteAt(tick, key);
+        m_dragMode = DragMode::None;
+        m_dragNoteIndex = -1;
+        return;
+    }
+
+    if (tool == EditTool::Select) {
+        // Select sweeps a marquee on empty grid, or selects the note under the cursor
+        if (index >= 0) {
+            m_selection = { clip->notes()[static_cast<std::size_t>(index)] };
+        } else {
+            m_marqueeActive = true;
+            m_marqueeAdditive = event.mods.isShiftDown();
+            m_marqueeStart = event.getPosition();
+            m_marqueeCurrent = m_marqueeStart;
+        }
+        m_dragMode = DragMode::None;
+        m_dragNoteIndex = -1;
+        repaint();
+        return;
+    }
+
+    if (event.mods.isAltDown() || tool == EditTool::Slice) {
         if (index >= 0) {
             const model::Note target = clip->notes()[static_cast<std::size_t>(index)];
             const int64_t splitTick = model::snapTick(tick, snapDivision());
@@ -598,6 +683,21 @@ void PianoRoll::mouseDown(const juce::MouseEvent& event) {
 // pushed to the command stack) so every frame's swap is the same presence checked, harmless
 // to repeat operation the final committed command relies on
 void PianoRoll::mouseDrag(const juce::MouseEvent& event) {
+    if (m_painting) {
+        model::MidiClip* clip = resolveClip();
+        if (clip != nullptr) {
+            const int64_t tick = xToTick(event.x, clip->lengthTicks());
+            const int key = yToKey(event.y);
+            const int64_t snapped = model::snapTickFloor(tick, snapDivision());
+
+            // Only lay a new note once the pointer has actually moved to a different cell
+            if (snapped != m_paintLastTick || key != m_paintLastKey) {
+                paintNoteAt(tick, key);
+            }
+        }
+        return;
+    }
+
     if (m_draggingVelocityDivider) {
         const int maxLaneHeight = juce::jmax(kMinVelocityLaneHeight, getHeight() / 2);
         m_velocityLaneHeight = juce::jlimit(kMinVelocityLaneHeight, maxLaneHeight, getHeight() - event.y);
@@ -707,6 +807,13 @@ void PianoRoll::mouseMove(const juce::MouseEvent& event) {
 // selection (done already in mouseDown), notes are no longer deleted by clicking them alone,
 // that is now Delete/Backspace's job so a selection can survive a click that keeps it
 void PianoRoll::mouseUp(const juce::MouseEvent&) {
+    if (m_painting) {
+        m_painting = false;
+        m_paintLastTick = -1;
+        m_paintLastKey = -1;
+        return;
+    }
+
     if (m_draggingVelocityDivider) {
         m_draggingVelocityDivider = false;
         return;

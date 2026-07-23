@@ -222,6 +222,12 @@ MainComponent::MainComponent(model::Arrangement& arrangement, engine::Transport&
         m_centerView = static_cast<CenterView>(index);
         updateCenterViewVisibility();
     };
+    m_arrangeView.toolProvider = [this] {
+        return m_editTool;
+    };
+    m_transportBar.onToolSelected = [this](EditTool tool) {
+        m_editTool = tool;
+    };
     m_transportBar.onMetronomeToggled = [this](bool enabled) {
         if (onMetronomeToggled) {
             onMetronomeToggled(enabled);
@@ -327,6 +333,16 @@ bool MainComponent::keyPressed(const juce::KeyPress& key) {
         return true;
     }
 
+    // Keys 1 to 6 pick the edit tool. The reference uses letters, but B and M are already the
+    // browser and the mixer here, so numbers keep every existing shortcut intact
+    for (int i = 0; i < 6; ++i) {
+        if (key == juce::KeyPress('1' + i)) {
+            m_editTool = static_cast<EditTool>(i);
+            m_transportBar.setActiveTool(m_editTool);
+            return true;
+        }
+    }
+
     if (key == juce::KeyPress('M')) {
         toggleMixer();
         return true;
@@ -387,6 +403,11 @@ bool MainComponent::keyPressed(const juce::KeyPress& key) {
 
 // Creates the pop out window if needed and hands it a fresh piano roll for the given title
 void MainComponent::openPianoRoll(std::unique_ptr<PianoRoll> roll, const juce::String& title) {
+    // The roll lives in its own window, so it reads the same shared tool the timeline uses
+    roll->toolProvider = [this] {
+        return m_editTool;
+    };
+
     if (m_pianoRollWindow == nullptr) {
         m_pianoRollWindow = std::make_unique<PianoRollWindow>([this] {
             if (m_pianoRollWindow != nullptr) {

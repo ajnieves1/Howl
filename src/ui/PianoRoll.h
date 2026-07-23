@@ -10,6 +10,7 @@
 #include "model/Pattern.h"
 #include "model/Session.h"
 #include "model/SnapGrid.h"
+#include "ui/EditTool.h"
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
@@ -67,6 +68,9 @@ public:
     // keys nudge or transpose it, Ctrl+D duplicates it
     bool keyPressed(const juce::KeyPress& key) override;
 
+    // Provides the selected edit tool, Draw when nothing is wired
+    std::function<EditTool()> toolProvider;
+
 private:
     // The full MIDI range. A narrower range silently drops notes outside it, which hid the
     // low notes of imported MIDI files entirely. The grid scrolls and the view centres on the
@@ -98,6 +102,13 @@ private:
 
     // Repaints so the playhead position stays current during playback
     void timerCallback() override;
+
+    // The selected edit tool, Draw when no provider is wired
+    EditTool currentTool() const;
+
+    // Adds one note at the snapped cell under (tick, key) unless one is already there, used by
+    // the Draw click and by every step of a Paint stroke
+    void paintNoteAt(int64_t tick, int key);
 
     // Resolves the addressed clip fresh, nullptr when it no longer resolves
     model::MidiClip* resolveClip() const;
@@ -188,6 +199,11 @@ private:
     bool m_hasDraggedBeyondThreshold = false;
 
     // Ctrl+drag on empty grid space
+    // Paint stroke state, the last cell a note was laid into so a drag does not stack them
+    bool m_painting = false;
+    int64_t m_paintLastTick = -1;
+    int m_paintLastKey = -1;
+
     bool m_marqueeActive = false;
     bool m_marqueeAdditive = false;
     juce::Point<int> m_marqueeStart;

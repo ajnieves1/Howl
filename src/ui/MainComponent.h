@@ -17,6 +17,7 @@
 #include "ui/AutomationEditor.h"
 #include "ui/BrowserResizerBar.h"
 #include "ui/ChannelRackPanel.h"
+#include "ui/EditTool.h"
 #include "ui/FileBrowserPanel.h"
 #include "ui/MixerView.h"
 #include "ui/PianoRoll.h"
@@ -270,6 +271,9 @@ private:
 
     BottomPanel m_bottomPanel = BottomPanel::None;
     CenterView m_centerView = CenterView::Arrange;
+    // The edit tool shared by the timeline and the piano roll
+    EditTool m_editTool = EditTool::Draw;
+
     bool m_browserVisible = false;
     int m_browserWidth = kDefaultBrowserWidth;
     ResizeGuide m_browserResizeGuide;

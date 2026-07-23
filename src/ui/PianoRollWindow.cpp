@@ -18,6 +18,10 @@ PianoRollWindow::PianoRollWindow(std::function<void()> onCloseRequested)
 {
     setUsingNativeTitleBar(true);
     setResizable(true, true);
+
+    // Without this the window manager drops the roll behind the main window as soon as focus
+    // moves back to it, and nothing short of reopening a clip brings it forward again
+    setAlwaysOnTop(true);
 }
 
 // Takes ownership of roll as the window content, sets the title, then shows and raises it

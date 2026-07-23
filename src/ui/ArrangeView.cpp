@@ -38,6 +38,11 @@ ArrangeView::~ArrangeView() {
     stopTimer();
 }
 
+// The selected edit tool, Draw when no provider is wired
+EditTool ArrangeView::currentTool() const {
+    return toolProvider ? toolProvider() : EditTool::Draw;
+}
+
 // Repaints so the playhead position stays current during playback
 void ArrangeView::timerCallback() {
     repaint();
@@ -601,6 +606,8 @@ void ArrangeView::mouseDown(const juce::MouseEvent& event) {
     const std::size_t trackIndex = yToTrackIndex(event.y);
     const int64_t tick = xToTick(event.x);
 
+    const EditTool tool = currentTool();
+
     DraggedClip found {};
     if (!hitTestClip(trackIndex, tick, found)) {
         if (!event.mods.isPopupMenu()) {
@@ -613,6 +620,44 @@ void ArrangeView::mouseDown(const juce::MouseEvent& event) {
 
     if (event.mods.isPopupMenu()) {
         showDeleteClipMenu(found);
+        return;
+    }
+
+    // Paint has no clip to repeat yet and slicing a clip needs a split command the model does
+    // not have. Do nothing rather than silently fall through to a move
+    if (tool == EditTool::Paint || tool == EditTool::Slice) {
+        return;
+    }
+
+    // The tool decides what a plain click on a clip does. Draw keeps every existing gesture
+    if (tool == EditTool::Delete) {
+        if (found.kind == ClipKind::Midi) {
+            m_commandStack.perform(std::make_unique<model::RemoveMidiClipCommand>(
+                m_arrangement, found.trackIndex, found.placementIndex));
+        } else {
+            m_commandStack.perform(std::make_unique<model::RemoveAudioClipCommand>(
+                m_arrangement, found.trackIndex, found.placementIndex));
+        }
+        m_selection.clear();
+        repaint();
+        return;
+    }
+
+    if (tool == EditTool::Mute) {
+        const model::TrackKind kind = found.kind == ClipKind::Midi
+            ? model::TrackKind::Midi : model::TrackKind::Audio;
+        m_commandStack.perform(std::make_unique<model::ToggleClipMuteCommand>(
+            m_arrangement, kind, found.trackIndex, found.placementIndex));
+        repaint();
+        return;
+    }
+
+    if (tool == EditTool::Select) {
+        // Select only ever changes the selection, it never starts a move
+        if (!isSelected(found.kind, found.trackIndex, found.placementIndex)) {
+            m_selection = { ClipRef { found.kind, found.trackIndex, found.placementIndex } };
+        }
+        repaint();
         return;
     }
 

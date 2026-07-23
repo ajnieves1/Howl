@@ -94,6 +94,22 @@ TransportBar::TransportBar(engine::Transport& transport, model::CommandStack& co
     m_snapCombo.setTooltip("Snap division for dragging and creating clips");
     addAndMakeVisible(m_snapCombo);
 
+    // Item ids are the enum values plus one, so the mapping stays obvious both ways
+    m_toolCombo.addItem("Draw", 1);
+    m_toolCombo.addItem("Paint", 2);
+    m_toolCombo.addItem("Delete", 3);
+    m_toolCombo.addItem("Mute", 4);
+    m_toolCombo.addItem("Slice", 5);
+    m_toolCombo.addItem("Select", 6);
+    m_toolCombo.setSelectedId(1, juce::dontSendNotification);
+    m_toolCombo.onChange = [this] {
+        if (onToolSelected) {
+            onToolSelected(static_cast<EditTool>(m_toolCombo.getSelectedId() - 1));
+        }
+    };
+    m_toolCombo.setTooltip("Edit tool, keys 1 to 6");
+    addAndMakeVisible(m_toolCombo);
+
     // A JUCE radio group keeps exactly one segment toggled at a time
     m_arrangeViewButton.setTooltip("Arrange view");
     m_sessionViewButton.setTooltip("Session view");
@@ -145,6 +161,7 @@ void TransportBar::resized() {
     m_arrangeViewButton.setBounds(bounds.removeFromRight(70));
 
     m_snapCombo.setBounds(bounds.removeFromRight(90));
+    m_toolCombo.setBounds(bounds.removeFromRight(90));
     m_mixerButton.setBounds(bounds.removeFromRight(60));
     m_redoButton.setBounds(bounds.removeFromRight(60));
     m_undoButton.setBounds(bounds.removeFromRight(60));
@@ -153,6 +170,11 @@ void TransportBar::resized() {
 // Sets the metronome toggle's shown state without firing its callback
 void TransportBar::setMetronomeEnabled(bool enabled) {
     m_metronomeButton.setToggleState(enabled, juce::dontSendNotification);
+}
+
+// Shows the given tool as selected without firing the callback
+void TransportBar::setActiveTool(EditTool tool) {
+    m_toolCombo.setSelectedId(static_cast<int>(tool) + 1, juce::dontSendNotification);
 }
 
 // Sets the count in toggle's shown state without firing its callback
