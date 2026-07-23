@@ -159,6 +159,80 @@ TEST_CASE("MidiTrackRenderer fires two placements of the same pattern independen
     REQUIRE(std::count(instrument.onKeys.begin(), instrument.onKeys.end(), 60) == 2);
 }
 
+TEST_CASE("A muted pattern placement is silent while an unmuted one beside it still plays", "[model]") {
+    const double sampleRate = 44100.0;
+    const int blockSize = 65536;
+
+    PatternBank patterns;
+    const std::size_t patternIndex = patterns.addPattern("Beat", 1);
+    patterns.pattern(patternIndex).trackClips[0].setLengthTicks(kTicksPerQuarter * 4);
+    patterns.pattern(patternIndex).trackClips[0].addNote(Note { 60, 1.0f, 0, kTicksPerQuarter });
+    patterns.addPlacement(PatternPlacement { patternIndex, 0, 0, true, 0 });
+    patterns.addPlacement(PatternPlacement { patternIndex, kTicksPerQuarter * 2, 0, false, 0 });
+
+    Track track;
+    track.name = "Kick";
+    track.kind = TrackKind::Midi;
+
+    Transport transport;
+    transport.setTempo(120.0);
+    transport.play();
+
+    ProbeInstrument instrument;
+    instrument.prepare(sampleRate, blockSize);
+
+    MidiTrackRenderer renderer(transport, track);
+    renderer.prepare(sampleRate);
+    renderer.setInstrument(&instrument);
+    renderer.setPatternSource(&patterns, 0);
+
+    std::vector<float> buffer(static_cast<std::size_t>(blockSize), 0.0f);
+    float* channels[1] = { buffer.data() };
+    AudioBlock block { channels, 1, blockSize };
+
+    const SampleCount pos = transport.advance(blockSize);
+    renderer.process(block, pos);
+
+    REQUIRE(std::count(instrument.onKeys.begin(), instrument.onKeys.end(), 60) == 1);
+}
+
+TEST_CASE("A placement's lane index never filters playback, every channel lane still fires", "[model]") {
+    const double sampleRate = 44100.0;
+    const int blockSize = 65536;
+
+    // The placement is drawn on lane 1, yet the renderer reading lane 0 must still hear it
+    PatternBank patterns;
+    const std::size_t patternIndex = patterns.addPattern("Beat", 2);
+    patterns.pattern(patternIndex).trackClips[0].setLengthTicks(kTicksPerQuarter * 4);
+    patterns.pattern(patternIndex).trackClips[0].addNote(Note { 60, 1.0f, 0, kTicksPerQuarter });
+    patterns.addPlacement(PatternPlacement { patternIndex, 0, 1, false, 0 });
+
+    Track track;
+    track.name = "Kick";
+    track.kind = TrackKind::Midi;
+
+    Transport transport;
+    transport.setTempo(120.0);
+    transport.play();
+
+    ProbeInstrument instrument;
+    instrument.prepare(sampleRate, blockSize);
+
+    MidiTrackRenderer renderer(transport, track);
+    renderer.prepare(sampleRate);
+    renderer.setInstrument(&instrument);
+    renderer.setPatternSource(&patterns, 0);
+
+    std::vector<float> buffer(static_cast<std::size_t>(blockSize), 0.0f);
+    float* channels[1] = { buffer.data() };
+    AudioBlock block { channels, 1, blockSize };
+
+    const SampleCount pos = transport.advance(blockSize);
+    renderer.process(block, pos);
+
+    REQUIRE(std::find(instrument.onKeys.begin(), instrument.onKeys.end(), 60) != instrument.onKeys.end());
+}
+
 TEST_CASE("Editing a pattern between passes changes the next render, proving live linkage", "[model]") {
     const double sampleRate = 44100.0;
     const int blockSize = 65536;

@@ -76,7 +76,7 @@ void MidiTrackRenderer::collectWindow(SampleCount windowStart, SampleCount windo
 
     if (m_patternBank != nullptr) {
         for (const auto& placement : m_patternBank->placements()) {
-            if (placement.patternIndex >= m_patternBank->numPatterns()) {
+            if (placement.muted || placement.patternIndex >= m_patternBank->numPatterns()) {
                 continue;
             }
 

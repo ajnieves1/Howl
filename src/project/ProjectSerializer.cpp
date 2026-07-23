@@ -149,6 +149,8 @@ juce::var patternPlacementToVar(const model::PatternPlacement& placement) {
     auto* obj = new juce::DynamicObject();
     obj->setProperty("pattern", static_cast<int>(placement.patternIndex));
     obj->setProperty("startTick", static_cast<juce::int64>(placement.startTick));
+    obj->setProperty("laneIndex", static_cast<int>(placement.laneIndex));
+    obj->setProperty("muted", placement.muted);
     return juce::var(obj);
 }
 
@@ -627,7 +629,14 @@ bool ProjectSerializer::load(const juce::String& json, model::Arrangement& arran
         for (const auto& placementVar : *patternPlacementsArray) {
             const auto patternIndex = static_cast<std::size_t>(static_cast<int>(placementVar.getProperty("pattern", 0)));
             const int64_t startTick = static_cast<int64_t>(static_cast<juce::int64>(placementVar.getProperty("startTick", 0)));
-            patterns.addPlacement(model::PatternPlacement { patternIndex, startTick });
+
+            // A project written before pattern clips moved onto the lanes carries neither
+            // field, so it loads onto the first lane and unmuted, which is where it drew before
+            const auto laneIndex = static_cast<std::size_t>(static_cast<int>(placementVar.getProperty("laneIndex", 0)));
+            const bool muted = placementVar.getProperty("muted", false);
+
+            // The id is runtime identity only, never stored, so the bank stamps a fresh one here
+            patterns.addPlacement(model::PatternPlacement { patternIndex, startTick, laneIndex, muted, 0 });
         }
     }
 

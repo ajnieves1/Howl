@@ -19,10 +19,15 @@ struct Pattern {
     std::vector<MidiClip> trackClips;
 };
 
-// A pattern placed on the arrange timeline, plays once from startTick
+// A pattern placed on the arrange timeline, plays every channel lane once from startTick
 struct PatternPlacement {
     std::size_t patternIndex;
     int64_t startTick;
+    // Which track lane this clip is drawn on, display only, it never filters playback
+    std::size_t laneIndex = 0;
+    bool muted = false;
+    // Stable identity assigned by PatternBank, never reused within one bank
+    uint64_t id = 0;
 };
 
 // Owns every pattern and their timeline placements
@@ -55,8 +60,11 @@ public:
     // Returns all placements
     const std::vector<PatternPlacement>& placements() const;
 
-    // Appends a placement, returns its index
+    // Appends a placement with a freshly stamped id, returns its index
     std::size_t addPlacement(const PatternPlacement& placement);
+
+    // Inserts a placement at index keeping its id, undo support
+    void insertPlacementAt(std::size_t index, const PatternPlacement& placement);
 
     // Removes and returns the placement at index
     PatternPlacement removePlacementAt(std::size_t index);
@@ -64,9 +72,14 @@ public:
     // Replaces the placement at index, for moves
     void replacePlacementAt(std::size_t index, const PatternPlacement& placement);
 
+    // Fills outIndex with the placement carrying id and returns true, false when none does
+    bool indexOfPlacement(uint64_t id, std::size_t& outIndex) const;
+
 private:
     std::vector<Pattern> m_patterns;
     std::vector<PatternPlacement> m_placements;
+    // Stamped onto the next added placement, starts at 1 so 0 reads as unassigned
+    uint64_t m_nextPlacementId = 1;
 };
 
 } // namespace howl::model

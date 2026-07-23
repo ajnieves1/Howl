@@ -821,33 +821,58 @@ void RemovePatternPlacementCommand::execute() {
     m_removedPlacement = m_patterns.removePlacementAt(m_placementIndex);
 }
 
-// Re adds the removed placement at its original index
+// Re adds the removed placement at its original index, keeping its id
 void RemovePatternPlacementCommand::undo() {
-    m_patterns.addPlacement(m_removedPlacement);
+    m_patterns.insertPlacementAt(m_placementIndex, m_removedPlacement);
 }
 
-// Stores the pattern bank, placement index, and both tick positions
+// Stores the pattern bank, placement index, and both tick and lane positions
 MovePatternPlacementCommand::MovePatternPlacementCommand(PatternBank& patterns, std::size_t placementIndex,
-                                                          int64_t oldTick, int64_t newTick)
+                                                          int64_t oldTick, std::size_t oldLaneIndex,
+                                                          int64_t newTick, std::size_t newLaneIndex)
     : m_patterns(patterns)
     , m_placementIndex(placementIndex)
     , m_oldTick(oldTick)
+    , m_oldLaneIndex(oldLaneIndex)
     , m_newTick(newTick)
+    , m_newLaneIndex(newLaneIndex)
 {
 }
 
-// Replaces the placement's startTick with newTick
+// Moves the placement to the new tick and lane
 void MovePatternPlacementCommand::execute() {
     PatternPlacement placement = m_patterns.placements()[m_placementIndex];
     placement.startTick = m_newTick;
+    placement.laneIndex = m_newLaneIndex;
     m_patterns.replacePlacementAt(m_placementIndex, placement);
 }
 
-// Replaces the placement's startTick with oldTick
+// Moves the placement back to the old tick and lane
 void MovePatternPlacementCommand::undo() {
     PatternPlacement placement = m_patterns.placements()[m_placementIndex];
     placement.startTick = m_oldTick;
+    placement.laneIndex = m_oldLaneIndex;
     m_patterns.replacePlacementAt(m_placementIndex, placement);
+}
+
+// Stores the pattern bank and the placement index to flip on execute()
+TogglePatternPlacementMuteCommand::TogglePatternPlacementMuteCommand(PatternBank& patterns,
+                                                                      std::size_t placementIndex)
+    : m_patterns(patterns)
+    , m_placementIndex(placementIndex)
+{
+}
+
+// Flips the placement's muted flag
+void TogglePatternPlacementMuteCommand::execute() {
+    PatternPlacement placement = m_patterns.placements()[m_placementIndex];
+    placement.muted = !placement.muted;
+    m_patterns.replacePlacementAt(m_placementIndex, placement);
+}
+
+// Flips the placement's muted flag back
+void TogglePatternPlacementMuteCommand::undo() {
+    execute();
 }
 
 // Appends a child, call before the composite is performed
